@@ -37,6 +37,10 @@ void ClientGC::HandleEvent(GCEvent type, uint64_t id, const std::vector<uint8_t>
         HandleSOCacheRequest();
         break;
 
+    case GCEvent::LocalPlayerRoundMVP:
+        LocalPlayerRoundMVP();
+        break;
+
     default:
         assert(false);
         break;
@@ -431,7 +435,7 @@ void ClientGC::IncrementKillCountAttribute(GCMessageRead &messageRead)
         return;
     }
 
-    assert(message.event_type() == 0);
+    assert(message.event_type() == 0 || message.event_type() == 1);
 
     CMsgSOSingleObject update;
     if (m_inventory.IncrementKillCountAttribute(message.item_id(), message.amount(), update))
@@ -442,6 +446,24 @@ void ClientGC::IncrementKillCountAttribute(GCMessageRead &messageRead)
     {
         assert(false);
     }
+}
+
+void ClientGC::LocalPlayerRoundMVP()
+{
+    uint64_t itemId = m_inventory.EquippedMusicKitItemId(true);
+    if (!itemId)
+    {
+        return;
+    }
+
+    CMsgSOSingleObject update;
+    if (!m_inventory.IncrementKillCountAttribute(itemId, 1, update))
+    {
+        Platform::Print("LocalPlayerRoundMVP: failed to increment music kit %llu\n", itemId);
+        return;
+    }
+
+    SendMessageToGame(true, k_ESOMsg_Update, update);
 }
 
 void ClientGC::ApplySticker(GCMessageRead &messageRead)

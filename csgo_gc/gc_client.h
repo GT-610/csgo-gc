@@ -29,6 +29,7 @@ private:
     void ClientRequestJoinServerData(GCMessageRead &messageRead);
     void SetItemPositions(GCMessageRead &messageRead);
     void IncrementKillCountAttribute(GCMessageRead &messageRead);
+    void LocalPlayerRoundMVP();
     void ApplySticker(GCMessageRead &messageRead);
     void StoreGetUserData(GCMessageRead &messageRead);
     void StorePurchaseInit(GCMessageRead &messageRead);
