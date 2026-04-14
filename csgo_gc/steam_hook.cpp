@@ -213,6 +213,7 @@ static IVEngineClient *s_engineClient;
 
 static void HookCreate(const char *name, void *target, void *hook, void **bridge);
 
+#ifdef _WIN32
 // client.dll refreshes the MVP music kit block again during the review path,
 // but that secondary update drops musickitmvps back to zero. Cache the latest
 // local value from round_mvp so the final HUD pass can keep the StatTrak line.
@@ -385,6 +386,15 @@ static void UpdateRoundMVPListener()
         Platform::Print("Unregistered round_mvp listener\n");
     }
 }
+#else
+static void InstallClientHUDHooks()
+{
+}
+
+static void UpdateRoundMVPListener()
+{
+}
+#endif
 
 template<size_t N>
 inline bool InterfaceMatches(const char *name, const char (&compare)[N])
