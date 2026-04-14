@@ -243,6 +243,10 @@ public:
             return;
         }
 
+        Platform::Print("Listener saw local round_mvp: userid=%d reason=%d\n",
+            playerInfo.userId,
+            event->GetInt("reason"));
+
         s_clientGC->m_gc.PostToGC(GCEvent::LocalPlayerRoundMVP, 0, nullptr, 0);
     }
 
@@ -283,6 +287,8 @@ static void UpdateRoundMVPListener()
 {
     InitializeClientGameInterfaces();
 
+    // Keep the listener lifecycle tied to the local ClientGC so reconnects do not
+    // leave stale listeners behind in engine.dll's event manager.
     if (s_clientGC && s_gameEventManager && !s_roundMVPListenerRegistered)
     {
         if (s_gameEventManager->AddListener(&s_roundMVPEventListener, "round_mvp", false))

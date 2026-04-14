@@ -986,24 +986,27 @@ bool Inventory::IncrementKillCountAttribute(uint64_t itemId, uint32_t amount, CM
     return false;
 }
 
+static bool IsEquippedMusicKitItem(const CSOEconItem &item)
+{
+    // Music kits live in the shared no-team loadout.
+    for (const CSOEconItemEquipped &equipped : item.equipped_state())
+    {
+        if (equipped.new_class() == 0
+            && equipped.new_slot() == ItemSchema::LoadoutSlotMusicKit)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 uint64_t Inventory::EquippedMusicKitItemId(bool statTrakOnly) const
 {
     for (const auto &pair : m_items)
     {
         const CSOEconItem &item = pair.second;
-        bool isEquippedMusicKit = false;
-
-        for (const CSOEconItemEquipped &equipped : item.equipped_state())
-        {
-            if (equipped.new_class() == 0
-                && equipped.new_slot() == ItemSchema::LoadoutSlotMusicKit)
-            {
-                isEquippedMusicKit = true;
-                break;
-            }
-        }
-
-        if (!isEquippedMusicKit)
+        if (!IsEquippedMusicKitItem(item))
         {
             continue;
         }

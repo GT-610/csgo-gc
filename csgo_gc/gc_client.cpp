@@ -450,9 +450,12 @@ void ClientGC::IncrementKillCountAttribute(GCMessageRead &messageRead)
 
 void ClientGC::LocalPlayerRoundMVP()
 {
+    // Music kit StatTrak progress is not driven by the retired official GC path,
+    // so mirror the increment locally when the client observes a local round_mvp.
     uint64_t itemId = m_inventory.EquippedMusicKitItemId(true);
     if (!itemId)
     {
+        Platform::Print("LocalPlayerRoundMVP: local MVP without equipped StatTrak music kit\n");
         return;
     }
 
@@ -463,6 +466,7 @@ void ClientGC::LocalPlayerRoundMVP()
         return;
     }
 
+    Platform::Print("LocalPlayerRoundMVP: incremented music kit %llu\n", itemId);
     SendMessageToGame(true, k_ESOMsg_Update, update);
 }
 
