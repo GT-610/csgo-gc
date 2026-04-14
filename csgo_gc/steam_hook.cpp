@@ -211,6 +211,59 @@ static CreateInterfaceFn s_engineFactory;
 static IGameEventManager2 *s_gameEventManager;
 static IVEngineClient *s_engineClient;
 
+static void HookCreate(const char *name, void *target, void *hook, void **bridge);
+
+// client.dll refreshes the MVP music kit block again during the review path,
+// but that secondary update drops musickitmvps back to zero. Cache the latest
+// local value from round_mvp so the final HUD pass can keep the StatTrak line.
+struct PendingMusicKitHUDReplay
+{
+    int musickitmvps{};
+    bool valid{};
+};
+
+static PendingMusicKitHUDReplay s_pendingMusicKitHUDReplay;
+
+using ClientMusicKitHUDFn = void(__thiscall *)(void *thisptr, int param2, int param3, void *param4, int musickitmvps);
+static ClientMusicKitHUDFn Og_ClientMusicKitHUDUpdate;
+
+static bool s_clientHUDHooksInstalled = false;
+
+constexpr uintptr_t ClientMusicKitHUDUpdateRva = 0x00561010;
+
+static void __fastcall Hk_ClientMusicKitHUDUpdate(void *thisptr, void *, int param2, int param3, void *param4, int musickitmvps)
+{
+    int patchedMusicKitMVPs = musickitmvps;
+    if (musickitmvps == 0 && s_pendingMusicKitHUDReplay.valid && s_pendingMusicKitHUDReplay.musickitmvps > 0)
+    {
+        patchedMusicKitMVPs = s_pendingMusicKitHUDReplay.musickitmvps;
+        Platform::Print("ClientMusicKitHUDUpdate: supplied cached musickitmvps=%d\n", patchedMusicKitMVPs);
+        s_pendingMusicKitHUDReplay.valid = false;
+    }
+
+    Og_ClientMusicKitHUDUpdate(thisptr, param2, param3, param4, patchedMusicKitMVPs);
+}
+
+static void InstallClientHUDHooks()
+{
+    if (s_clientHUDHooksInstalled)
+    {
+        return;
+    }
+
+    HMODULE clientModule = GetModuleHandleA("client.dll");
+    if (!clientModule)
+    {
+        return;
+    }
+
+    void *target = reinterpret_cast<uint8_t *>(clientModule) + ClientMusicKitHUDUpdateRva;
+    HookCreate("ClientMusicKitHUDUpdate", target, reinterpret_cast<void *>(Hk_ClientMusicKitHUDUpdate),
+        reinterpret_cast<void **>(&Og_ClientMusicKitHUDUpdate));
+    s_clientHUDHooksInstalled = true;
+    Platform::Print("Installed client.dll HUD hook at RVA 0x%08lx\n", static_cast<unsigned long>(ClientMusicKitHUDUpdateRva));
+}
+
 class RoundMVPEventListener final : public IGameEventListener2
 {
 public:
@@ -223,6 +276,10 @@ public:
 
         if (strcmp(event->GetName(), "round_mvp"))
         {
+            if (!strcmp(event->GetName(), "round_start"))
+            {
+                s_pendingMusicKitHUDReplay.valid = false;
+            }
             return;
         }
 
@@ -243,9 +300,23 @@ public:
             return;
         }
 
-        Platform::Print("Listener saw local round_mvp: userid=%d reason=%d\n",
+        int musickitmvps = event->GetInt("musickitmvps");
+        if (musickitmvps <= 0)
+        {
+            musickitmvps = static_cast<int>(s_clientGC->m_gc.LocalPlayerMusicKitMVPsForHUD());
+            if (musickitmvps > 0)
+            {
+                Platform::Print("Listener recovered local musickitmvps from inventory: %d\n", musickitmvps);
+            }
+        }
+
+        s_pendingMusicKitHUDReplay.musickitmvps = musickitmvps;
+        s_pendingMusicKitHUDReplay.valid = (s_pendingMusicKitHUDReplay.musickitmvps > 0);
+
+        Platform::Print("Listener saw local round_mvp: userid=%d reason=%d musickitmvps=%d\n",
             playerInfo.userId,
-            event->GetInt("reason"));
+            event->GetInt("reason"),
+            s_pendingMusicKitHUDReplay.musickitmvps);
 
         s_clientGC->m_gc.PostToGC(GCEvent::LocalPlayerRoundMVP, 0, nullptr, 0);
     }
@@ -291,14 +362,20 @@ static void UpdateRoundMVPListener()
     // leave stale listeners behind in engine.dll's event manager.
     if (s_clientGC && s_gameEventManager && !s_roundMVPListenerRegistered)
     {
-        if (s_gameEventManager->AddListener(&s_roundMVPEventListener, "round_mvp", false))
+        bool roundMVPRegistered = s_gameEventManager->AddListener(&s_roundMVPEventListener, "round_mvp", false);
+        bool roundStartRegistered = s_gameEventManager->AddListener(&s_roundMVPEventListener, "round_start", false);
+        if (roundMVPRegistered && roundStartRegistered)
         {
             s_roundMVPListenerRegistered = true;
-            Platform::Print("Registered round_mvp listener\n");
+            Platform::Print("Registered round_mvp/round_start listeners\n");
         }
         else
         {
-            Platform::Print("Failed to register round_mvp listener\n");
+            if (roundMVPRegistered || roundStartRegistered)
+            {
+                s_gameEventManager->RemoveListener(&s_roundMVPEventListener);
+            }
+            Platform::Print("Failed to register round_mvp/round_start listeners\n");
         }
     }
     else if (!s_clientGC && s_gameEventManager && s_roundMVPListenerRegistered)
@@ -2044,6 +2121,7 @@ static void Hk_SteamAPI_RunCallbacks()
     Og_SteamAPI_RunCallbacks();
 
     UpdateRoundMVPListener();
+    InstallClientHUDHooks();
 
     if (s_clientGC)
     {

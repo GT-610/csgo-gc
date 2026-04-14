@@ -10,6 +10,8 @@ public:
     ClientGC(uint64_t steamId);
     ~ClientGC();
 
+    uint32_t LocalPlayerMusicKitMVPsForHUD() const;
+
 private:
     void HandleEvent(GCEvent type, uint64_t id, const std::vector<uint8_t> &buffer) override;
 

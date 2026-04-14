@@ -21,6 +21,13 @@ ClientGC::~ClientGC()
     Platform::Print("ClientGC destroyed\n");
 }
 
+uint32_t ClientGC::LocalPlayerMusicKitMVPsForHUD() const
+{
+    // round_mvp is observed before our local inventory mirror increments,
+    // so expose the post-MVP value that the HUD is expected to show.
+    return m_inventory.EquippedMusicKitMVPCount(true);
+}
+
 void ClientGC::HandleEvent(GCEvent type, uint64_t id, const std::vector<uint8_t> &buffer)
 {
     switch (type)
