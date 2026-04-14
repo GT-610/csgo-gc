@@ -285,13 +285,7 @@ static void InitializeClientGameInterfaces()
         return;
     }
 
-    HMODULE engineModule = GetModuleHandleA("engine.dll");
-    if (!engineModule)
-    {
-        return;
-    }
-
-    s_engineFactory = reinterpret_cast<CreateInterfaceFn>(GetProcAddress(engineModule, "CreateInterface"));
+    s_engineFactory = reinterpret_cast<CreateInterfaceFn>(Platform::ModuleFactory("engine"));
     if (!s_engineFactory)
     {
         Platform::Print("engine CreateInterface not found\n");
