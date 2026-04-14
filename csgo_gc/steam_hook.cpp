@@ -162,6 +162,13 @@ public:
     virtual bool IsEmpty(const char *keyName = nullptr) const = 0;
     virtual bool GetBool(const char *keyName = nullptr, bool defaultValue = false) const = 0;
     virtual int GetInt(const char *keyName = nullptr, int defaultValue = 0) const = 0;
+    virtual uint64_t GetUint64(const char *keyName = nullptr, uint64_t defaultValue = 0) const = 0;
+    virtual float GetFloat(const char *keyName = nullptr, float defaultValue = 0.0f) const = 0;
+    virtual const char *GetString(const char *keyName = nullptr, const char *defaultValue = "") const = 0;
+    virtual const wchar_t *GetWString(const char *keyName = nullptr, const wchar_t *defaultValue = L"") const = 0;
+    virtual const void *GetPtr(const char *keyName = nullptr) const = 0;
+    virtual void SetBool(const char *keyName, bool value) = 0;
+    virtual void SetInt(const char *keyName, int value) = 0;
 };
 
 class IGameEventListener2
@@ -243,9 +250,21 @@ public:
             return;
         }
 
-        Platform::Print("Listener saw local round_mvp: userid=%d reason=%d\n",
+        int musickitmvps = event->GetInt("musickitmvps");
+        if (musickitmvps <= 0)
+        {
+            musickitmvps = static_cast<int>(s_clientGC->m_gc.LocalPlayerMusicKitMVPsForRoundMVPEvent());
+            if (musickitmvps > 0)
+            {
+                event->SetInt("musickitmvps", musickitmvps);
+                Platform::Print("Listener injected local musickitmvps into round_mvp: %d\n", musickitmvps);
+            }
+        }
+
+        Platform::Print("Listener saw local round_mvp: userid=%d reason=%d musickitmvps=%d\n",
             playerInfo.userId,
-            event->GetInt("reason"));
+            event->GetInt("reason"),
+            musickitmvps);
 
         s_clientGC->m_gc.PostToGC(GCEvent::LocalPlayerRoundMVP, 0, nullptr, 0);
     }
