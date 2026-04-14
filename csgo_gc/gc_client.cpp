@@ -82,8 +82,14 @@ void ClientGC::SyncLocalPlayerMusicKitState(int userId)
         return;
     }
 
-    m_localUserId.store(userId);
-    SendMusicKitMVPStateToGameServer();
+    int32_t previousUserId = m_localUserId.exchange(userId);
+    if (previousUserId != userId)
+    {
+        Platform::Print("ClientGC: local userid changed from %d to %d, syncing music kit state\n",
+            previousUserId,
+            userId);
+        SendMusicKitMVPStateToGameServer();
+    }
 }
 
 void ClientGC::HandleEvent(GCEvent type, uint64_t id, const std::vector<uint8_t> &buffer)
