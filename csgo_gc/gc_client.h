@@ -19,6 +19,7 @@ private:
     void HandleMessage(uint32_t type, const void *data, uint32_t size);
     void HandleNetMessage(const void *data, uint32_t size);
     void HandleSOCacheRequest();
+    void RefreshCachedMusicKitMVPs();
 
     // send to the local game and the game server we're connected to (if we're connected)
     void SendMessageToGame(bool sendToGameServer, uint32_t type,
@@ -54,6 +55,7 @@ private:
     const uint64_t m_steamId;
 
     Inventory m_inventory;
+    std::atomic<int32_t> m_cachedMusicKitMVPs{ -1 };
 
     // microtransactions, we only have one going at a time
     uint64_t m_transactionId{};

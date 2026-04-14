@@ -10,6 +10,13 @@ ClientGC::ClientGC(uint64_t steamId)
     // also called from ServerGC's constructor
     Graffiti::Initialize();
 
+    // The inventory is constructed on this thread before the worker starts, so
+    // seed the HUD cache here and keep future refreshes on the worker thread.
+    if (m_inventory.EquippedMusicKitItemId(true))
+    {
+        m_cachedMusicKitMVPs.store(static_cast<int32_t>(m_inventory.EquippedMusicKitMVPCount(false)));
+    }
+
     StartThread();
 
     Platform::Print("ClientGC spawned for user %llu\n", steamId);
@@ -24,8 +31,20 @@ ClientGC::~ClientGC()
 uint32_t ClientGC::LocalPlayerMusicKitMVPsForHUD() const
 {
     // round_mvp is observed before our local inventory mirror increments,
-    // so expose the post-MVP value that the HUD is expected to show.
-    return m_inventory.EquippedMusicKitMVPCount(true);
+    // so expose the post-MVP value from the worker-owned inventory cache.
+    int32_t cachedMVPs = m_cachedMusicKitMVPs.load();
+    return cachedMVPs >= 0 ? static_cast<uint32_t>(cachedMVPs + 1) : 0;
+}
+
+void ClientGC::RefreshCachedMusicKitMVPs()
+{
+    if (!m_inventory.EquippedMusicKitItemId(true))
+    {
+        m_cachedMusicKitMVPs.store(-1);
+        return;
+    }
+
+    m_cachedMusicKitMVPs.store(static_cast<int32_t>(m_inventory.EquippedMusicKitMVPCount(false)));
 }
 
 void ClientGC::HandleEvent(GCEvent type, uint64_t id, const std::vector<uint8_t> &buffer)
@@ -326,6 +345,8 @@ void ClientGC::AdjustItemEquippedState(GCMessageRead &messageRead)
         return;
     }
 
+    RefreshCachedMusicKitMVPs();
+
     // let the gameserver know, too
     SendMessageToGame(true, k_ESOMsg_UpdateMultiple, update);
 }
@@ -447,6 +468,7 @@ void ClientGC::IncrementKillCountAttribute(GCMessageRead &messageRead)
     CMsgSOSingleObject update;
     if (m_inventory.IncrementKillCountAttribute(message.item_id(), message.amount(), update))
     {
+        RefreshCachedMusicKitMVPs();
         SendMessageToGame(true, k_ESOMsg_Update, update);
     }
     else
@@ -473,6 +495,7 @@ void ClientGC::LocalPlayerRoundMVP()
         return;
     }
 
+    RefreshCachedMusicKitMVPs();
     Platform::Print("LocalPlayerRoundMVP: incremented music kit %llu\n", itemId);
     SendMessageToGame(true, k_ESOMsg_Update, update);
 }
