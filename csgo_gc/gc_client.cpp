@@ -196,6 +196,10 @@ void ClientGC::HandleMessage(uint32_t type, const void *data, uint32_t size)
             ProcessStorageWithdraw(messageRead);
             break;
 
+        case k_EMsgGCStatTrakSwap:
+            HandleCounterSwapRequest(messageRead);
+            break;
+
         default:
             Platform::Print("ClientGC::HandleMessage: unhandled protobuf message %s\n",
                 MessageName(messageRead.TypeUnmasked()));
@@ -934,4 +938,39 @@ void ClientGC::ProcessStorageWithdraw(GCMessageRead &messageRead)
     
     auto tx = m_inventory.WithdrawItemFromStorage(msg.casket_item_id(), msg.item_item_id());
     DispatchStorageResult(tx);
+}
+
+void ClientGC::BroadcastSwapOutcome(const Inventory::CounterSwapResult &outcome)
+{
+    using Status = Inventory::CounterSwapStatus;
+    
+    if (outcome.status != Status::Completed)
+        return;
+    
+    if (outcome.toolRemoval.has_type_id())
+        SendMessageToGame(true, k_ESOMsg_Destroy, outcome.toolRemoval);
+    
+    SendMessageToGame(true, k_ESOMsg_Update, outcome.weaponAUpdate);
+    SendMessageToGame(true, k_ESOMsg_Update, outcome.weaponBUpdate);
+    
+    CMsgGCItemCustomizationNotification notification;
+    notification.set_request(k_EGCItemCustomizationNotification_StatTrakSwap);
+    notification.add_item_id(outcome.weaponAId);
+    notification.add_item_id(outcome.weaponBId);
+    SendMessageToGame(false, k_EMsgGCItemCustomizationNotification, notification);
+}
+
+void ClientGC::HandleCounterSwapRequest(GCMessageRead &messageRead)
+{
+    CMsgApplyStatTrakSwap request;
+    if (!messageRead.ReadProtobuf(request))
+        return;
+
+    auto outcome = m_inventory.PerformCounterSwap(
+        request.tool_item_id(),
+        request.item_1_item_id(),
+        request.item_2_item_id()
+    );
+    
+    BroadcastSwapOutcome(outcome);
 }
