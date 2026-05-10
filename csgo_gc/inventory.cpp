@@ -1721,7 +1721,7 @@ bool Inventory::TradeUp(const std::vector<uint64_t> &inputItemIds,
         return false;
     }
 
-    uint32_t roll = m_random.Integer<uint32_t>(0, 9);
+    uint32_t roll = m_random.Integer<uint32_t>(0, static_cast<uint32_t>(weightedCollections.size() - 1));
     const std::string &selectedCollection = weightedCollections[roll];
     Platform::Print("RNG roll: %u, selected collection %s (%s)\n", roll, selectedCollection.c_str(),
         GetCollectionName(m_itemSchema, selectedCollection).c_str());
@@ -1821,11 +1821,6 @@ bool Inventory::TradeUp(const std::vector<uint64_t> &inputItemIds,
 
     notification.add_item_id(outputItem.id());
     notification.set_request(k_EGCItemCustomizationNotification_UnlockCrate);
-
-    if (outCraftedItem)
-    {
-        *outCraftedItem = &outputItem;
-    }
 
     if (outCraftedItem)
     {
