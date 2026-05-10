@@ -4,6 +4,48 @@
 #include "keyvalue.h"
 #include "networking_shared.h"
 
+static bool GetItemPaintKitDefIndex(const CSOEconItem &item, const ItemSchema &schema, uint32_t &paintKitDefIndex)
+{
+    for (const CSOEconItemAttribute &attr : item.attribute())
+    {
+        if (attr.def_index() == ItemSchema::AttributeTexturePrefab)
+        {
+            paintKitDefIndex = schema.AttributeUint32(&attr);
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static std::string GetItemCollectionId(const CSOEconItem &item, const ItemSchema &schema)
+{
+    uint32_t paintKitDefIndex = 0;
+    if (!GetItemPaintKitDefIndex(item, schema, paintKitDefIndex))
+    {
+        return {};
+    }
+
+    std::vector<std::string> collections;
+    if (!schema.GetCollectionsForPaintedItem(item.def_index(), paintKitDefIndex, collections))
+    {
+        return {};
+    }
+
+    std::sort(collections.begin(), collections.end());
+    return collections.front();
+}
+
+static std::string GetCollectionName(const ItemSchema &schema, std::string_view collectionId)
+{
+    if (collectionId.empty())
+    {
+        return "Unknown";
+    }
+
+    return schema.GetCollectionDisplayName(collectionId);
+}
+
 ClientGC::ClientGC(uint64_t steamId)
     : m_steamId{ steamId }
     , m_inventory{ steamId }
@@ -184,6 +226,22 @@ void ClientGC::HandleMessage(uint32_t type, const void *data, uint32_t size)
             StorePurchaseFinalize(messageRead);
             break;
 
+        case k_EMsgGCCasketItemLoadContents:
+            ProcessStorageInspect(messageRead);
+            break;
+
+        case k_EMsgGCCasketItemAdd:
+            ProcessStorageDeposit(messageRead);
+            break;
+
+        case k_EMsgGCCasketItemExtract:
+            ProcessStorageWithdraw(messageRead);
+            break;
+
+        case k_EMsgGCStatTrakSwap:
+            HandleCounterSwapRequest(messageRead);
+            break;
+
         default:
             Platform::Print("ClientGC::HandleMessage: unhandled protobuf message %s\n",
                 MessageName(messageRead.TypeUnmasked()));
@@ -200,6 +258,10 @@ void ClientGC::HandleMessage(uint32_t type, const void *data, uint32_t size)
 
         case k_EMsgGCUnlockCrate:
             UnlockCrate(messageRead);
+            break;
+
+        case k_EMsgGCCraft:
+            Craft(messageRead);
             break;
 
         case k_EMsgGCNameItem:
@@ -831,6 +893,109 @@ void ClientGC::NameBaseItem(GCMessageRead &messageRead)
     }
 }
 
+void ClientGC::Craft(GCMessageRead &messageRead)
+{
+    // Trade-up contract message format:
+    // int16_t recipe (-2 for trade-up)
+    // int16_t itemCount (should be 10)
+    // uint64_t itemIds[itemCount]
+    
+    int16_t recipe = static_cast<int16_t>(messageRead.ReadUint16());
+    int16_t itemCount = static_cast<int16_t>(messageRead.ReadUint16());
+    
+    if (!messageRead.IsValid())
+    {
+        Platform::Print("Parsing CMsgGCCraft header failed, ignoring\n");
+        return;
+    }
+    
+    Platform::Print("TRADE-UP CONTRACT: recipe=%d, itemCount=%d\n", recipe, itemCount);
+
+    // Trade-up recipes are -2 and 12 (remove restriction on 12)
+    if (recipe != -2 && recipe != 12)
+    {
+        Platform::Print("Unsupported craft recipe %d, ignoring\n", recipe);
+        return;
+    }
+    
+    // Read all item IDs
+    std::vector<uint64_t> inputItemIds;
+    inputItemIds.reserve(itemCount);
+
+    for (int i = 0; i < itemCount; i++)
+    {
+        uint64_t itemId = messageRead.ReadUint64();
+        if (!messageRead.IsValid())
+        {
+            Platform::Print("Parsing CMsgGCCraft item %d failed, ignoring\n", i);
+            return;
+
+        }
+        inputItemIds.push_back(itemId);
+    }
+
+    Platform::Print("Input items:\n");
+    for (uint64_t itemId : inputItemIds)
+    {
+        const CSOEconItem* item = m_inventory.GetItem(itemId);
+        if (item)
+        {
+            std::string collectionId = GetItemCollectionId(*item, m_inventory.GetItemSchema());
+            Platform::Print("  Item %llu: def_index %u, rarity %u, quality %u, collection %s (%s)\n",
+                itemId, item->def_index(), item->rarity(), item->quality(), collectionId.c_str(),
+                GetCollectionName(m_inventory.GetItemSchema(), collectionId).c_str());
+        }
+        else
+        {
+            Platform::Print("  Item %llu: not found in inventory\n", itemId);
+        }
+    }
+
+    std::vector<CMsgSOSingleObject> destroyItems;
+    CMsgSOSingleObject newItem;
+    CMsgGCItemCustomizationNotification notification;
+    CSOEconItem *craftedItem = nullptr;
+    
+    if (m_inventory.TradeUp(inputItemIds, destroyItems, newItem, notification, &craftedItem))
+    {
+        // Destroy all input items
+        for (auto &destroy : destroyItems)
+        {
+            SendMessageToGame(true, k_ESOMsg_Destroy, destroy);
+        }
+        
+        // Create the new item
+        SendMessageToGame(true, k_ESOMsg_Create, newItem);
+        
+        // Send notification
+        SendMessageToGame(false, k_EMsgGCItemCustomizationNotification, notification);
+
+        if (craftedItem)
+        {
+            const ItemInfo *itemInfo = m_inventory.GetItemSchema().ItemInfoByDefIndex(craftedItem->def_index());
+            std::string itemName = itemInfo ? itemInfo->m_name : "Unknown Item";
+
+            uint32_t accountId = m_steamId & 0xffffffff;
+            std::string chatMessage = "Player " + std::to_string(accountId);
+            chatMessage += " has fulfilled a contract and received: ";
+            chatMessage += itemName;
+
+            CMsgGCCStrike15_v2_GC2ClientTextMsg textMsg;
+            textMsg.set_id(0);
+            textMsg.set_type(0);
+            textMsg.set_payload(chatMessage);
+
+            SendMessageToGame(true, k_EMsgGCCStrike15_v2_GC2ClientTextMsg, textMsg);
+        }
+        
+        Platform::Print("Trade-up completed successfully!\n");
+    }
+    else
+    {
+        Platform::Print("Trade-up failed: input validation failed\n");
+    }
+}
+
 void ClientGC::RemoveItemName(GCMessageRead &messageRead)
 {
     uint64_t itemId = messageRead.ReadUint64();
@@ -860,4 +1025,101 @@ void ClientGC::RemoveItemName(GCMessageRead &messageRead)
     {
         assert(false);
     }
+}
+
+void ClientGC::DispatchStorageResult(const Inventory::StorageTransaction &tx)
+{
+    using SR = Inventory::StorageResult;
+    
+    switch (tx.outcome)
+    {
+    case SR::Success:
+    case SR::CapacityExceeded:
+        {
+            CMsgGCItemCustomizationNotification notice;
+            notice.set_request(tx.notificationType);
+            notice.add_item_id(tx.affectedContainerId);
+            
+            if (tx.Succeeded())
+            {
+                SendMessageToGame(false, k_ESOMsg_Update, tx.itemData);
+                SendMessageToGame(false, k_ESOMsg_Update, tx.containerData);
+            }
+            SendMessageToGame(false, k_EMsgGCItemCustomizationNotification, notice);
+        }
+        break;
+        
+    case SR::ContainerNotFound:
+    case SR::ItemNotFound:
+    case SR::InvalidContainerType:
+    case SR::InternalError:
+        break;
+    }
+}
+
+void ClientGC::ProcessStorageInspect(GCMessageRead &messageRead)
+{
+    CMsgCasketItem msg;
+    if (!messageRead.ReadProtobuf(msg))
+        return;
+
+    CMsgGCItemCustomizationNotification notice;
+    notice.set_request(k_EGCItemCustomizationNotification_CasketContents);
+    notice.add_item_id(msg.casket_item_id());
+    SendMessageToGame(false, k_EMsgGCItemCustomizationNotification, notice);
+}
+
+void ClientGC::ProcessStorageDeposit(GCMessageRead &messageRead)
+{
+    CMsgCasketItem msg;
+    if (!messageRead.ReadProtobuf(msg))
+        return;
+    
+    auto tx = m_inventory.DepositItemToStorage(msg.casket_item_id(), msg.item_item_id());
+    DispatchStorageResult(tx);
+}
+
+void ClientGC::ProcessStorageWithdraw(GCMessageRead &messageRead)
+{
+    CMsgCasketItem msg;
+    if (!messageRead.ReadProtobuf(msg))
+        return;
+    
+    auto tx = m_inventory.WithdrawItemFromStorage(msg.casket_item_id(), msg.item_item_id());
+    DispatchStorageResult(tx);
+}
+
+void ClientGC::BroadcastSwapOutcome(const Inventory::CounterSwapResult &outcome)
+{
+    using Status = Inventory::CounterSwapStatus;
+    
+    if (outcome.status != Status::Completed)
+        return;
+    
+    if (outcome.toolRemoval.has_type_id())
+        SendMessageToGame(true, k_ESOMsg_Destroy, outcome.toolRemoval);
+    
+    SendMessageToGame(true, k_ESOMsg_Update, outcome.weaponAUpdate);
+    SendMessageToGame(true, k_ESOMsg_Update, outcome.weaponBUpdate);
+    
+    CMsgGCItemCustomizationNotification notification;
+    notification.set_request(k_EGCItemCustomizationNotification_StatTrakSwap);
+    notification.add_item_id(outcome.weaponAId);
+    notification.add_item_id(outcome.weaponBId);
+    SendMessageToGame(false, k_EMsgGCItemCustomizationNotification, notification);
+}
+
+void ClientGC::HandleCounterSwapRequest(GCMessageRead &messageRead)
+{
+    CMsgApplyStatTrakSwap request;
+    if (!messageRead.ReadProtobuf(request))
+        return;
+
+    auto outcome = m_inventory.PerformCounterSwap(
+        request.tool_item_id(),
+        request.item_1_item_id(),
+        request.item_2_item_id()
+    );
+    
+    BroadcastSwapOutcome(outcome);
 }

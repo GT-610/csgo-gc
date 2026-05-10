@@ -42,9 +42,17 @@ private:
 
     void DeleteItem(GCMessageRead &messageRead);
     void UnlockCrate(GCMessageRead &messageRead);
+    void Craft(GCMessageRead &messageRead);
     void NameItem(GCMessageRead &messageRead);
     void NameBaseItem(GCMessageRead &messageRead);
     void RemoveItemName(GCMessageRead &messageRead);
+
+    void ProcessStorageInspect(GCMessageRead &messageRead);
+    void ProcessStorageDeposit(GCMessageRead &messageRead);
+    void ProcessStorageWithdraw(GCMessageRead &messageRead);
+    void DispatchStorageResult(const Inventory::StorageTransaction &tx);
+    void HandleCounterSwapRequest(GCMessageRead &messageRead);
+    void BroadcastSwapOutcome(const Inventory::CounterSwapResult &outcome);
 
     void BuildMatchmakingHello(CMsgGCCStrike15_v2_MatchmakingGC2ClientHello &message);
     void BuildClientWelcome(CMsgClientWelcome &message, const CMsgCStrike15Welcome &csWelcome,
