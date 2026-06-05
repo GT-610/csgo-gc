@@ -32,6 +32,11 @@ public:
         CMsgSOSingleObject &newItem,
         CMsgGCItemCustomizationNotification &notification);
 
+    bool OpenSouvenirPackage(uint64_t packageId,
+        CMsgSOSingleObject &destroyPackage,
+        CMsgSOSingleObject &newItem,
+        CMsgGCItemCustomizationNotification &notification);
+
     bool SetItemPositions(
         const CMsgSetItemPositions &message,
         std::vector<CMsgItemAcknowledged> &acknowledgements,

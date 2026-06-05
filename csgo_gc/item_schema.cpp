@@ -85,12 +85,19 @@ PaintKitInfo::PaintKitInfo(const KeyValue &key)
 StickerKitInfo::StickerKitInfo(const KeyValue &key)
     : m_defIndex{ FromString<uint32_t>(key.Name()) }
     , m_rarity{ ItemSchema::RarityDefault }
+    , m_tournamentEventId{ 0 }
+    , m_tournamentTeamId{ 0 }
+    , m_tournamentPlayerId{ 0 }
 {
     std::string_view rarity = key.GetString("item_rarity");
     if (rarity.size())
     {
         m_rarity = ItemRarityFromString(rarity);
     }
+
+    m_tournamentEventId = key.GetNumber<uint32_t>("tournament_event_id", 0);
+    m_tournamentTeamId = key.GetNumber<uint32_t>("tournament_team_id", 0);
+    m_tournamentPlayerId = key.GetNumber<uint32_t>("tournament_player_id", 0);
 }
 
 MusicDefinitionInfo::MusicDefinitionInfo(const KeyValue &key)
@@ -396,16 +403,18 @@ const LootList *ItemSchema::GetCrateLootList(uint32_t crateDefIndex) const
     auto itemSearch = m_itemInfo.find(crateDefIndex);
     if (itemSearch == m_itemInfo.end())
     {
-        assert(false);
+        Platform::Print("GetCrateLootList: crate def_index %u not found\n", crateDefIndex);
         return nullptr;
     }
 
-    assert(itemSearch->second.m_supplyCrateSeries);
+    if (!itemSearch->second.m_supplyCrateSeries)
+    {
+        return nullptr;
+    }
 
     auto lootListSearch = m_revolvingLootLists.find(itemSearch->second.m_supplyCrateSeries);
     if (lootListSearch == m_revolvingLootLists.end())
     {
-        assert(false);
         return nullptr;
     }
 
@@ -1092,6 +1101,34 @@ StickerKitInfo *ItemSchema::StickerKitInfoByName(std::string_view name)
     }
 
     return &it->second;
+}
+
+const StickerKitInfo *ItemSchema::StickerKitByTournamentEventId(uint32_t eventId) const
+{
+    for (const auto &pair : m_stickerKitInfo)
+    {
+        const StickerKitInfo &info = pair.second;
+        if (info.m_tournamentEventId == eventId && info.m_tournamentTeamId == 0 && info.m_tournamentPlayerId == 0)
+        {
+            return &info;
+        }
+    }
+
+    return nullptr;
+}
+
+const StickerKitInfo *ItemSchema::StickerKitByTournamentTeamId(uint32_t eventId, uint32_t teamId) const
+{
+    for (const auto &pair : m_stickerKitInfo)
+    {
+        const StickerKitInfo &info = pair.second;
+        if (info.m_tournamentEventId == eventId && info.m_tournamentTeamId == teamId && info.m_tournamentPlayerId == 0)
+        {
+            return &info;
+        }
+    }
+
+    return nullptr;
 }
 
 PaintKitInfo *ItemSchema::PaintKitInfoByName(std::string_view name)

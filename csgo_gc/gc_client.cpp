@@ -201,6 +201,10 @@ void ClientGC::HandleMessage(uint32_t type, const void *data, uint32_t size)
             HandleCounterSwapRequest(messageRead);
             break;
 
+        case k_EMsgGCCStrike15_v2_ClientRequestSouvenir:
+            HandleRequestSouvenir(messageRead);
+            break;
+
         default:
             Platform::Print("ClientGC::HandleMessage: unhandled protobuf message %s\n",
                 MessageName(messageRead.TypeUnmasked()));
@@ -772,6 +776,27 @@ void ClientGC::UnlockCrate(GCMessageRead &messageRead)
     CMsgSOSingleObject destroyCrate, destroyKey, newItem;
     CMsgGCItemCustomizationNotification notification;
 
+    const CSOEconItem *crate = m_inventory.GetItem(crateId);
+    if (keyId == 0
+        && crate
+        && crate->def_index() >= SouvenirDefIndexMin
+        && crate->def_index() <= SouvenirDefIndexMax
+        && m_inventory.OpenSouvenirPackage(crateId, destroyCrate, newItem, notification))
+    {
+        Platform::Print("SOUVENIR PACKAGE OPENING %llu\n", crateId);
+
+        // OpenSouvenirPackage sets GenerateSouvenir, but the client initiated this
+        // via UnlockCrate with keyId=0, so Panorama expects an UnlockCrate completion.
+        // Returning GenerateSouvenir here causes a "could not retrieve items" error.
+        notification.set_request(k_EGCItemCustomizationNotification_UnlockCrate);
+
+        SendMessageToGame(true, k_ESOMsg_Destroy, destroyCrate);
+        SendMessageToGame(true, k_ESOMsg_Create, newItem);
+
+        SendMessageToGame(false, k_EMsgGCItemCustomizationNotification, notification);
+        return;
+    }
+
     if (m_inventory.UnlockCrate(
             crateId,
             keyId,
@@ -1078,4 +1103,31 @@ void ClientGC::HandleCounterSwapRequest(GCMessageRead &messageRead)
     );
     
     BroadcastSwapOutcome(outcome);
+}
+
+void ClientGC::HandleRequestSouvenir(GCMessageRead &messageRead)
+{
+    CMsgGCCStrike15_v2_ClientRequestSouvenir request;
+    if (!messageRead.ReadProtobuf(request))
+    {
+        Platform::Print("Parsing CMsgGCCStrike15_v2_ClientRequestSouvenir failed, ignoring\n");
+        return;
+    }
+
+    Platform::Print("SOUVENIR OPENING %llu\n", request.itemid());
+
+    CMsgSOSingleObject destroyPackage, newItem;
+    CMsgGCItemCustomizationNotification notification;
+
+    if (m_inventory.OpenSouvenirPackage(
+            request.itemid(),
+            destroyPackage,
+            newItem,
+            notification))
+    {
+        SendMessageToGame(true, k_ESOMsg_Destroy, destroyPackage);
+        SendMessageToGame(true, k_ESOMsg_Create, newItem);
+
+        SendMessageToGame(false, k_EMsgGCItemCustomizationNotification, notification);
+    }
 }
