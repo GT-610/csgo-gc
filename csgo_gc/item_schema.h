@@ -55,8 +55,13 @@ public:
     explicit StickerKitInfo(const KeyValue &key);
 
     uint32_t m_defIndex;
+    std::string m_name;
+    std::string m_itemName;
+    std::string m_materialPath;
     uint32_t m_rarity;
     uint32_t m_tournamentEventId;
+    uint32_t m_tournamentTeamId;
+    uint32_t m_tournamentPlayerId;
 };
 
 class MusicDefinitionInfo
@@ -143,6 +148,8 @@ public:
     const ItemInfo *ItemInfoByDefIndex(uint32_t defIndex) const;
     const PaintKitInfo *PaintKitInfoByDefIndex(uint32_t defIndex) const;
     const StickerKitInfo *StickerKitByTournamentEventId(uint32_t eventId) const;
+    const StickerKitInfo *StickerKitByTournamentTeamId(uint32_t eventId, uint32_t teamId) const;
+    const StickerKitInfo *SouvenirEventStickerKitByPackageDefIndex(uint32_t packageDefIndex) const;
     bool GetCollectionsForPaintedItem(uint32_t defIndex, uint32_t paintKitDefIndex,
         std::vector<std::string> &outCollections) const;
     bool GetCollectionsForPaintKit(uint32_t paintKitDefIndex,

@@ -68,9 +68,9 @@ bool SouvenirOpening::OpenPackage(const CSOEconItem &package, CSOEconItem &item)
     item.set_quality(ItemSchema::QualityTournament);
 
     // read tournament attributes from the package and look up sticker kits
-    uint32_t eventStickerKit = 0;
-    uint32_t team1StickerKit = 0;
-    uint32_t team2StickerKit = 0;
+    uint32_t eventId = 0;
+    uint32_t teamId1 = 0;
+    uint32_t teamId2 = 0;
 
     for (const CSOEconItemAttribute &attribute : package.attribute())
     {
@@ -79,24 +79,31 @@ bool SouvenirOpening::OpenPackage(const CSOEconItem &package, CSOEconItem &item)
         switch (attribute.def_index())
         {
         case ItemSchema::AttributeTournamentEventId:
-        {
-            const StickerKitInfo *kit = m_itemSchema.StickerKitByTournamentEventId(value);
-            if (kit)
-            {
-                eventStickerKit = kit->m_defIndex;
-            }
+            eventId = value;
             break;
-        }
 
         case ItemSchema::AttributeTournamentTeamId1:
-            team1StickerKit = value;
+            teamId1 = value;
             break;
 
         case ItemSchema::AttributeTournamentTeamId2:
-            team2StickerKit = value;
+            teamId2 = value;
             break;
         }
     }
+
+    const StickerKitInfo *eventKit = eventId ? m_itemSchema.StickerKitByTournamentEventId(eventId) : nullptr;
+    if (!eventKit)
+    {
+        eventKit = m_itemSchema.SouvenirEventStickerKitByPackageDefIndex(package.def_index());
+    }
+
+    const StickerKitInfo *team1Kit = eventId && teamId1 ? m_itemSchema.StickerKitByTournamentTeamId(eventId, teamId1) : nullptr;
+    const StickerKitInfo *team2Kit = eventId && teamId2 ? m_itemSchema.StickerKitByTournamentTeamId(eventId, teamId2) : nullptr;
+
+    uint32_t eventStickerKit = eventKit ? eventKit->m_defIndex : 0;
+    uint32_t team1StickerKit = team1Kit ? team1Kit->m_defIndex : 0;
+    uint32_t team2StickerKit = team2Kit ? team2Kit->m_defIndex : 0;
 
     ApplyTournamentAttributes(item, eventStickerKit, team1StickerKit, team2StickerKit, 0);
 
