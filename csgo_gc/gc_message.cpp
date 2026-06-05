@@ -82,7 +82,6 @@ const void *GCMessageRead::ReadData(size_t size)
     return result;
 }
 
-// mikkotodo fix!!! this function is fucked and broken
 std::string_view GCMessageRead::ReadString()
 {
     if (m_error)
@@ -107,7 +106,6 @@ std::string_view GCMessageRead::ReadString()
     return {};
 }
 
-// mikkotodo useful elswhere as well???
 static void AppendProtobuf(std::vector<uint8_t> &buffer, const google::protobuf::MessageLite &message)
 {
     size_t protobufOffset = buffer.size();

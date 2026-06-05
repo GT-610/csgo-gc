@@ -364,7 +364,6 @@ void Inventory::BuildCacheSubscription(CMsgSOCacheSubscribed &message, int level
     }
 }
 
-// mikkotodo move
 constexpr uint32_t SlotUneqip = 0xffff;
 constexpr uint64_t ItemIdInvalid = 0;
 
@@ -378,9 +377,8 @@ bool Inventory::EquipItem(uint64_t itemId, uint32_t classId, uint32_t slotId, CM
         return UnequipItem(itemId, update);
     }
 
-    // mikkotodo cleanup, old junk
     assert(itemId);
-    assert(itemId != UINT64_MAX); // probably an old csgo thing
+    assert(itemId != UINT64_MAX);
 
     if (itemId == ItemIdInvalid)
     {
@@ -535,7 +533,6 @@ bool Inventory::UnlockCrate(uint64_t crateId,
     return true;
 }
 
-// mikkotodo constant enum
 static int ItemWearLevel(float wearFloat)
 {
     if (wearFloat < 0.07f)
@@ -815,7 +812,6 @@ bool Inventory::ApplySticker(const CMsgApplySticker &message,
         return false;
     }
 
-    // mikkotodo lookup table instead of this crap...
     uint32_t attributeStickerId = ItemSchema::AttributeStickerId0 + (message.sticker_slot() * 4);
     uint32_t attributeStickerWear = ItemSchema::AttributeStickerWear0 + (message.sticker_slot() * 4);
 
@@ -824,7 +820,8 @@ bool Inventory::ApplySticker(const CMsgApplySticker &message,
     attribute->set_def_index(attributeStickerId);
     m_itemSchema.SetAttributeUint32(attribute, stickerKit);
 
-    // add the sticker wear attribute if this is not a patch (mikkotodo revisit...)
+    // add the sticker wear attribute if this is not a patch
+    if (sticker->second.def_index() != ItemSchema::ItemPatch)
     if (sticker->second.def_index() != ItemSchema::ItemPatch)
     {
         attribute = item->add_attribute();
@@ -899,7 +896,7 @@ bool Inventory::ScrapeSticker(const CMsgApplySticker &message,
 
     if (wearAttribute)
     {
-        // mikkotodo randomize
+        // TODO: randomize wear increment instead of using fixed 1/9 step
         float wearIncrement = 1.0f / 9;
         wearLevel = m_itemSchema.AttributeFloat(wearAttribute) + wearIncrement;
     }

@@ -296,7 +296,6 @@ constexpr uint32_t MakeAddress(uint32_t v1, uint32_t v2, uint32_t v3, uint32_t v
 
 static void BuildCSWelcome(CMsgCStrike15Welcome &message)
 {
-    // mikkotodo cleanup dox
     message.set_store_item_hash(136617352);
     message.set_timeplayedconsecutively(0);
     message.set_time_first_played(1329845773);
@@ -322,7 +321,7 @@ void ClientGC::BuildMatchmakingHello(CMsgGCCStrike15_v2_MatchmakingGC2ClientHell
 
     // bullshit
     message.mutable_global_stats()->set_required_appid_version(13857);
-    message.mutable_global_stats()->set_pricesheet_version(1680057676); // mikkotodo revisit
+    message.mutable_global_stats()->set_pricesheet_version(1680057676);
     message.mutable_global_stats()->set_twitch_streams_version(2);
     message.mutable_global_stats()->set_active_tournament_eventid(20);
     message.mutable_global_stats()->set_active_survey_id(0);
@@ -339,7 +338,6 @@ void ClientGC::BuildMatchmakingHello(CMsgGCCStrike15_v2_MatchmakingGC2ClientHell
 void ClientGC::BuildClientWelcome(CMsgClientWelcome &message, const CMsgCStrike15Welcome &csWelcome,
     const CMsgGCCStrike15_v2_MatchmakingGC2ClientHello &matchmakingHello)
 {
-    // mikkotodo remove dox
     message.set_version(0); // this is accurate
     message.set_game_data(csWelcome.SerializeAsString());
     m_inventory.BuildCacheSubscription(*message.add_outofdate_subscribed_caches(), GetConfig().Level(), false);
@@ -400,7 +398,6 @@ void ClientGC::OnClientHello(GCMessageRead &messageRead)
 
     // the real gc sends this a bit later when it has more info to put on it
     // however we have everything at our fingertips so send it right away
-    // mikkotodo is this even needed? k_EMsgGCClientWelcome should have it all already
     SendMessageToGame(false, k_EMsgGCCStrike15_v2_MatchmakingGC2ClientHello, mmHello);
 
     // send all ranks here as well, it's a bit back and forth with real gc
@@ -708,7 +705,7 @@ void ClientGC::StorePurchaseInit(GCMessageRead &messageRead)
 
     SendMessageToGame(false, k_EMsgGCStorePurchaseInitResponse, response, messageRead.JobId());
 
-    // FIXME: why would the server care???
+    // server needs to know about new items for validation
     for (auto &newItem : inventoryUpdate)
     {
         SendMessageToGame(true, k_ESOMsg_Create, newItem);
@@ -751,12 +748,12 @@ void ClientGC::DeleteItem(GCMessageRead &messageRead)
     CMsgSOSingleObject destroyed;
     if (m_inventory.RemoveItem(itemId, destroyed))
     {
-        // mikkotodo what does the server want to know
+        // server needs to know about item destruction for validation
         SendMessageToGame(true, k_ESOMsg_Destroy, destroyed);
     }
     else
     {
-        assert(false);
+        Platform::Print("ClientGC::DeleteItem: item %llu not found\n", itemId);
     }
 }
 

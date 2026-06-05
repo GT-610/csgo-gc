@@ -84,7 +84,7 @@ PaintKitInfo::PaintKitInfo(const KeyValue &key)
 
 StickerKitInfo::StickerKitInfo(const KeyValue &key)
     : m_defIndex{ FromString<uint32_t>(key.Name()) }
-    , m_rarity{ ItemSchema::RarityDefault } // mikkotodo revisit... currently using item rarity if this is default
+    , m_rarity{ ItemSchema::RarityDefault }
 {
     std::string_view rarity = key.GetString("item_rarity");
     if (rarity.size())
@@ -507,7 +507,7 @@ bool ItemSchema::CreateItemFromLootListItem(Random &random,
         attribute->set_def_index(ItemSchema::AttributeKillEater);
         SetAttributeUint32(attribute, 0);
 
-        // mikkotodo fix magic
+        // score type: 1 for music kits, 0 for weapons
         int scoreType = (lootListItem.type == LootListItemMusicKit) ? 1 : 0;
 
         attribute = item.add_attribute();

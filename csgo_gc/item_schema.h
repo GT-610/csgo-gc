@@ -127,7 +127,7 @@ public:
     // for case opening
     const LootList *GetCrateLootList(uint32_t crateDefIndex) const;
 
-    // for case opening FIXME: do we want to keep this here???
+    // for case opening
     bool CreateItemFromLootListItem(Random &random,
         const LootListItem &lootListItem,
         bool statTrak,
