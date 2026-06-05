@@ -154,26 +154,42 @@ const LootListItem *SouvenirOpening::SelectItem(const std::vector<const LootList
 
 void SouvenirOpening::ApplyTournamentAttributes(CSOEconItem &item, uint32_t eventId, uint32_t teamId1, uint32_t teamId2, uint32_t mvpAccountId)
 {
-    // add tournament event sticker (gold)
-    CSOEconItemAttribute *attribute = item.add_attribute();
-    attribute->set_def_index(ItemSchema::AttributeStickerId0);
-    m_itemSchema.SetAttributeUint32(attribute, eventId);
+    // souvenir stickers are always gold, mint condition, default scale, no rotation
+    auto addSticker = [&](uint32_t stickerIdAttr, uint32_t wearAttr, uint32_t scaleAttr, uint32_t rotationAttr, uint32_t stickerId)
+    {
+        CSOEconItemAttribute *attribute = item.add_attribute();
+        attribute->set_def_index(stickerIdAttr);
+        m_itemSchema.SetAttributeUint32(attribute, stickerId);
 
-    // add team 1 sticker (gold)
-    attribute = item.add_attribute();
-    attribute->set_def_index(ItemSchema::AttributeStickerId1);
-    m_itemSchema.SetAttributeUint32(attribute, teamId1);
+        attribute = item.add_attribute();
+        attribute->set_def_index(wearAttr);
+        m_itemSchema.SetAttributeFloat(attribute, 0.0f);
 
-    // add team 2 sticker (gold)
-    attribute = item.add_attribute();
-    attribute->set_def_index(ItemSchema::AttributeStickerId2);
-    m_itemSchema.SetAttributeUint32(attribute, teamId2);
+        attribute = item.add_attribute();
+        attribute->set_def_index(scaleAttr);
+        m_itemSchema.SetAttributeFloat(attribute, 1.0f);
 
-    // add MVP autograph sticker (gold) if available
+        attribute = item.add_attribute();
+        attribute->set_def_index(rotationAttr);
+        m_itemSchema.SetAttributeFloat(attribute, 0.0f);
+    };
+
+    // event sticker (slot 0)
+    addSticker(ItemSchema::AttributeStickerId0, ItemSchema::AttributeStickerWear0,
+        ItemSchema::AttributeStickerScale0, ItemSchema::AttributeStickerRotation0, eventId);
+
+    // team 1 sticker (slot 1)
+    addSticker(ItemSchema::AttributeStickerId1, ItemSchema::AttributeStickerWear1,
+        ItemSchema::AttributeStickerScale1, ItemSchema::AttributeStickerRotation1, teamId1);
+
+    // team 2 sticker (slot 2)
+    addSticker(ItemSchema::AttributeStickerId2, ItemSchema::AttributeStickerWear2,
+        ItemSchema::AttributeStickerScale2, ItemSchema::AttributeStickerRotation2, teamId2);
+
+    // MVP autograph sticker (slot 3) if available
     if (mvpAccountId != 0)
     {
-        attribute = item.add_attribute();
-        attribute->set_def_index(ItemSchema::AttributeStickerId3);
-        m_itemSchema.SetAttributeUint32(attribute, mvpAccountId);
+        addSticker(ItemSchema::AttributeStickerId3, ItemSchema::AttributeStickerWear3,
+            ItemSchema::AttributeStickerScale3, ItemSchema::AttributeStickerRotation3, mvpAccountId);
     }
 }
