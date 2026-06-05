@@ -776,6 +776,23 @@ void ClientGC::UnlockCrate(GCMessageRead &messageRead)
     CMsgSOSingleObject destroyCrate, destroyKey, newItem;
     CMsgGCItemCustomizationNotification notification;
 
+    const CSOEconItem *crate = m_inventory.GetItem(crateId);
+    if (keyId == 0
+        && crate
+        && crate->def_index() >= 4006
+        && crate->def_index() <= 5225
+        && m_inventory.OpenSouvenirPackage(crateId, destroyCrate, newItem, notification))
+    {
+        Platform::Print("SOUVENIR PACKAGE OPENING %llu\n", crateId);
+        notification.set_request(k_EGCItemCustomizationNotification_UnlockCrate);
+
+        SendMessageToGame(true, k_ESOMsg_Destroy, destroyCrate);
+        SendMessageToGame(true, k_ESOMsg_Create, newItem);
+
+        SendMessageToGame(false, k_EMsgGCItemCustomizationNotification, notification);
+        return;
+    }
+
     if (m_inventory.UnlockCrate(
             crateId,
             keyId,

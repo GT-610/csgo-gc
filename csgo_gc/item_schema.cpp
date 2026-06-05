@@ -396,16 +396,18 @@ const LootList *ItemSchema::GetCrateLootList(uint32_t crateDefIndex) const
     auto itemSearch = m_itemInfo.find(crateDefIndex);
     if (itemSearch == m_itemInfo.end())
     {
-        assert(false);
+        Platform::Print("GetCrateLootList: crate def_index %u not found\n", crateDefIndex);
         return nullptr;
     }
 
-    assert(itemSearch->second.m_supplyCrateSeries);
+    if (!itemSearch->second.m_supplyCrateSeries)
+    {
+        return nullptr;
+    }
 
     auto lootListSearch = m_revolvingLootLists.find(itemSearch->second.m_supplyCrateSeries);
     if (lootListSearch == m_revolvingLootLists.end())
     {
-        assert(false);
         return nullptr;
     }
 
