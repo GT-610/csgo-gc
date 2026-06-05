@@ -52,6 +52,7 @@ private:
     void ProcessStorageWithdraw(GCMessageRead &messageRead);
     void DispatchStorageResult(const Inventory::StorageTransaction &tx);
     void HandleCounterSwapRequest(GCMessageRead &messageRead);
+    void HandleRequestSouvenir(GCMessageRead &messageRead);
     void BroadcastSwapOutcome(const Inventory::CounterSwapResult &outcome);
 
     void BuildMatchmakingHello(CMsgGCCStrike15_v2_MatchmakingGC2ClientHello &message);

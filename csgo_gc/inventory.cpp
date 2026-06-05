@@ -6,6 +6,7 @@
 #include "item_utils.h"
 #include "keyvalue.h"
 #include "random.h"
+#include "souvenir.h"
 
 constexpr const char *InventoryFilePath = "csgo_gc/inventory.txt";
 
@@ -528,6 +529,44 @@ bool Inventory::UnlockCrate(uint64_t crateId,
         {
             DestroyItem(key, destroyKey);
         }
+    }
+
+    return true;
+}
+
+bool Inventory::OpenSouvenirPackage(uint64_t packageId,
+    CMsgSOSingleObject &destroyPackage,
+    CMsgSOSingleObject &newItem,
+    CMsgGCItemCustomizationNotification &notification)
+{
+    auto package = m_items.find(packageId);
+    if (package == m_items.end())
+    {
+        Platform::Print("OpenSouvenirPackage: package %llu not found\n", packageId);
+        return false;
+    }
+
+    SouvenirOpening souvenirOpening{ m_itemSchema, m_random };
+
+    CSOEconItem temp;
+    if (!souvenirOpening.OpenPackage(package->second, temp))
+    {
+        Platform::Print("OpenSouvenirPackage: failed to open package\n");
+        return false;
+    }
+
+    CSOEconItem &item = CreateItem(temp);
+
+    ToSingleObject(newItem, item);
+
+    // set notification
+    notification.add_item_id(item.id());
+    notification.set_request(k_EGCItemCustomizationNotification_GenerateSouvenir);
+
+    // remove the package
+    if (GetConfig().DestroyUsedItems())
+    {
+        DestroyItem(package, destroyPackage);
     }
 
     return true;

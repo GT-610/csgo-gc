@@ -201,6 +201,10 @@ void ClientGC::HandleMessage(uint32_t type, const void *data, uint32_t size)
             HandleCounterSwapRequest(messageRead);
             break;
 
+        case k_EMsgGCCStrike15_v2_ClientRequestSouvenir:
+            HandleRequestSouvenir(messageRead);
+            break;
+
         default:
             Platform::Print("ClientGC::HandleMessage: unhandled protobuf message %s\n",
                 MessageName(messageRead.TypeUnmasked()));
@@ -1078,4 +1082,31 @@ void ClientGC::HandleCounterSwapRequest(GCMessageRead &messageRead)
     );
     
     BroadcastSwapOutcome(outcome);
+}
+
+void ClientGC::HandleRequestSouvenir(GCMessageRead &messageRead)
+{
+    CMsgGCCStrike15_v2_ClientRequestSouvenir request;
+    if (!messageRead.ReadProtobuf(request))
+    {
+        Platform::Print("Parsing CMsgGCCStrike15_v2_ClientRequestSouvenir failed, ignoring\n");
+        return;
+    }
+
+    Platform::Print("SOUVENIR OPENING %llu\n", request.itemid());
+
+    CMsgSOSingleObject destroyPackage, newItem;
+    CMsgGCItemCustomizationNotification notification;
+
+    if (m_inventory.OpenSouvenirPackage(
+            request.itemid(),
+            destroyPackage,
+            newItem,
+            notification))
+    {
+        SendMessageToGame(true, k_ESOMsg_Destroy, destroyPackage);
+        SendMessageToGame(true, k_ESOMsg_Create, newItem);
+
+        SendMessageToGame(false, k_EMsgGCItemCustomizationNotification, notification);
+    }
 }
