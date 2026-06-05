@@ -14,6 +14,10 @@ constexpr uint64_t ItemIdDefaultItemMask = 0xfull << 60;
 // technically 5 but there are attributes for 6 stickers...
 constexpr int MaxStickers = 6;
 
+// souvenir package def_index range (4006..5225)
+constexpr uint32_t SouvenirDefIndexMin = 4006;
+constexpr uint32_t SouvenirDefIndexMax = 5225;
+
 enum RankType : uint32_t
 {
     RankTypeCompetitive = 6,

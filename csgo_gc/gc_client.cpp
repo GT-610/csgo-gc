@@ -779,11 +779,15 @@ void ClientGC::UnlockCrate(GCMessageRead &messageRead)
     const CSOEconItem *crate = m_inventory.GetItem(crateId);
     if (keyId == 0
         && crate
-        && crate->def_index() >= 4006
-        && crate->def_index() <= 5225
+        && crate->def_index() >= SouvenirDefIndexMin
+        && crate->def_index() <= SouvenirDefIndexMax
         && m_inventory.OpenSouvenirPackage(crateId, destroyCrate, newItem, notification))
     {
         Platform::Print("SOUVENIR PACKAGE OPENING %llu\n", crateId);
+
+        // OpenSouvenirPackage sets GenerateSouvenir, but the client initiated this
+        // via UnlockCrate with keyId=0, so Panorama expects an UnlockCrate completion.
+        // Returning GenerateSouvenir here causes a "could not retrieve items" error.
         notification.set_request(k_EGCItemCustomizationNotification_UnlockCrate);
 
         SendMessageToGame(true, k_ESOMsg_Destroy, destroyCrate);
