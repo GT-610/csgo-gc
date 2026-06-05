@@ -822,7 +822,6 @@ bool Inventory::ApplySticker(const CMsgApplySticker &message,
 
     // add the sticker wear attribute if this is not a patch
     if (sticker->second.def_index() != ItemSchema::ItemPatch)
-    if (sticker->second.def_index() != ItemSchema::ItemPatch)
     {
         attribute = item->add_attribute();
         attribute->set_def_index(attributeStickerWear);
