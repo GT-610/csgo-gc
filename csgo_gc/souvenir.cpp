@@ -93,11 +93,6 @@ bool SouvenirOpening::OpenPackage(const CSOEconItem &package, CSOEconItem &item)
     }
 
     const StickerKitInfo *eventKit = eventId ? m_itemSchema.StickerKitByTournamentEventId(eventId) : nullptr;
-    if (!eventKit)
-    {
-        eventKit = m_itemSchema.SouvenirEventStickerKitByPackageDefIndex(package.def_index());
-    }
-
     const StickerKitInfo *team1Kit = eventId && teamId1 ? m_itemSchema.StickerKitByTournamentTeamId(eventId, teamId1) : nullptr;
     const StickerKitInfo *team2Kit = eventId && teamId2 ? m_itemSchema.StickerKitByTournamentTeamId(eventId, teamId2) : nullptr;
 
