@@ -15,7 +15,7 @@ public:
 
 private:
     const LootListItem *SelectItem(const std::vector<const LootListItem *> &items);
-    void ApplyTournamentAttributes(CSOEconItem &item, uint32_t eventId, uint32_t teamId1, uint32_t teamId2, uint32_t mvpAccountId);
+    void ApplyTournamentAttributes(CSOEconItem &item, uint32_t eventStickerKit, uint32_t team1StickerKit, uint32_t team2StickerKit, uint32_t mvpStickerKit);
 
     const ItemSchema &m_itemSchema;
     Random &m_random;

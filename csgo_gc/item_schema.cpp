@@ -85,12 +85,15 @@ PaintKitInfo::PaintKitInfo(const KeyValue &key)
 StickerKitInfo::StickerKitInfo(const KeyValue &key)
     : m_defIndex{ FromString<uint32_t>(key.Name()) }
     , m_rarity{ ItemSchema::RarityDefault }
+    , m_tournamentEventId{ 0 }
 {
     std::string_view rarity = key.GetString("item_rarity");
     if (rarity.size())
     {
         m_rarity = ItemRarityFromString(rarity);
     }
+
+    m_tournamentEventId = key.GetNumber<uint32_t>("tournament_event_id", 0);
 }
 
 MusicDefinitionInfo::MusicDefinitionInfo(const KeyValue &key)
@@ -1094,6 +1097,19 @@ StickerKitInfo *ItemSchema::StickerKitInfoByName(std::string_view name)
     }
 
     return &it->second;
+}
+
+const StickerKitInfo *ItemSchema::StickerKitByTournamentEventId(uint32_t eventId) const
+{
+    for (auto &[name, info] : m_stickerKitInfo)
+    {
+        if (info.m_tournamentEventId == eventId)
+        {
+            return &info;
+        }
+    }
+
+    return nullptr;
 }
 
 PaintKitInfo *ItemSchema::PaintKitInfoByName(std::string_view name)

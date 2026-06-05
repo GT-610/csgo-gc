@@ -67,30 +67,38 @@ bool SouvenirOpening::OpenPackage(const CSOEconItem &package, CSOEconItem &item)
     // override quality to tournament
     item.set_quality(ItemSchema::QualityTournament);
 
-    // read tournament attributes from the package
-    uint32_t eventId = 0;
-    uint32_t teamId1 = 0;
-    uint32_t teamId2 = 0;
+    // read tournament attributes from the package and look up sticker kits
+    uint32_t eventStickerKit = 0;
+    uint32_t team1StickerKit = 0;
+    uint32_t team2StickerKit = 0;
 
     for (const CSOEconItemAttribute &attribute : package.attribute())
     {
+        uint32_t value = m_itemSchema.AttributeUint32(&attribute);
+
         switch (attribute.def_index())
         {
         case ItemSchema::AttributeTournamentEventId:
-            eventId = m_itemSchema.AttributeUint32(&attribute);
+        {
+            const StickerKitInfo *kit = m_itemSchema.StickerKitByTournamentEventId(value);
+            if (kit)
+            {
+                eventStickerKit = kit->m_defIndex;
+            }
             break;
+        }
 
         case ItemSchema::AttributeTournamentTeamId1:
-            teamId1 = m_itemSchema.AttributeUint32(&attribute);
+            team1StickerKit = value;
             break;
 
         case ItemSchema::AttributeTournamentTeamId2:
-            teamId2 = m_itemSchema.AttributeUint32(&attribute);
+            team2StickerKit = value;
             break;
         }
     }
 
-    ApplyTournamentAttributes(item, eventId, teamId1, teamId2, 0);
+    ApplyTournamentAttributes(item, eventStickerKit, team1StickerKit, team2StickerKit, 0);
 
     return true;
 }
@@ -152,14 +160,19 @@ const LootListItem *SouvenirOpening::SelectItem(const std::vector<const LootList
     return nullptr;
 }
 
-void SouvenirOpening::ApplyTournamentAttributes(CSOEconItem &item, uint32_t eventId, uint32_t teamId1, uint32_t teamId2, uint32_t mvpAccountId)
+void SouvenirOpening::ApplyTournamentAttributes(CSOEconItem &item, uint32_t eventStickerKit, uint32_t team1StickerKit, uint32_t team2StickerKit, uint32_t mvpStickerKit)
 {
     // souvenir stickers are always gold, mint condition, default scale, no rotation
-    auto addSticker = [&](uint32_t stickerIdAttr, uint32_t wearAttr, uint32_t scaleAttr, uint32_t rotationAttr, uint32_t stickerId)
+    auto addSticker = [&](uint32_t stickerIdAttr, uint32_t wearAttr, uint32_t scaleAttr, uint32_t rotationAttr, uint32_t stickerKitDefIndex)
     {
+        if (stickerKitDefIndex == 0)
+        {
+            return;
+        }
+
         CSOEconItemAttribute *attribute = item.add_attribute();
         attribute->set_def_index(stickerIdAttr);
-        m_itemSchema.SetAttributeUint32(attribute, stickerId);
+        m_itemSchema.SetAttributeUint32(attribute, stickerKitDefIndex);
 
         attribute = item.add_attribute();
         attribute->set_def_index(wearAttr);
@@ -176,20 +189,20 @@ void SouvenirOpening::ApplyTournamentAttributes(CSOEconItem &item, uint32_t even
 
     // event sticker (slot 0)
     addSticker(ItemSchema::AttributeStickerId0, ItemSchema::AttributeStickerWear0,
-        ItemSchema::AttributeStickerScale0, ItemSchema::AttributeStickerRotation0, eventId);
+        ItemSchema::AttributeStickerScale0, ItemSchema::AttributeStickerRotation0, eventStickerKit);
 
     // team 1 sticker (slot 1)
     addSticker(ItemSchema::AttributeStickerId1, ItemSchema::AttributeStickerWear1,
-        ItemSchema::AttributeStickerScale1, ItemSchema::AttributeStickerRotation1, teamId1);
+        ItemSchema::AttributeStickerScale1, ItemSchema::AttributeStickerRotation1, team1StickerKit);
 
     // team 2 sticker (slot 2)
     addSticker(ItemSchema::AttributeStickerId2, ItemSchema::AttributeStickerWear2,
-        ItemSchema::AttributeStickerScale2, ItemSchema::AttributeStickerRotation2, teamId2);
+        ItemSchema::AttributeStickerScale2, ItemSchema::AttributeStickerRotation2, team2StickerKit);
 
     // MVP autograph sticker (slot 3) if available
-    if (mvpAccountId != 0)
+    if (mvpStickerKit != 0)
     {
         addSticker(ItemSchema::AttributeStickerId3, ItemSchema::AttributeStickerWear3,
-            ItemSchema::AttributeStickerScale3, ItemSchema::AttributeStickerRotation3, mvpAccountId);
+            ItemSchema::AttributeStickerScale3, ItemSchema::AttributeStickerRotation3, mvpStickerKit);
     }
 }

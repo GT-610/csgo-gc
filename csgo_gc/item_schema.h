@@ -56,6 +56,7 @@ public:
 
     uint32_t m_defIndex;
     uint32_t m_rarity;
+    uint32_t m_tournamentEventId;
 };
 
 class MusicDefinitionInfo
@@ -141,6 +142,7 @@ public:
     // trade-up helpers
     const ItemInfo *ItemInfoByDefIndex(uint32_t defIndex) const;
     const PaintKitInfo *PaintKitInfoByDefIndex(uint32_t defIndex) const;
+    const StickerKitInfo *StickerKitByTournamentEventId(uint32_t eventId) const;
     bool GetCollectionsForPaintedItem(uint32_t defIndex, uint32_t paintKitDefIndex,
         std::vector<std::string> &outCollections) const;
     bool GetCollectionsForPaintKit(uint32_t paintKitDefIndex,
