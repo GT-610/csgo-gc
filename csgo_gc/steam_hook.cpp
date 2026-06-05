@@ -641,14 +641,6 @@ public:
 
     ESteamAPICallFailure GetAPICallFailureReason(SteamAPICall_t hSteamAPICall) override
     {
-        // yeah we won't get here
-        //if (hSteamAPICall == CheckSignatureCall)
-        //{
-        //    // not properly handled, shouldn't get here
-        //    assert(false);
-        //    return k_ESteamAPICallFailureNone;
-        //}
-
         return m_original->GetAPICallFailureReason(hSteamAPICall);
     }
 

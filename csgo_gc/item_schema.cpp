@@ -594,7 +594,6 @@ void ItemSchema::ParseItems(const KeyValue *itemsKey, const KeyValue *prefabsKey
                 Platform::Print("Non coupon item associated loot list in %s!!!\n", itemInfo.m_name.c_str());
             }
 
-            //assert(!itemInfo.m_lootListName.size());
             assert(!itemInfo.m_willProduceStatTrak);
         }
         else
@@ -807,8 +806,6 @@ void ItemSchema::ParsePaintKitRarities(const KeyValue *raritiesKey)
         PaintKitInfo *paintKitInfo = PaintKitInfoByName(key.Name());
         if (!paintKitInfo)
         {
-            //assert(false);
-            //Platform::Print("No such paint kit '%s'!!!\n", std::string{ key.Name() }.c_str());
             continue;
         }
 
@@ -1052,7 +1049,6 @@ void ItemSchema::ParseRevolvingLootLists(const KeyValue *revolvingLootListsKey)
         auto it = m_lootLists.find(lootListName);
         if (it == m_lootLists.end())
         {
-            //Platform::Print("Ignoring revolving loot list %s\n", lootListName.c_str());
             continue;
         }
 
@@ -1103,7 +1099,6 @@ PaintKitInfo *ItemSchema::PaintKitInfoByName(std::string_view name)
     auto it = m_paintKitInfo.find(std::string{ name });
     if (it == m_paintKitInfo.end())
     {
-        //assert(false);
         return nullptr;
     }
 
