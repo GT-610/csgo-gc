@@ -104,7 +104,6 @@ void NetworkingClient::SendMessage(const void *data, uint32_t size)
         return;
     }
 
-    // mikkotodo check return
     SteamNetworkingIdentity identity;
     identity.SetSteamID64(m_serverSteamId);
 

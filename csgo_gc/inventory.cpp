@@ -3,6 +3,7 @@
 #include "case_opening.h"
 #include "config.h"
 #include "gc_const.h"
+#include "item_utils.h"
 #include "keyvalue.h"
 #include "random.h"
 
@@ -209,7 +210,6 @@ void Inventory::ReadItem(const KeyValue &itemKey, CSOEconItem &item) const
     // id and account_id were set by CreateItem
     item.set_inventory(itemKey.GetNumber<uint32_t>("inventory"));
     item.set_def_index(itemKey.GetNumber<uint32_t>("def_index"));
-    //item.set_quantity(itemKey.GetNumber<uint32_t>("quantity"));
     item.set_quantity(1);
     item.set_level(itemKey.GetNumber<uint32_t>("level"));
     item.set_quality(itemKey.GetNumber<uint32_t>("quality"));
@@ -222,15 +222,7 @@ void Inventory::ReadItem(const KeyValue &itemKey, CSOEconItem &item) const
         item.set_custom_name(std::string{ name });
     }
 
-    //std::string_view desc = itemKey.GetString("custom_desc");
-    //if (desc.size())
-    //{
-    //    item.set_custom_desc(std::string{ desc });
-    //}
-
     item.set_in_use(itemKey.GetNumber<int>("in_use"));
-    //item.set_style(itemKey.GetNumber<uint32_t>("style"));
-    //item.set_original_id(itemKey.GetNumber<uint64_t>("original_id"));
     item.set_rarity(itemKey.GetNumber<uint32_t>("rarity"));
 
     const KeyValue *attributesKey = itemKey.GetSubkey("attributes");
@@ -291,18 +283,14 @@ void Inventory::WriteItem(KeyValue &itemKey, const CSOEconItem &item) const
 {
     itemKey.AddNumber("inventory", item.inventory());
     itemKey.AddNumber("def_index", item.def_index());
-    //itemKey.AddNumber("quantity", item.quantity());
     itemKey.AddNumber("level", item.level());
     itemKey.AddNumber("quality", item.quality());
     itemKey.AddNumber("flags", item.flags());
     itemKey.AddNumber("origin", item.origin());
 
     itemKey.AddString("custom_name", item.custom_name());
-    //itemKey.AddString("custom_desc", item.custom_desc());
 
     itemKey.AddNumber("in_use", item.in_use());
-    //itemKey.AddNumber("style", item.style());
-    //itemKey.AddNumber("original_id", item.original_id());
     itemKey.AddNumber("rarity", item.rarity());
 
     KeyValue &attributesKey = itemKey.AddSubkey("attributes");
@@ -376,7 +364,6 @@ void Inventory::BuildCacheSubscription(CMsgSOCacheSubscribed &message, int level
     }
 }
 
-// mikkotodo move
 constexpr uint32_t SlotUneqip = 0xffff;
 constexpr uint64_t ItemIdInvalid = 0;
 
@@ -390,9 +377,8 @@ bool Inventory::EquipItem(uint64_t itemId, uint32_t classId, uint32_t slotId, CM
         return UnequipItem(itemId, update);
     }
 
-    // mikkotodo cleanup, old junk
     assert(itemId);
-    assert(itemId != UINT64_MAX); // probably an old csgo thing
+    assert(itemId != UINT64_MAX);
 
     if (itemId == ItemIdInvalid)
     {
@@ -547,7 +533,6 @@ bool Inventory::UnlockCrate(uint64_t crateId,
     return true;
 }
 
-// mikkotodo constant enum
 static int ItemWearLevel(float wearFloat)
 {
     if (wearFloat < 0.07f)
@@ -578,48 +563,6 @@ static int ItemWearLevel(float wearFloat)
     return 4;
 }
 
-static bool GetItemPaintKitDefIndex(const CSOEconItem &item, const ItemSchema &schema, uint32_t &paintKitDefIndex)
-{
-    for (const CSOEconItemAttribute &attr : item.attribute())
-    {
-        if (attr.def_index() == ItemSchema::AttributeTexturePrefab)
-        {
-            paintKitDefIndex = schema.AttributeUint32(&attr);
-            return true;
-        }
-    }
-
-    return false;
-}
-
-static std::string GetItemCollectionId(const CSOEconItem &item, const ItemSchema &schema)
-{
-    uint32_t paintKitDefIndex = 0;
-    if (!GetItemPaintKitDefIndex(item, schema, paintKitDefIndex))
-    {
-        return {};
-    }
-
-    std::vector<std::string> collections;
-    if (!schema.GetCollectionsForPaintedItem(item.def_index(), paintKitDefIndex, collections))
-    {
-        return {};
-    }
-
-    std::sort(collections.begin(), collections.end());
-    return collections.front();
-}
-
-static std::string GetCollectionName(const ItemSchema &schema, std::string_view collectionId)
-{
-    if (collectionId.empty())
-    {
-        return "Unknown";
-    }
-
-    return schema.GetCollectionDisplayName(collectionId);
-}
-
 
 void Inventory::ItemToPreviewDataBlock(const CSOEconItem &item, CEconItemPreviewDataBlock &block)
 {
@@ -631,10 +574,6 @@ void Inventory::ItemToPreviewDataBlock(const CSOEconItem &item, CEconItemPreview
     block.set_customname(item.custom_name());
     block.set_inventory(item.inventory());
     block.set_origin(item.origin());
-
-    // not stored in CSOEconItem?
-    //block.set_entindex(item.entindex());
-    //block.set_dropreason(item.dropreason());
 
     std::array<CEconItemPreviewDataBlock_Sticker, MaxStickers> stickers;
 
@@ -873,7 +812,6 @@ bool Inventory::ApplySticker(const CMsgApplySticker &message,
         return false;
     }
 
-    // mikkotodo lookup table instead of this crap...
     uint32_t attributeStickerId = ItemSchema::AttributeStickerId0 + (message.sticker_slot() * 4);
     uint32_t attributeStickerWear = ItemSchema::AttributeStickerWear0 + (message.sticker_slot() * 4);
 
@@ -882,7 +820,7 @@ bool Inventory::ApplySticker(const CMsgApplySticker &message,
     attribute->set_def_index(attributeStickerId);
     m_itemSchema.SetAttributeUint32(attribute, stickerKit);
 
-    // add the sticker wear attribute if this is not a patch (mikkotodo revisit...)
+    // add the sticker wear attribute if this is not a patch
     if (sticker->second.def_index() != ItemSchema::ItemPatch)
     {
         attribute = item->add_attribute();
@@ -957,7 +895,7 @@ bool Inventory::ScrapeSticker(const CMsgApplySticker &message,
 
     if (wearAttribute)
     {
-        // mikkotodo randomize
+        // TODO: randomize wear increment instead of using fixed 1/9 step
         float wearIncrement = 1.0f / 9;
         wearLevel = m_itemSchema.AttributeFloat(wearAttribute) + wearIncrement;
     }
@@ -1386,22 +1324,6 @@ Inventory::StorageTransaction Inventory::WithdrawItemFromStorage(uint64_t storag
     tx.outcome = StorageResult::Success;
     
     return tx;
-}
-
-uint32_t* Inventory::GetKillCounterPtr(CSOEconItem &weapon)
-{
-    int attrCount = weapon.attribute_size();
-    for (int i = 0; i < attrCount; ++i)
-    {
-        auto *attr = weapon.mutable_attribute(i);
-        if (attr->def_index() != ItemSchema::AttributeKillEater)
-            continue;
-            
-        static thread_local uint32_t valueHolder;
-        valueHolder = m_itemSchema.AttributeUint32(attr);
-        return &valueHolder;
-    }
-    return nullptr;
 }
 
 void Inventory::ConsumeToolItem(uint64_t toolId, CMsgSOSingleObject &removalMsg)

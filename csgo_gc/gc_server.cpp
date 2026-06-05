@@ -55,7 +55,7 @@ void ServerGC::HandleEvent(GCEvent type, uint64_t id, const std::vector<uint8_t>
         break;
 
     default:
-        assert(false);
+        Platform::Print("ServerGC::HandleEvent: unknown event type %d\n", static_cast<int>(type));
         break;
     }
 }
@@ -65,7 +65,7 @@ void ServerGC::HandleMessage(uint32_t type, const void *data, uint32_t size)
     GCMessageRead messageRead{ type, data, size };
     if (!messageRead.IsValid())
     {
-        assert(false);
+        Platform::Print("ServerGC::HandleMessage: invalid message\n");
         return;
     }
 

@@ -47,8 +47,11 @@ void Print(const char *format, ...)
     if (logOutput >= LogOutputFile)
     {
         FILE *f = fopen("gc_log.txt", "a");
-        fprintf(f, "%s", buffer);
-        fclose(f);
+        if (f)
+        {
+            fprintf(f, "%s", buffer);
+            fclose(f);
+        }
     }
 }
 

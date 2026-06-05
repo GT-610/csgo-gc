@@ -1,5 +1,14 @@
-// this file sucks, don't scroll down!!! all you need to know is
-// that this is the bridge betweem the game and ClientGC/ServerGC
+// steam_hook.cpp - Bridge between the game and ClientGC/ServerGC
+//
+// This file contains:
+// - Steam interface proxy classes that intercept game calls
+// - Game event listener classes for handling game events
+// - Callback hook infrastructure for Steam API callbacks
+// - Hook installation logic using funchook
+//
+// Architecture flow:
+//   Game -> SteamClientProxy -> Steam*Proxy classes -> ClientGC/ServerGC
+//   Game -> CallbackHooks -> Game events -> ClientGC/ServerGC
 #include "stdafx.h"
 #include "steam_hook.h"
 #include "appid.h"
@@ -61,6 +70,10 @@ static void CheckServerBrowserPatch()
     }
 }
 
+// ============================================================================
+// GC Message Queue - Thread-safe queue for GC messages
+// ============================================================================
+
 class GCMessageQueue
 {
 public:
@@ -115,6 +128,10 @@ private:
 
     std::queue<Message> m_messages;
 };
+
+// ============================================================================
+// GC Wrapper - Manages ClientGC/ServerGC instances and networking
+// ============================================================================
 
 template<typename GC, typename Networking>
 class GCWrapper final
@@ -217,6 +234,10 @@ constexpr int EventDebugIdInit = 42;
 static CreateInterfaceFn s_engineFactory;
 static IGameEventManager2 *s_gameEventManager;
 static IVEngineClient *s_engineClient;
+
+// ============================================================================
+// Game Event Listeners - Handle game events and forward to GC
+// ============================================================================
 
 class ClientGameEventListener final : public IGameEventListener2
 {
@@ -462,6 +483,10 @@ inline bool InterfaceMatches(const char *name, const char (&compare)[N])
     return false; // not a match
 }
 
+// ============================================================================
+// Steam Interface Proxies - Intercept game calls to Steam API
+// ============================================================================
+
 // this class sucks but we need to do it this way because
 class SteamGameCoordinatorProxy final : public ISteamGameCoordinator
 {
@@ -641,14 +666,6 @@ public:
 
     ESteamAPICallFailure GetAPICallFailureReason(SteamAPICall_t hSteamAPICall) override
     {
-        // yeah we won't get here
-        //if (hSteamAPICall == CheckSignatureCall)
-        //{
-        //    // not properly handled, shouldn't get here
-        //    assert(false);
-        //    return k_ESteamAPICallFailureNone;
-        //}
-
         return m_original->GetAPICallFailureReason(hSteamAPICall);
     }
 
@@ -2031,6 +2048,10 @@ static void *Hk_CreateInterface(const char *name, int *errorCode)
     return result;
 }
 
+// ============================================================================
+// Callback Hook Infrastructure - Intercept Steam API callbacks
+// ============================================================================
+
 struct CallbackHook
 {
     int id;
@@ -2315,6 +2336,10 @@ static void HookCreate(const char *name, void *target, void *hook, void **bridge
         Platform::Error("funchook_install failed for %s: %s", name, funchook_error_message(funchook));
     }
 }
+
+// ============================================================================
+// Hook Installation - Install funchook hooks on Steam API functions
+// ============================================================================
 
 #define INLINE_HOOK(a) HookCreate(#a, reinterpret_cast<void *>(a), reinterpret_cast<void *>(Hk_##a), reinterpret_cast<void **>(&Og_##a));
 

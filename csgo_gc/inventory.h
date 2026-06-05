@@ -98,7 +98,6 @@ public:
     enum class CounterSwapStatus
     {
         Completed,
-        ToolMissing,
         WeaponMissing,
         CounterAttributeAbsent
     };
@@ -189,7 +188,6 @@ private:
     void StripStorageReference(CSOEconItem &item);
     bool ModifyStorageCounter(CSOEconItem &storage, int delta);
 
-    uint32_t* GetKillCounterPtr(CSOEconItem &weapon);
     void ConsumeToolItem(uint64_t toolId, CMsgSOSingleObject &removalMsg);
 
     const uint64_t m_steamId;
