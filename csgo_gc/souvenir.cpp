@@ -67,6 +67,31 @@ bool SouvenirOpening::OpenPackage(const CSOEconItem &package, CSOEconItem &item)
     // override quality to tournament
     item.set_quality(ItemSchema::QualityTournament);
 
+    // read tournament attributes from the package
+    uint32_t eventId = 0;
+    uint32_t teamId1 = 0;
+    uint32_t teamId2 = 0;
+
+    for (const CSOEconItemAttribute &attribute : package.attribute())
+    {
+        switch (attribute.def_index())
+        {
+        case ItemSchema::AttributeTournamentEventId:
+            eventId = m_itemSchema.AttributeUint32(&attribute);
+            break;
+
+        case ItemSchema::AttributeTournamentTeamId1:
+            teamId1 = m_itemSchema.AttributeUint32(&attribute);
+            break;
+
+        case ItemSchema::AttributeTournamentTeamId2:
+            teamId2 = m_itemSchema.AttributeUint32(&attribute);
+            break;
+        }
+    }
+
+    ApplyTournamentAttributes(item, eventId, teamId1, teamId2, 0);
+
     return true;
 }
 

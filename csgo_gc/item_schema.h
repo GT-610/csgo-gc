@@ -250,6 +250,11 @@ public:
         AttributeCasketModificationDate = 271,
         AttributeCasketIdLow = 272,
         AttributeCasketIdHigh = 273,
+
+        // these are on souvenir package items, mikkotodo parse from schema
+        AttributeTournamentEventId = 267,
+        AttributeTournamentTeamId1 = 268,
+        AttributeTournamentTeamId2 = 269,
     };
 
 private:
