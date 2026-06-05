@@ -1,50 +1,9 @@
 #include "stdafx.h"
 #include "gc_client.h"
 #include "graffiti.h"
+#include "item_utils.h"
 #include "keyvalue.h"
 #include "networking_shared.h"
-
-static bool GetItemPaintKitDefIndex(const CSOEconItem &item, const ItemSchema &schema, uint32_t &paintKitDefIndex)
-{
-    for (const CSOEconItemAttribute &attr : item.attribute())
-    {
-        if (attr.def_index() == ItemSchema::AttributeTexturePrefab)
-        {
-            paintKitDefIndex = schema.AttributeUint32(&attr);
-            return true;
-        }
-    }
-
-    return false;
-}
-
-static std::string GetItemCollectionId(const CSOEconItem &item, const ItemSchema &schema)
-{
-    uint32_t paintKitDefIndex = 0;
-    if (!GetItemPaintKitDefIndex(item, schema, paintKitDefIndex))
-    {
-        return {};
-    }
-
-    std::vector<std::string> collections;
-    if (!schema.GetCollectionsForPaintedItem(item.def_index(), paintKitDefIndex, collections))
-    {
-        return {};
-    }
-
-    std::sort(collections.begin(), collections.end());
-    return collections.front();
-}
-
-static std::string GetCollectionName(const ItemSchema &schema, std::string_view collectionId)
-{
-    if (collectionId.empty())
-    {
-        return "Unknown";
-    }
-
-    return schema.GetCollectionDisplayName(collectionId);
-}
 
 ClientGC::ClientGC(uint64_t steamId)
     : m_steamId{ steamId }

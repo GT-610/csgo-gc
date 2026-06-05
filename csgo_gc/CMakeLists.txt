@@ -11,6 +11,7 @@ add_library(csgo_gc SHARED
     graffiti.cpp
     inventory.cpp
     item_schema.cpp
+    item_utils.cpp
     keyvalue.cpp
     main.cpp
     networking_client.cpp
