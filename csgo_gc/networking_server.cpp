@@ -99,7 +99,7 @@ void NetworkingServer::SendMessage(uint64_t steamId, const void *data, uint32_t 
 {
     if (!m_clients.Has(steamId))
     {
-        Platform::Print("No csgo_gc session with %llu, not sending message!!!\n");
+        Platform::Print("No csgo_gc session with %llu, not sending message!!!\n", steamId);
         return;
     }
 
@@ -112,11 +112,11 @@ void NetworkingServer::OnSessionRequest(SteamNetworkingMessagesSessionRequest_t 
 
     if (!m_clients.Has(steamId))
     {
-        Platform::Print("%llu sent a session request, we don't have a csgo_gc session, ignoring...\n");
+        Platform::Print("%llu sent a session request, we don't have a csgo_gc session, ignoring...\n", steamId);
         return;
     }
 
-    Platform::Print("%llu sent a session request, we were playing GC with them so accept\n");
+    Platform::Print("%llu sent a session request, we were playing GC with them so accept\n", steamId);
 
     if (!m_networkingMessages->AcceptSessionWithUser(param->m_identityRemote))
     {
