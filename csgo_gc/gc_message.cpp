@@ -8,7 +8,8 @@ GCMessageRead::GCMessageRead(uint32_t type, const void *data, uint32_t size)
     m_type = ReadUint32();
     if (!IsValid())
     {
-        assert(false);
+        Platform::Print("GCMessageRead: invalid message header\n");
+        m_error = true;
         return;
     }
 
@@ -28,7 +29,7 @@ GCMessageRead::GCMessageRead(uint32_t type, const void *data, uint32_t size)
             const void *headerData = ReadData(headerSize);
             if (!header.ParseFromArray(headerData, headerSize))
             {
-                assert(false);
+                Platform::Print("GCMessageRead: failed to parse protobuf header\n");
                 m_error = true;
                 return;
             }
@@ -64,15 +65,14 @@ const void *GCMessageRead::ReadData(size_t size)
 {
     if (m_error)
     {
-        // shouldn't get called
-        assert(false);
+        // shouldn't get called after error
         return nullptr;
     }
 
     if (m_offset + size > m_size)
     {
         // overflow
-        assert(false);
+        Platform::Print("GCMessageRead: data read overflow\n");
         m_error = true;
         return nullptr;
     }
@@ -87,8 +87,7 @@ std::string_view GCMessageRead::ReadString()
 {
     if (m_error)
     {
-        // shouldn't get called
-        assert(false);
+        // shouldn't get called after error
         return {};
     }
 
@@ -103,7 +102,7 @@ std::string_view GCMessageRead::ReadString()
     }
 
     // overflow
-    assert(false);
+    Platform::Print("GCMessageRead: string read overflow\n");
     m_error = true;
     return {};
 }
@@ -115,8 +114,11 @@ static void AppendProtobuf(std::vector<uint8_t> &buffer, const google::protobuf:
     size_t protobufSize = message.ByteSizeLong();
     buffer.resize(buffer.size() + protobufSize);
 
-    [[maybe_unused]] bool result = message.SerializeToArray(buffer.data() + protobufOffset, protobufSize);
-    assert(result);
+    if (!message.SerializeToArray(buffer.data() + protobufOffset, protobufSize))
+    {
+        Platform::Print("AppendProtobuf: failed to serialize protobuf message\n");
+        buffer.resize(protobufOffset);
+    }
 }
 
 GCMessageWrite::GCMessageWrite(uint32_t type, const google::protobuf::MessageLite &message, uint64_t jobId)

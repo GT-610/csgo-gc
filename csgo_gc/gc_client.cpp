@@ -122,12 +122,12 @@ void ClientGC::HandleEvent(GCEvent type, uint64_t id, const std::vector<uint8_t>
         }
         else
         {
-            assert(false);
+            Platform::Print("ClientGC::HandleEvent: invalid SyncLocalPlayerMusicKitState buffer size\n");
         }
         break;
 
     default:
-        assert(false);
+        Platform::Print("ClientGC::HandleEvent: unknown event type %d\n", static_cast<int>(type));
         break;
     }
 }
@@ -137,7 +137,7 @@ void ClientGC::HandleMessage(uint32_t type, const void *data, uint32_t size)
     GCMessageRead messageRead{ type, data, size };
     if (!messageRead.IsValid())
     {
-        assert(false);
+        Platform::Print("ClientGC::HandleMessage: invalid message\n");
         return;
     }
 
@@ -249,7 +249,7 @@ void ClientGC::HandleNetMessage(const void *data, uint32_t size)
     GCMessageRead messageRead{ 0, data, size };
     if (!messageRead.IsValid())
     {
-        assert(false);
+        Platform::Print("ClientGC::HandleNetMessage: invalid message\n");
         return;
     }
 
