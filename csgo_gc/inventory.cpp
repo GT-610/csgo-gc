@@ -239,6 +239,13 @@ void Inventory::ReadItem(const KeyValue &itemKey, CSOEconItem &item) const
         }
     }
 
+    uint32_t paintKitDefIndex = 0;
+    if (item.quality() == ItemSchema::QualityNormal
+        && GetItemPaintKitDefIndex(item, m_itemSchema, paintKitDefIndex))
+    {
+        item.set_quality(ItemSchema::QualityUnique);
+    }
+
     const KeyValue *equippedStateKey = itemKey.GetSubkey("equipped_state");
     if (equippedStateKey)
     {
@@ -1615,18 +1622,36 @@ bool Inventory::TradeUp(const std::vector<uint64_t> &inputItemIds,
         Platform::Print("Trade-up item %llu: collection %s (%s), quality %u\n", itemId,
             collectionId.c_str(), GetCollectionName(m_itemSchema, collectionId).c_str(), item.quality());
 
-        bool itemStatTrak = false;
+        bool hasKillEater = false;
+        bool hasWeaponKillEaterScoreType = false;
         for (const CSOEconItemAttribute &attr : item.attribute())
         {
             if (attr.def_index() == ItemSchema::AttributeKillEater)
             {
-                itemStatTrak = true;
+                hasKillEater = true;
+            }
+            else if (attr.def_index() == ItemSchema::AttributeKillEaterScoreType)
+            {
+                hasWeaponKillEaterScoreType = m_itemSchema.AttributeUint32(&attr) == 0;
             }
             else if (attr.def_index() == ItemSchema::AttributeTextureWear)
             {
                 totalWear += m_itemSchema.AttributeFloat(&attr);
                 wearCount++;
             }
+        }
+
+        bool itemNormalTradeUp = (item.quality() == ItemSchema::QualityUnique
+            || item.quality() == ItemSchema::QualityTournament)
+            && !hasKillEater;
+        bool itemStatTrak = item.quality() == ItemSchema::QualityStrange
+            && hasKillEater
+            && hasWeaponKillEaterScoreType;
+        if (!itemNormalTradeUp && !itemStatTrak)
+        {
+            Platform::Print("Trade-up item %llu has unsupported quality/state (quality %u, kill eater=%d, weapon score type=%d)\n",
+                itemId, item.quality(), hasKillEater ? 1 : 0, hasWeaponKillEaterScoreType ? 1 : 0);
+            return false;
         }
 
         if (!statTrakSet)

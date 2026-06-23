@@ -877,7 +877,7 @@ void ClientGC::NameBaseItem(GCMessageRead &messageRead)
 void ClientGC::Craft(GCMessageRead &messageRead)
 {
     // Trade-up contract message format:
-    // int16_t recipe (-2 for trade-up)
+    // int16_t recipe/filter
     // int16_t itemCount (should be 10)
     // uint64_t itemIds[itemCount]
     
@@ -892,8 +892,12 @@ void ClientGC::Craft(GCMessageRead &messageRead)
     
     Platform::Print("TRADE-UP CONTRACT: recipe=%d, itemCount=%d\n", recipe, itemCount);
 
-    // Trade-up recipes are -2 and 12 (remove restriction on 12)
-    if (recipe != -2 && recipe != 12)
+    // Trade-up recipes in items_game.txt use filter -3. The concrete always-known
+    // recipe ids are 0..5 for normal weapons and 10..15 for StatTrak weapons.
+    bool isTradeUpRecipe = recipe == -3
+        || (recipe >= 0 && recipe <= 5)
+        || (recipe >= 10 && recipe <= 15);
+    if (!isTradeUpRecipe)
     {
         Platform::Print("Unsupported craft recipe %d, ignoring\n", recipe);
         return;

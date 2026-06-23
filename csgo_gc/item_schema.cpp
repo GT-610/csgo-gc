@@ -434,10 +434,16 @@ bool ItemSchema::CreateItemFromLootListItem(Random &random,
         return false;
     }
 
-    // quality override, stattrak makes it strange if it's not an unusual
+    // Painted weapons are normal schema items, but their econ instances are unique
+    // unless StatTrak elevates them to strange. The client-side trade-up filters
+    // key off this quality before the GC ever sees a craft request.
     if (statTrak && lootListItem.quality != ItemSchema::QualityUnusual)
     {
         item.set_quality(ItemSchema::QualityStrange);
+    }
+    else if (lootListItem.type == LootListItemPaintable && lootListItem.quality != ItemSchema::QualityUnusual)
+    {
+        item.set_quality(ItemSchema::QualityUnique);
     }
     else
     {
