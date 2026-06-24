@@ -125,7 +125,7 @@ bool WriteToProtectedMemory(void *address, const void *data, size_t size, bool n
 
     if (needsExecute)
     {
-        FlushInstructionCache(GetCurrentProcess(), address, size);
+        restoreOk = FlushInstructionCache(GetCurrentProcess(), address, size) && restoreOk;
     }
 
     return restoreOk;
