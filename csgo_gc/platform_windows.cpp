@@ -137,7 +137,7 @@ static void *Q_memmem(const void *_haystack, size_t haystack_len, const void *_n
     return NULL;
 }
 
-bool PatchGraffitiPublicKey(std::string_view moduleName, const void *original, const void *replacement, size_t size)
+bool UpdateGraffitiKey(std::string_view moduleName, const void *original, const void *replacement, size_t size)
 {
     std::string actualModuleName;
     actualModuleName.assign(moduleName);
@@ -204,7 +204,7 @@ static uint8_t *FindUint32FromCode(uint8_t *start, uint8_t *end, uint32_t value)
 
 // the server browser filters out servers with appid < 200 or > 900 unless it's garry's mod,
 // so replace gmod appid (4000) with the requested one
-bool PatchServerBrowserAppId(uint32_t appId)
+bool UpdateServerBrowserAppId(uint32_t appId)
 {
     HMODULE module = GetModuleHandleA("serverbrowser.dll");
     if (!module)
