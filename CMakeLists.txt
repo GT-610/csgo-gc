@@ -77,17 +77,13 @@ FetchContent_MakeAvailable(protobuf)
 
 option(CRYPTOPP_BUILD_TESTING "Build library tests" OFF)
 option(CRYPTOPP_INSTALL "Generate the install target for this project." OFF)
+option(CRYPTOPP_USE_MASTER_BRANCH "Get crypto++ from the master branch, not from a release tag" ON)
 
 FetchContent_Declare(cryptopp-cmake
 	GIT_REPOSITORY https://github.com/abdes/cryptopp-cmake
 	GIT_SHALLOW TRUE)
 
 FetchContent_MakeAvailable(cryptopp-cmake)
-
-if (MSVC)
-    # shut the fuck up
-    target_compile_definitions(cryptopp PRIVATE _SILENCE_STDEXT_ARR_ITERS_DEPRECATION_WARNING)
-endif()
 
 #-------------------------------------------------
 # funchook
