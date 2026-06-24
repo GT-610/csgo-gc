@@ -121,17 +121,14 @@ bool WriteToProtectedMemory(void *address, const void *data, size_t size, bool n
     }
 
     memcpy(address, data, size);
-    VirtualProtect(address, size, oldProtect, &oldProtect);
+    bool restoreOk = VirtualProtect(address, size, oldProtect, &oldProtect);
 
-#if defined(_M_IX86) || defined(_M_X64) || defined(__i386__) || defined(__x86_64__)
-    // no-op on x86, only needed for ARM
-    (void)address;
-    (void)size;
-#else
-    FlushInstructionCache(GetCurrentProcess(), address, size);
-#endif
+    if (needsExecute)
+    {
+        FlushInstructionCache(GetCurrentProcess(), address, size);
+    }
 
-    return true;
+    return restoreOk;
 }
 
 static void *Q_memmem(const void *_haystack, size_t haystack_len, const void *_needle, size_t needle_len)

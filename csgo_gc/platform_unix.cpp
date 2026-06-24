@@ -313,7 +313,7 @@ bool WriteToProtectedMemory(void *address, const void *data, size_t size, bool n
     {
         restoreFlags |= PROT_EXEC;
     }
-    mprotect(alignedAddress, alignedSize, restoreFlags);
+    bool restoreOk = mprotect(alignedAddress, alignedSize, restoreFlags) == 0;
 
     if (needsExecute)
     {
@@ -325,7 +325,7 @@ bool WriteToProtectedMemory(void *address, const void *data, size_t size, bool n
 #endif
     }
 
-    return true;
+    return restoreOk;
 }
 
 bool UpdateGraffitiKey(std::string_view moduleName, const void *original, const void *replacement, size_t size)
