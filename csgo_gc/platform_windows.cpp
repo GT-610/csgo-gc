@@ -110,6 +110,30 @@ void SetEnvVar(const char *name, const char *value)
     SetEnvironmentVariableA(name, value);
 }
 
+bool WriteToProtectedMemory(void *address, const void *data, size_t size, bool needsExecute)
+{
+    DWORD newProtect = needsExecute ? PAGE_EXECUTE_READWRITE : PAGE_READWRITE;
+    DWORD oldProtect;
+
+    if (!VirtualProtect(address, size, newProtect, &oldProtect))
+    {
+        return false;
+    }
+
+    memcpy(address, data, size);
+    VirtualProtect(address, size, oldProtect, &oldProtect);
+
+#if defined(_M_IX86) || defined(_M_X64) || defined(__i386__) || defined(__x86_64__)
+    // no-op on x86, only needed for ARM
+    (void)address;
+    (void)size;
+#else
+    FlushInstructionCache(GetCurrentProcess(), address, size);
+#endif
+
+    return true;
+}
+
 static void *Q_memmem(const void *_haystack, size_t haystack_len, const void *_needle, size_t needle_len)
 {
     uint8_t *haystack = (uint8_t *)_haystack;
@@ -160,15 +184,7 @@ bool UpdateGraffitiKey(std::string_view moduleName, const void *original, const 
         return false;
     }
 
-    DWORD oldProtect;
-    if (VirtualProtect(address, size, PAGE_READWRITE, &oldProtect))
-    {
-        memcpy(address, replacement, size);
-        VirtualProtect(address, size, oldProtect, &oldProtect);
-        return true;
-    }
-
-    return false;
+    return WriteToProtectedMemory(address, replacement, size, false);
 }
 
 // FIXME: generalize and use for graffiti public key as well
@@ -253,23 +269,7 @@ bool UpdateServerBrowserAppId(uint32_t appId)
 
         if (foundLow && foundHigh)
         {
-            DWORD oldProtect;
-
-            // if we find both, this should be the address we need to patch --> replace gmod appid with the target one
-            if (VirtualProtect(ptr4000, sizeof(uint32_t), PAGE_EXECUTE_READWRITE, &oldProtect))
-            {
-                *reinterpret_cast<uint32_t *>(ptr4000) = appId;
-                VirtualProtect(ptr4000, sizeof(uint32_t), oldProtect, &oldProtect);
-
-                // might want to do this since we're patching so late
-                FlushInstructionCache(GetCurrentProcess(), ptr4000, sizeof(uint32_t));
-            }
-            else
-            {
-                return false;
-            }
-
-            return true;
+            return WriteToProtectedMemory(ptr4000, &appId, sizeof(uint32_t), true);
         }
 
         searchStart = ptr4000 + 1;

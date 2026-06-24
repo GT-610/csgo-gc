@@ -29,6 +29,10 @@ void *ModuleFactory(std::string_view moduleName);
 // set an envar to the specified value even if it's already set
 void SetEnvVar(const char *name, const char *value);
 
+// safely write to memory that may be read-only, handles protection changes internally
+// set needsExecute to true when modifying code sections
+bool WriteToProtectedMemory(void *address, const void *data, size_t size, bool needsExecute);
+
 // update the graffiti public key in the specified module to get sprays working
 // the module name is given in a platform-agnostic format
 // (e.g. on linux pass server as moduleName, and it'll operate on server_client.so)
