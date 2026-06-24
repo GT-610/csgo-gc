@@ -10,6 +10,7 @@
 #if defined(__APPLE__)
 #include <mach-o/dyld.h>
 #include <CoreFoundation/CoreFoundation.h>
+#include <libkern/OSCacheControl.h>
 #else
 #include <link.h>
 #endif
