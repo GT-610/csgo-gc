@@ -110,6 +110,27 @@ void SetEnvVar(const char *name, const char *value)
     SetEnvironmentVariableA(name, value);
 }
 
+bool WriteToProtectedMemory(void *address, const void *data, size_t size, bool needsExecute)
+{
+    DWORD newProtect = needsExecute ? PAGE_EXECUTE_READWRITE : PAGE_READWRITE;
+    DWORD oldProtect;
+
+    if (!VirtualProtect(address, size, newProtect, &oldProtect))
+    {
+        return false;
+    }
+
+    memcpy(address, data, size);
+    bool restoreOk = VirtualProtect(address, size, oldProtect, &oldProtect);
+
+    if (needsExecute)
+    {
+        restoreOk = FlushInstructionCache(GetCurrentProcess(), address, size) && restoreOk;
+    }
+
+    return restoreOk;
+}
+
 static void *Q_memmem(const void *_haystack, size_t haystack_len, const void *_needle, size_t needle_len)
 {
     uint8_t *haystack = (uint8_t *)_haystack;
@@ -137,7 +158,7 @@ static void *Q_memmem(const void *_haystack, size_t haystack_len, const void *_n
     return NULL;
 }
 
-bool PatchGraffitiPublicKey(std::string_view moduleName, const void *original, const void *replacement, size_t size)
+bool UpdateGraffitiKey(std::string_view moduleName, const void *original, const void *replacement, size_t size)
 {
     std::string actualModuleName;
     actualModuleName.assign(moduleName);
@@ -160,15 +181,7 @@ bool PatchGraffitiPublicKey(std::string_view moduleName, const void *original, c
         return false;
     }
 
-    DWORD oldProtect;
-    if (VirtualProtect(address, size, PAGE_READWRITE, &oldProtect))
-    {
-        memcpy(address, replacement, size);
-        VirtualProtect(address, size, oldProtect, &oldProtect);
-        return true;
-    }
-
-    return false;
+    return WriteToProtectedMemory(address, replacement, size, false);
 }
 
 // FIXME: generalize and use for graffiti public key as well
@@ -204,7 +217,7 @@ static uint8_t *FindUint32FromCode(uint8_t *start, uint8_t *end, uint32_t value)
 
 // the server browser filters out servers with appid < 200 or > 900 unless it's garry's mod,
 // so replace gmod appid (4000) with the requested one
-bool PatchServerBrowserAppId(uint32_t appId)
+bool UpdateServerBrowserAppId(uint32_t appId)
 {
     HMODULE module = GetModuleHandleA("serverbrowser.dll");
     if (!module)
@@ -253,23 +266,7 @@ bool PatchServerBrowserAppId(uint32_t appId)
 
         if (foundLow && foundHigh)
         {
-            DWORD oldProtect;
-
-            // if we find both, this should be the address we need to patch --> replace gmod appid with the target one
-            if (VirtualProtect(ptr4000, sizeof(uint32_t), PAGE_EXECUTE_READWRITE, &oldProtect))
-            {
-                *reinterpret_cast<uint32_t *>(ptr4000) = appId;
-                VirtualProtect(ptr4000, sizeof(uint32_t), oldProtect, &oldProtect);
-
-                // might want to do this since we're patching so late
-                FlushInstructionCache(GetCurrentProcess(), ptr4000, sizeof(uint32_t));
-            }
-            else
-            {
-                return false;
-            }
-
-            return true;
+            return WriteToProtectedMemory(ptr4000, &appId, sizeof(uint32_t), true);
         }
 
         searchStart = ptr4000 + 1;

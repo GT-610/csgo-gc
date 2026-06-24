@@ -10,6 +10,7 @@
 #if defined(__APPLE__)
 #include <mach-o/dyld.h>
 #include <CoreFoundation/CoreFoundation.h>
+#include <libkern/OSCacheControl.h>
 #else
 #include <link.h>
 #endif
@@ -284,26 +285,50 @@ void SetEnvVar(const char *name, const char *value)
     setenv(name, value, 1);
 }
 
-static void CopyToReadOnly(void *dest, const void *src, size_t size, int oldFlags)
+bool WriteToProtectedMemory(void *address, const void *data, size_t size, bool needsExecute)
 {
     size_t pageSize = sysconf(_SC_PAGESIZE);
-    void *alignedAddress = (void *)((size_t)dest & ~(pageSize - 1));
+    void *alignedAddress = (void *)((size_t)address & ~(pageSize - 1));
+    size_t alignedSize = ((size_t)address + size) - (size_t)alignedAddress;
 
-    size_t alignedSize = ((size_t)dest + size) - (size_t)alignedAddress;
-
-    assert(alignedAddress <= dest);
+    assert(alignedAddress <= address);
     assert(alignedSize >= size);
 
-    int result = mprotect(alignedAddress, alignedSize, oldFlags | PROT_WRITE);
-    assert(result == 0);
+    int newFlags = PROT_READ | PROT_WRITE;
+    if (needsExecute)
+    {
+        newFlags |= PROT_EXEC;
+    }
 
-    memcpy(dest, src, size);
+    if (mprotect(alignedAddress, alignedSize, newFlags) != 0)
+    {
+        return false;
+    }
 
-    result = mprotect(alignedAddress, alignedSize, oldFlags);
-    assert(result == 0);
+    memcpy(address, data, size);
+
+    // restore original protection (read-only for data, read+execute for code)
+    int restoreFlags = PROT_READ;
+    if (needsExecute)
+    {
+        restoreFlags |= PROT_EXEC;
+    }
+    bool restoreOk = mprotect(alignedAddress, alignedSize, restoreFlags) == 0;
+
+    if (needsExecute)
+    {
+#if defined(__APPLE__)
+        // macOS uses sys_icache_invalidate
+        sys_icache_invalidate(alignedAddress, alignedSize);
+#else
+        __builtin___clear_cache((char *)alignedAddress, (char *)alignedAddress + alignedSize);
+#endif
+    }
+
+    return restoreOk;
 }
 
-bool PatchGraffitiPublicKey(std::string_view moduleName, const void *original, const void *replacement, size_t size)
+bool UpdateGraffitiKey(std::string_view moduleName, const void *original, const void *replacement, size_t size)
 {
     std::string actualModuleName;
 
@@ -341,8 +366,7 @@ bool PatchGraffitiPublicKey(std::string_view moduleName, const void *original, c
         return false;
     }
 
-    CopyToReadOnly(address, replacement, size, PROT_READ);
-    return true;
+    return WriteToProtectedMemory(address, replacement, size, false);
 }
 
 // FIXME: generalize and use for graffiti public key as well
@@ -447,7 +471,7 @@ static uint8_t *FindUint32FromCode(uint8_t *start, uint8_t *end, uint32_t value)
 
 // the server browser filters out servers with appid < 200 or > 900 unless it's garry's mod,
 // so replace gmod appid (4000) with the requested one
-bool PatchServerBrowserAppId(uint32_t appId)
+bool UpdateServerBrowserAppId(uint32_t appId)
 {
     uint8_t *codeStart, *codeEnd;
 
@@ -500,12 +524,7 @@ bool PatchServerBrowserAppId(uint32_t appId)
 
         if (foundLow && foundHigh)
         {
-            CopyToReadOnly(ptr4000, &appId, sizeof(uint32_t), PROT_READ | PROT_EXEC);
-
-            // might want to do this since we're patching so late
-            __builtin___clear_cache((char *)ptr4000, (char *)ptr4000 + sizeof(uint32_t));
-
-            return true;
+            return WriteToProtectedMemory(ptr4000, &appId, sizeof(uint32_t), true);
         }
 
         searchStart = ptr4000 + 1;

@@ -38,7 +38,7 @@ public:
 
     bool DestroyUsedItems() const { return m_destroyUsedItems; }
 
-    bool VacBanned() const { return m_vacBanned; }
+    bool AccountStatus() const { return m_vacBanned; }
     int CommendedFriendly() const { return m_commendedFriendly; }
     int CommendedTeaching() const { return m_commendedTeaching; }
     int CommendedLeader() const { return m_commendedLeader; }

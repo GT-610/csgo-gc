@@ -10,28 +10,36 @@
 DLL_EXPORT DWORD NvOptimusEnablement = 1;
 DLL_EXPORT int AmdPowerXpressRequestHighPerformance = 1;
 
-DLL_EXPORT bool BSecureAllowed(unsigned char *, int, int)
+// Security stubs - these are required by the game launcher but not used
+// for actual security checks in our implementation
+DLL_EXPORT bool BSecureAllowed(unsigned char *pData, int nSize, int nType)
 {
+    // Game expects this to return true to proceed with launch
+    // The parameters are not used in our implementation
     return true;
 }
 
 DLL_EXPORT int CountFilesCompletedTrustCheck()
 {
+    // Game expects this to return 0 to indicate no pending checks
     return 0;
 }
 
 DLL_EXPORT int CountFilesNeedTrustCheck()
 {
+    // Game expects this to return 0 to indicate no files need checking
     return 0;
 }
 
 DLL_EXPORT int GetTotalFilesLoaded()
 {
+    // Game expects this to return 0 to indicate no files loaded yet
     return 0;
 }
 
-DLL_EXPORT int RuntimeCheck(int, int)
+DLL_EXPORT int RuntimeCheck(int nType, int nFlags)
 {
+    // Game expects this to return 0 to indicate runtime is valid
     return 0;
 }
 

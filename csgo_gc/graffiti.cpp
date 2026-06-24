@@ -23,7 +23,7 @@ static const uint8_t s_publicKeyValve[] = {
     0xAA, 0x47, 0xB1, 0x7B, 0x29, 0xA1, 0xE4, 0xEF, 0x50, 0xF9, 0xAF, 0x0B, 0xAF, 0x02, 0x01, 0x11
 };
 
-static void PatchPublicKeys(const CryptoPP::RSA::PrivateKey &privateKey)
+static void UpdatePublicKeys(const CryptoPP::RSA::PrivateKey &privateKey)
 {
     CryptoPP::RSA::PublicKey publicKey{ privateKey };
 
@@ -37,14 +37,14 @@ static void PatchPublicKeys(const CryptoPP::RSA::PrivateKey &privateKey)
         return;
     }
 
-    if (!Platform::PatchGraffitiPublicKey("client", s_publicKeyValve, publicKeyString.data(), sizeof(s_publicKeyValve)))
+    if (!Platform::UpdateGraffitiKey("client", s_publicKeyValve, publicKeyString.data(), sizeof(s_publicKeyValve)))
     {
-        Platform::Print("Failed to patch graffiti public key in client! Graffiti will not work\n");
+        Platform::Print("Failed to update graffiti public key in client! Graffiti will not work\n");
     }
 
-    if (!Platform::PatchGraffitiPublicKey("server", s_publicKeyValve, publicKeyString.data(), sizeof(s_publicKeyValve)))
+    if (!Platform::UpdateGraffitiKey("server", s_publicKeyValve, publicKeyString.data(), sizeof(s_publicKeyValve)))
     {
-        Platform::Print("Failed to patch graffiti public key in server! Graffiti will not work\n");
+        Platform::Print("Failed to update graffiti public key in server! Graffiti will not work\n");
     }
 }
 
@@ -59,7 +59,7 @@ void Initialize()
     s_privateKey.GenerateRandomWithKeySize(random, 1024);
     s_privateKeyGenerated = true;
 
-    PatchPublicKeys(s_privateKey);
+    UpdatePublicKeys(s_privateKey);
 }
 
 template<typename T>

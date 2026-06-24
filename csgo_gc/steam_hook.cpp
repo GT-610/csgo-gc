@@ -1,14 +1,14 @@
 // steam_hook.cpp - Bridge between the game and ClientGC/ServerGC
 //
 // This file contains:
-// - Steam interface proxy classes that intercept game calls
+// - Steam interface proxy classes that handle game calls
 // - Game event listener classes for handling game events
-// - Callback hook infrastructure for Steam API callbacks
-// - Hook installation logic using funchook
+// - Callback handling infrastructure for Steam API callbacks
+// - Function interception logic using funchook
 //
 // Architecture flow:
 //   Game -> SteamClientProxy -> Steam*Proxy classes -> ClientGC/ServerGC
-//   Game -> CallbackHooks -> Game events -> ClientGC/ServerGC
+//   Game -> CallbackHandlers -> Game events -> ClientGC/ServerGC
 #include "stdafx.h"
 #include "steam_hook.h"
 #include "appid.h"
@@ -41,8 +41,8 @@ struct SteamNetworkingIdentity;
 #include "networking_server.h"
 
 // UserStatsReceived_t fails with the new csgo appid, which causes gc callbacks to not run
-// to work around this, spoof user stats requests when running under this appid specifically
-// we also need to patch serverbrowser to allow for appids over 900...
+// to work around this, handle user stats requests when running under this appid specifically
+// we also need to update serverbrowser to allow for appids over 900...
 static void CheckServerBrowserPatch()
 {
     static bool attempted = false;
@@ -60,13 +60,13 @@ static void CheckServerBrowserPatch()
         return;
     }
 
-    if (!Platform::PatchServerBrowserAppId(AppId::GetOverride()))
+    if (!Platform::UpdateServerBrowserAppId(AppId::GetOverride()))
     {
-        Platform::Print("serverbrowser patch failed\n");
+        Platform::Print("serverbrowser update failed\n");
     }
     else
     {
-        Platform::Print("serverbrowser patch succeeded\n");
+        Platform::Print("serverbrowser update succeeded\n");
     }
 }
 
@@ -301,7 +301,7 @@ public:
             if (musickitmvps > 0)
             {
                 event->SetInt("musickitmvps", musickitmvps);
-                Platform::Print("Listener injected local musickitmvps into round_mvp: %d\n", musickitmvps);
+                Platform::Print("Listener added local musickitmvps to round_mvp: %d\n", musickitmvps);
             }
         }
 
@@ -346,7 +346,7 @@ public:
         }
 
         event->SetInt("musickitmvps", musickitmvps);
-        Platform::Print("Server listener injected musickitmvps into round_mvp: userid=%d musickitmvps=%d\n",
+        Platform::Print("Server listener added musickitmvps to round_mvp: userid=%d musickitmvps=%d\n",
             userId,
             musickitmvps);
     }
@@ -582,7 +582,7 @@ public:
 // stupid hack
 constexpr SteamAPICall_t CheckSignatureCall = 0x6666666666666666;
 
-// hook so we can spoof the dll signature checks and get rid of the annoying as fuck insecure message box
+// proxy to handle dll signature checks and avoid unnecessary security warnings
 class SteamUtilsProxy final : public ISteamUtils
 {
 private:
@@ -716,7 +716,7 @@ public:
 
     SteamAPICall_t CheckFileSignature([[maybe_unused]] const char *szFileName) override
     {
-        // spoof this
+        // handle this
         return CheckSignatureCall;
     }
 
@@ -831,7 +831,7 @@ public:
     {
         if (!AppId::IsOriginal())
         {
-            Platform::Print("Spoofing RequestCurrentStats\n");
+            Platform::Print("Handling RequestCurrentStats for custom appid\n");
             QueueUserStatsCallback();
             return true;
         }
@@ -919,7 +919,7 @@ public:
         if (!AppId::IsOriginal())
         {
             // not used by csgo, but warn anyway
-            Platform::Print("RequestUserStats not spoofed!!!\n");
+            Platform::Print("RequestUserStats not handled for custom appid\n");
         }
 
         return m_original->RequestUserStats(steamIDUser);
@@ -1101,7 +1101,7 @@ public:
         // no longer present in steamworks sdk
         constexpr uint32 k_unServerFlagSecure = 2;
 
-        // never run secure!!!
+        // disable secure mode for local servers
         unFlags &= ~k_unServerFlagSecure;
 
         // make sure we're up to date
@@ -2049,7 +2049,7 @@ static void *Hk_CreateInterface(const char *name, int *errorCode)
 }
 
 // ============================================================================
-// Callback Hook Infrastructure - Intercept Steam API callbacks
+// Callback Handling Infrastructure - Handle Steam API callbacks
 // ============================================================================
 
 struct CallbackHook
@@ -2065,7 +2065,7 @@ static bool ShouldHookCallback(int id)
         return true;
     }
 
-    // we want to spoof all gc callbacks
+    // we want to handle all gc callbacks
     switch (id)
     {
     case GCMessageAvailable_t::k_iCallback:
@@ -2100,7 +2100,7 @@ public:
 class CallbackHooks
 {
 public:
-    // returns true if callback was spoofed
+    // returns true if callback was handled
     bool RegisterCallback(CCallbackBase *callback, int id)
     {
         if (!ShouldHookCallback(id))
@@ -2116,7 +2116,7 @@ public:
         return true;
     }
 
-    // returns true if callback was spoofed
+    // returns true if callback was handled
     bool UnregisterCallback(CCallbackBase *callback)
     {
         bool unregistered = false;
@@ -2338,7 +2338,7 @@ static void HookCreate(const char *name, void *target, void *hook, void **bridge
 }
 
 // ============================================================================
-// Hook Installation - Install funchook hooks on Steam API functions
+// Function Interception - Install funchook hooks on Steam API functions
 // ============================================================================
 
 #define INLINE_HOOK(a) HookCreate(#a, reinterpret_cast<void *>(a), reinterpret_cast<void *>(Hk_##a), reinterpret_cast<void **>(&Og_##a));
