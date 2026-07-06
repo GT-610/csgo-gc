@@ -677,6 +677,7 @@ void ClientGC::StorePurchaseInit(GCMessageRead &messageRead)
 
     assert(!m_transactionId);
     m_transactionId = transactionId;
+    m_transactionItemIds.clear();
     m_transactionItemIds.reserve(message.line_items_size()); // rough approx
 
     // inventory update response
@@ -737,6 +738,7 @@ void ClientGC::StorePurchaseFinalize(GCMessageRead &messageRead)
 
     // done with this one
     m_transactionId = 0;
+    m_transactionItemIds.clear();
 }
 
 void ClientGC::DeleteItem(GCMessageRead &messageRead)
@@ -790,7 +792,11 @@ void ClientGC::UnlockCrate(GCMessageRead &messageRead)
         // Returning GenerateSouvenir here causes a "could not retrieve items" error.
         notification.set_request(k_EGCItemCustomizationNotification_UnlockCrate);
 
-        SendMessageToGame(true, k_ESOMsg_Destroy, destroyCrate);
+        if (destroyCrate.has_type_id())
+        {
+            SendMessageToGame(true, k_ESOMsg_Destroy, destroyCrate);
+        }
+
         SendMessageToGame(true, k_ESOMsg_Create, newItem);
 
         SendMessageToGame(false, k_EMsgGCItemCustomizationNotification, notification);
@@ -805,9 +811,16 @@ void ClientGC::UnlockCrate(GCMessageRead &messageRead)
             newItem,
             notification))
     {
-        // mikkotodo what does the server want to know
-        SendMessageToGame(true, k_ESOMsg_Destroy, destroyCrate);
-        SendMessageToGame(true, k_ESOMsg_Destroy, destroyKey);
+        if (destroyCrate.has_type_id())
+        {
+            SendMessageToGame(true, k_ESOMsg_Destroy, destroyCrate);
+        }
+
+        if (destroyKey.has_type_id())
+        {
+            SendMessageToGame(true, k_ESOMsg_Destroy, destroyKey);
+        }
+
         SendMessageToGame(true, k_ESOMsg_Create, newItem);
 
         SendMessageToGame(false, k_EMsgGCItemCustomizationNotification, notification);
@@ -1027,8 +1040,8 @@ void ClientGC::DispatchStorageResult(const Inventory::StorageTransaction &tx)
             
             if (tx.Succeeded())
             {
-                SendMessageToGame(false, k_ESOMsg_Update, tx.itemData);
-                SendMessageToGame(false, k_ESOMsg_Update, tx.containerData);
+                SendMessageToGame(true, k_ESOMsg_Update, tx.itemData);
+                SendMessageToGame(true, k_ESOMsg_Update, tx.containerData);
             }
             SendMessageToGame(false, k_EMsgGCItemCustomizationNotification, notice);
         }

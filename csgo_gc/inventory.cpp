@@ -1226,6 +1226,8 @@ Inventory::StorageItemPair Inventory::ResolveStorageItems(uint64_t storageId, ui
 
 void Inventory::EmbedStorageReference(CSOEconItem &item, uint64_t storageId)
 {
+    StripStorageReference(item);
+
     auto *attrLow = item.add_attribute();
     auto *attrHigh = item.add_attribute();
     
@@ -1250,6 +1252,33 @@ void Inventory::StripStorageReference(CSOEconItem &item)
         if (isStorageAttr)
             attrs->DeleteSubrange(i, 1);
     }
+}
+
+static std::optional<uint64_t> StorageReference(const CSOEconItem &item, const ItemSchema &schema)
+{
+    std::optional<uint32_t> low;
+    std::optional<uint32_t> high;
+
+    for (const CSOEconItemAttribute &attribute : item.attribute())
+    {
+        switch (attribute.def_index())
+        {
+        case ItemSchema::AttributeCasketIdLow:
+            low = schema.AttributeUint32(&attribute);
+            break;
+
+        case ItemSchema::AttributeCasketIdHigh:
+            high = schema.AttributeUint32(&attribute);
+            break;
+        }
+    }
+
+    if (!low.has_value() || !high.has_value())
+    {
+        return std::nullopt;
+    }
+
+    return static_cast<uint64_t>(*low) | (static_cast<uint64_t>(*high) << 32);
 }
 
 bool Inventory::ModifyStorageCounter(CSOEconItem &storage, int delta)
@@ -1295,6 +1324,12 @@ Inventory::StorageTransaction Inventory::DepositItemToStorage(uint64_t storageId
     tx.affectedContainerId = storageId;
     
     auto [storage, target] = ResolveStorageItems(storageId, itemId);
+
+    if (storageId == itemId)
+    {
+        tx.outcome = StorageResult::InvalidContainerType;
+        return tx;
+    }
     
     if (!storage)
     {
@@ -1311,6 +1346,18 @@ Inventory::StorageTransaction Inventory::DepositItemToStorage(uint64_t storageId
     if (storage->def_index() != ItemSchema::ItemCasket)
     {
         tx.outcome = StorageResult::InvalidContainerType;
+        return tx;
+    }
+
+    if (target->def_index() == ItemSchema::ItemCasket)
+    {
+        tx.outcome = StorageResult::InvalidContainerType;
+        return tx;
+    }
+
+    if (StorageReference(*target, m_itemSchema).has_value())
+    {
+        tx.outcome = StorageResult::InternalError;
         return tx;
     }
     
@@ -1353,6 +1400,13 @@ Inventory::StorageTransaction Inventory::WithdrawItemFromStorage(uint64_t storag
     if (storage->def_index() != ItemSchema::ItemCasket)
     {
         tx.outcome = StorageResult::InvalidContainerType;
+        return tx;
+    }
+
+    std::optional<uint64_t> storedIn = StorageReference(*target, m_itemSchema);
+    if (!storedIn.has_value() || *storedIn != storageId)
+    {
+        tx.outcome = StorageResult::ItemNotFound;
         return tx;
     }
     
@@ -1448,6 +1502,12 @@ Inventory::CounterSwapResult Inventory::PerformCounterSwap(uint64_t toolId, uint
 
 uint64_t Inventory::PurchaseItem(uint32_t defIndex, std::vector<CMsgSOSingleObject> &update)
 {
+    if (!m_itemSchema.ItemInfoByDefIndex(defIndex))
+    {
+        Platform::Print("PurchaseItem: unknown def_index %u\n", defIndex);
+        return 0;
+    }
+
     CSOEconItem &item = CreateItem(defIndex, ItemOriginPurchased, UnacknowledgedPurchased);
 
     CMsgSOSingleObject &single = update.emplace_back();
@@ -1567,9 +1627,17 @@ bool Inventory::TradeUp(const std::vector<uint64_t> &inputItemIds,
     int wearCount = 0;
 
     std::map<std::string, int> collectionCounts;
+    std::unordered_set<uint64_t> uniqueInputItemIds;
+    uniqueInputItemIds.reserve(inputItemIds.size());
 
     for (uint64_t itemId : inputItemIds)
     {
+        if (!uniqueInputItemIds.insert(itemId).second)
+        {
+            Platform::Print("Trade-up item %llu was submitted more than once\n", itemId);
+            return false;
+        }
+
         auto it = m_items.find(itemId);
         if (it == m_items.end())
         {
