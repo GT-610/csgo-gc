@@ -938,9 +938,19 @@ void ClientGC::Craft(GCMessageRead &messageRead)
         const CSOEconItem* item = m_inventory.GetItem(itemId);
         if (item)
         {
+            uint32_t paintKitDefIndex = 0;
+            uint32_t paintedRarity = item->rarity();
+            if (GetItemPaintKitDefIndex(*item, m_inventory.GetItemSchema(), paintKitDefIndex))
+            {
+                paintedRarity = m_inventory.GetItemSchema().GetPaintedRarity(
+                    item->def_index(),
+                    paintKitDefIndex,
+                    item->rarity());
+            }
+
             std::string collectionId = GetItemCollectionId(*item, m_inventory.GetItemSchema());
-            Platform::Print("  Item %llu: def_index %u, rarity %u, quality %u, collection %s (%s)\n",
-                itemId, item->def_index(), item->rarity(), item->quality(), collectionId.c_str(),
+            Platform::Print("  Item %llu: def_index %u, paint_kit %u, stored rarity %u, painted rarity %u, quality %u, collection %s (%s)\n",
+                itemId, item->def_index(), paintKitDefIndex, item->rarity(), paintedRarity, item->quality(), collectionId.c_str(),
                 GetCollectionName(m_inventory.GetItemSchema(), collectionId).c_str());
         }
         else

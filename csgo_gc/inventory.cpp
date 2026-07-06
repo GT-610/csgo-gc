@@ -1687,8 +1687,15 @@ bool Inventory::TradeUp(const std::vector<uint64_t> &inputItemIds,
         const std::string &collectionId = collections.front();
         collectionCounts[collectionId]++;
 
-        Platform::Print("Trade-up item %llu: collection %s (%s), quality %u\n", itemId,
-            collectionId.c_str(), GetCollectionName(m_itemSchema, collectionId).c_str(), item.quality());
+        Platform::Print("Trade-up item %llu: def %u, paint %u, stored rarity %u, painted rarity %u, collection %s (%s), quality %u\n",
+            itemId,
+            item.def_index(),
+            paintKitDefIndex,
+            item.rarity(),
+            rarity,
+            collectionId.c_str(),
+            GetCollectionName(m_itemSchema, collectionId).c_str(),
+            item.quality());
 
         bool hasKillEater = false;
         bool hasWeaponKillEaterScoreType = false;
