@@ -861,6 +861,7 @@ bool Inventory::ApplySticker(const CMsgApplySticker &message,
     }
 
     uint32_t targetDefIndex = 0;
+    CSOEconItem *item = nullptr;
     if (message.baseitem_defidx())
     {
         targetDefIndex = message.baseitem_defidx();
@@ -875,6 +876,7 @@ bool Inventory::ApplySticker(const CMsgApplySticker &message,
         }
 
         targetDefIndex = it->second.def_index();
+        item = &it->second;
     }
 
     if (sticker->second.def_index() == ItemSchema::ItemPatch)
@@ -893,21 +895,9 @@ bool Inventory::ApplySticker(const CMsgApplySticker &message,
         return false;
     }
 
-    CSOEconItem *item = nullptr;
     if (message.baseitem_defidx())
     {
         item = &CreateItem(message.baseitem_defidx(), ItemOriginBaseItem, UnacknowledgedInvalid);
-    }
-    else
-    {
-        auto it = m_items.find(message.item_item_id());
-        if (it == m_items.end())
-        {
-            assert(false);
-            return false;
-        }
-
-        item = &it->second;
     }
 
     assert(item);
