@@ -1226,6 +1226,8 @@ Inventory::StorageItemPair Inventory::ResolveStorageItems(uint64_t storageId, ui
 
 void Inventory::EmbedStorageReference(CSOEconItem &item, uint64_t storageId)
 {
+    StripStorageReference(item);
+
     auto *attrLow = item.add_attribute();
     auto *attrHigh = item.add_attribute();
     
@@ -1250,6 +1252,33 @@ void Inventory::StripStorageReference(CSOEconItem &item)
         if (isStorageAttr)
             attrs->DeleteSubrange(i, 1);
     }
+}
+
+static std::optional<uint64_t> StorageReference(const CSOEconItem &item, const ItemSchema &schema)
+{
+    std::optional<uint32_t> low;
+    std::optional<uint32_t> high;
+
+    for (const CSOEconItemAttribute &attribute : item.attribute())
+    {
+        switch (attribute.def_index())
+        {
+        case ItemSchema::AttributeCasketIdLow:
+            low = schema.AttributeUint32(&attribute);
+            break;
+
+        case ItemSchema::AttributeCasketIdHigh:
+            high = schema.AttributeUint32(&attribute);
+            break;
+        }
+    }
+
+    if (!low.has_value() || !high.has_value())
+    {
+        return std::nullopt;
+    }
+
+    return static_cast<uint64_t>(*low) | (static_cast<uint64_t>(*high) << 32);
 }
 
 bool Inventory::ModifyStorageCounter(CSOEconItem &storage, int delta)
@@ -1295,6 +1324,12 @@ Inventory::StorageTransaction Inventory::DepositItemToStorage(uint64_t storageId
     tx.affectedContainerId = storageId;
     
     auto [storage, target] = ResolveStorageItems(storageId, itemId);
+
+    if (storageId == itemId)
+    {
+        tx.outcome = StorageResult::InvalidContainerType;
+        return tx;
+    }
     
     if (!storage)
     {
@@ -1311,6 +1346,18 @@ Inventory::StorageTransaction Inventory::DepositItemToStorage(uint64_t storageId
     if (storage->def_index() != ItemSchema::ItemCasket)
     {
         tx.outcome = StorageResult::InvalidContainerType;
+        return tx;
+    }
+
+    if (target->def_index() == ItemSchema::ItemCasket)
+    {
+        tx.outcome = StorageResult::InvalidContainerType;
+        return tx;
+    }
+
+    if (StorageReference(*target, m_itemSchema).has_value())
+    {
+        tx.outcome = StorageResult::InternalError;
         return tx;
     }
     
@@ -1353,6 +1400,13 @@ Inventory::StorageTransaction Inventory::WithdrawItemFromStorage(uint64_t storag
     if (storage->def_index() != ItemSchema::ItemCasket)
     {
         tx.outcome = StorageResult::InvalidContainerType;
+        return tx;
+    }
+
+    std::optional<uint64_t> storedIn = StorageReference(*target, m_itemSchema);
+    if (!storedIn.has_value() || *storedIn != storageId)
+    {
+        tx.outcome = StorageResult::ItemNotFound;
         return tx;
     }
     
@@ -1448,6 +1502,12 @@ Inventory::CounterSwapResult Inventory::PerformCounterSwap(uint64_t toolId, uint
 
 uint64_t Inventory::PurchaseItem(uint32_t defIndex, std::vector<CMsgSOSingleObject> &update)
 {
+    if (!m_itemSchema.ItemInfoByDefIndex(defIndex))
+    {
+        Platform::Print("PurchaseItem: unknown def_index %u\n", defIndex);
+        return 0;
+    }
+
     CSOEconItem &item = CreateItem(defIndex, ItemOriginPurchased, UnacknowledgedPurchased);
 
     CMsgSOSingleObject &single = update.emplace_back();
@@ -1567,9 +1627,42 @@ bool Inventory::TradeUp(const std::vector<uint64_t> &inputItemIds,
     int wearCount = 0;
 
     std::map<std::string, int> collectionCounts;
+    std::unordered_set<uint64_t> uniqueInputItemIds;
+    uniqueInputItemIds.reserve(inputItemIds.size());
+
+    struct TradeUpItemDebug
+    {
+        uint64_t itemId{};
+        uint32_t defIndex{};
+        uint32_t paintKitDefIndex{};
+        uint32_t storedRarity{};
+        uint32_t paintedRarity{};
+        uint32_t quality{};
+        std::string collectionId;
+    };
+
+    auto printItemDebug = [this](const char *prefix, const TradeUpItemDebug &debug)
+    {
+        Platform::Print("%s item %llu: def %u, paint %u, stored rarity %u, painted rarity %u, quality %u, collection %s (%s)\n",
+            prefix,
+            debug.itemId,
+            debug.defIndex,
+            debug.paintKitDefIndex,
+            debug.storedRarity,
+            debug.paintedRarity,
+            debug.quality,
+            debug.collectionId.c_str(),
+            GetCollectionName(m_itemSchema, debug.collectionId).c_str());
+    };
 
     for (uint64_t itemId : inputItemIds)
     {
+        if (!uniqueInputItemIds.insert(itemId).second)
+        {
+            Platform::Print("Trade-up item %llu was submitted more than once\n", itemId);
+            return false;
+        }
+
         auto it = m_items.find(itemId);
         if (it == m_items.end())
         {
@@ -1580,17 +1673,26 @@ bool Inventory::TradeUp(const std::vector<uint64_t> &inputItemIds,
         const CSOEconItem &item = it->second;
         inputItems.push_back(it);
 
+        TradeUpItemDebug debug;
+        debug.itemId = itemId;
+        debug.defIndex = item.def_index();
+        debug.storedRarity = item.rarity();
+        debug.quality = item.quality();
+
         uint32_t paintKitDefIndex = 0;
         if (!GetItemPaintKitDefIndex(item, m_itemSchema, paintKitDefIndex))
         {
-            Platform::Print("Trade-up item %llu has no paint kit\n", itemId);
+            Platform::Print("Trade-up item %llu has no paint kit (def %u, stored rarity %u, quality %u)\n",
+                itemId, item.def_index(), item.rarity(), item.quality());
             return false;
         }
+        debug.paintKitDefIndex = paintKitDefIndex;
 
         uint32_t rarity = m_itemSchema.GetPaintedRarity(item.def_index(), paintKitDefIndex, item.rarity());
+        debug.paintedRarity = rarity;
         if (rarity < ItemSchema::RarityCommon || rarity > ItemSchema::RarityLegendary)
         {
-            Platform::Print("Trade-up item %llu has invalid rarity %u\n", itemId, rarity);
+            printItemDebug("Trade-up item has invalid rarity", debug);
             return false;
         }
 
@@ -1600,7 +1702,9 @@ bool Inventory::TradeUp(const std::vector<uint64_t> &inputItemIds,
         }
         else if (rarity != inputRarity)
         {
-            Platform::Print("Trade-up items must all be same rarity (expected %u, got %u)\n", inputRarity, rarity);
+            Platform::Print("Trade-up items must all be same painted rarity (expected %u, got %u)\n",
+                inputRarity, rarity);
+            printItemDebug("Mismatched trade-up rarity", debug);
             return false;
         }
 
@@ -1609,19 +1713,20 @@ bool Inventory::TradeUp(const std::vector<uint64_t> &inputItemIds,
         {
             if (!m_itemSchema.GetCollectionsForPaintKit(paintKitDefIndex, collections))
             {
-                Platform::Print("Trade-up item %llu has no collection mapping (def %u, paint %u)\n",
-                    itemId, item.def_index(), paintKitDefIndex);
+                Platform::Print("Trade-up item %llu has no collection mapping (def %u, paint %u, stored rarity %u, painted rarity %u, quality %u)\n",
+                    itemId, item.def_index(), paintKitDefIndex, item.rarity(), rarity, item.quality());
                 return false;
             }
         }
 
         std::sort(collections.begin(), collections.end());
         const std::string &collectionId = collections.front();
+        debug.collectionId = collectionId;
         collectionCounts[collectionId]++;
 
-        Platform::Print("Trade-up item %llu: collection %s (%s), quality %u\n", itemId,
-            collectionId.c_str(), GetCollectionName(m_itemSchema, collectionId).c_str(), item.quality());
+        printItemDebug("Trade-up input", debug);
 
+        bool hasWear = false;
         bool hasKillEater = false;
         bool hasWeaponKillEaterScoreType = false;
         for (const CSOEconItemAttribute &attr : item.attribute())
@@ -1636,9 +1741,18 @@ bool Inventory::TradeUp(const std::vector<uint64_t> &inputItemIds,
             }
             else if (attr.def_index() == ItemSchema::AttributeTextureWear)
             {
+                hasWear = true;
                 totalWear += m_itemSchema.AttributeFloat(&attr);
                 wearCount++;
             }
+        }
+
+        if (!hasWear)
+        {
+            Platform::Print("Trade-up item %llu has no wear attribute; cannot calculate contract output float\n",
+                itemId);
+            printItemDebug("Missing trade-up wear", debug);
+            return false;
         }
 
         bool itemNormalTradeUp = (item.quality() == ItemSchema::QualityUnique
@@ -1649,8 +1763,9 @@ bool Inventory::TradeUp(const std::vector<uint64_t> &inputItemIds,
             && hasWeaponKillEaterScoreType;
         if (!itemNormalTradeUp && !itemStatTrak)
         {
-            Platform::Print("Trade-up item %llu has unsupported quality/state (quality %u, kill eater=%d, weapon score type=%d)\n",
-                itemId, item.quality(), hasKillEater ? 1 : 0, hasWeaponKillEaterScoreType ? 1 : 0);
+            Platform::Print("Trade-up item %llu has unsupported quality/state (kill eater=%d, weapon score type=%d)\n",
+                itemId, hasKillEater ? 1 : 0, hasWeaponKillEaterScoreType ? 1 : 0);
+            printItemDebug("Unsupported trade-up item", debug);
             return false;
         }
 
@@ -1661,7 +1776,9 @@ bool Inventory::TradeUp(const std::vector<uint64_t> &inputItemIds,
         }
         else if (itemStatTrak != hasStatTrak)
         {
-            Platform::Print("Trade-up items must all be StatTrak or all non-StatTrak\n");
+            Platform::Print("Trade-up items must all be StatTrak or all non-StatTrak (expected stattrak=%d, got stattrak=%d)\n",
+                hasStatTrak ? 1 : 0, itemStatTrak ? 1 : 0);
+            printItemDebug("Mismatched StatTrak state", debug);
             return false;
         }
     }
@@ -1688,7 +1805,9 @@ bool Inventory::TradeUp(const std::vector<uint64_t> &inputItemIds,
         std::vector<const LootListItem *> candidates;
         if (!m_itemSchema.GetTradeUpCandidates(collection, outputRarity, candidates))
         {
-            continue;
+            Platform::Print("%s Collection has no trade-up candidates at output rarity %u; rejecting contract with %d input item(s) from this collection\n",
+                GetCollectionName(m_itemSchema, collection).c_str(), outputRarity, pair.second);
+            return false;
         }
 
         int count = pair.second;
