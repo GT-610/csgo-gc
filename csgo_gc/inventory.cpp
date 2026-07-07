@@ -1630,6 +1630,31 @@ bool Inventory::TradeUp(const std::vector<uint64_t> &inputItemIds,
     std::unordered_set<uint64_t> uniqueInputItemIds;
     uniqueInputItemIds.reserve(inputItemIds.size());
 
+    struct TradeUpItemDebug
+    {
+        uint64_t itemId{};
+        uint32_t defIndex{};
+        uint32_t paintKitDefIndex{};
+        uint32_t storedRarity{};
+        uint32_t paintedRarity{};
+        uint32_t quality{};
+        std::string collectionId;
+    };
+
+    auto printItemDebug = [this](const char *prefix, const TradeUpItemDebug &debug)
+    {
+        Platform::Print("%s item %llu: def %u, paint %u, stored rarity %u, painted rarity %u, quality %u, collection %s (%s)\n",
+            prefix,
+            debug.itemId,
+            debug.defIndex,
+            debug.paintKitDefIndex,
+            debug.storedRarity,
+            debug.paintedRarity,
+            debug.quality,
+            debug.collectionId.c_str(),
+            GetCollectionName(m_itemSchema, debug.collectionId).c_str());
+    };
+
     for (uint64_t itemId : inputItemIds)
     {
         if (!uniqueInputItemIds.insert(itemId).second)
@@ -1648,17 +1673,26 @@ bool Inventory::TradeUp(const std::vector<uint64_t> &inputItemIds,
         const CSOEconItem &item = it->second;
         inputItems.push_back(it);
 
+        TradeUpItemDebug debug;
+        debug.itemId = itemId;
+        debug.defIndex = item.def_index();
+        debug.storedRarity = item.rarity();
+        debug.quality = item.quality();
+
         uint32_t paintKitDefIndex = 0;
         if (!GetItemPaintKitDefIndex(item, m_itemSchema, paintKitDefIndex))
         {
-            Platform::Print("Trade-up item %llu has no paint kit\n", itemId);
+            Platform::Print("Trade-up item %llu has no paint kit (def %u, stored rarity %u, quality %u)\n",
+                itemId, item.def_index(), item.rarity(), item.quality());
             return false;
         }
+        debug.paintKitDefIndex = paintKitDefIndex;
 
         uint32_t rarity = m_itemSchema.GetPaintedRarity(item.def_index(), paintKitDefIndex, item.rarity());
+        debug.paintedRarity = rarity;
         if (rarity < ItemSchema::RarityCommon || rarity > ItemSchema::RarityLegendary)
         {
-            Platform::Print("Trade-up item %llu has invalid rarity %u\n", itemId, rarity);
+            printItemDebug("Trade-up item has invalid rarity", debug);
             return false;
         }
 
@@ -1668,7 +1702,9 @@ bool Inventory::TradeUp(const std::vector<uint64_t> &inputItemIds,
         }
         else if (rarity != inputRarity)
         {
-            Platform::Print("Trade-up items must all be same rarity (expected %u, got %u)\n", inputRarity, rarity);
+            Platform::Print("Trade-up items must all be same painted rarity (expected %u, got %u)\n",
+                inputRarity, rarity);
+            printItemDebug("Mismatched trade-up rarity", debug);
             return false;
         }
 
@@ -1677,25 +1713,18 @@ bool Inventory::TradeUp(const std::vector<uint64_t> &inputItemIds,
         {
             if (!m_itemSchema.GetCollectionsForPaintKit(paintKitDefIndex, collections))
             {
-                Platform::Print("Trade-up item %llu has no collection mapping (def %u, paint %u)\n",
-                    itemId, item.def_index(), paintKitDefIndex);
+                Platform::Print("Trade-up item %llu has no collection mapping (def %u, paint %u, stored rarity %u, painted rarity %u, quality %u)\n",
+                    itemId, item.def_index(), paintKitDefIndex, item.rarity(), rarity, item.quality());
                 return false;
             }
         }
 
         std::sort(collections.begin(), collections.end());
         const std::string &collectionId = collections.front();
+        debug.collectionId = collectionId;
         collectionCounts[collectionId]++;
 
-        Platform::Print("Trade-up item %llu: def %u, paint %u, stored rarity %u, painted rarity %u, collection %s (%s), quality %u\n",
-            itemId,
-            item.def_index(),
-            paintKitDefIndex,
-            item.rarity(),
-            rarity,
-            collectionId.c_str(),
-            GetCollectionName(m_itemSchema, collectionId).c_str(),
-            item.quality());
+        printItemDebug("Trade-up input", debug);
 
         bool hasKillEater = false;
         bool hasWeaponKillEaterScoreType = false;
@@ -1724,8 +1753,9 @@ bool Inventory::TradeUp(const std::vector<uint64_t> &inputItemIds,
             && hasWeaponKillEaterScoreType;
         if (!itemNormalTradeUp && !itemStatTrak)
         {
-            Platform::Print("Trade-up item %llu has unsupported quality/state (quality %u, kill eater=%d, weapon score type=%d)\n",
-                itemId, item.quality(), hasKillEater ? 1 : 0, hasWeaponKillEaterScoreType ? 1 : 0);
+            Platform::Print("Trade-up item %llu has unsupported quality/state (kill eater=%d, weapon score type=%d)\n",
+                itemId, hasKillEater ? 1 : 0, hasWeaponKillEaterScoreType ? 1 : 0);
+            printItemDebug("Unsupported trade-up item", debug);
             return false;
         }
 
@@ -1736,7 +1766,9 @@ bool Inventory::TradeUp(const std::vector<uint64_t> &inputItemIds,
         }
         else if (itemStatTrak != hasStatTrak)
         {
-            Platform::Print("Trade-up items must all be StatTrak or all non-StatTrak\n");
+            Platform::Print("Trade-up items must all be StatTrak or all non-StatTrak (expected stattrak=%d, got stattrak=%d)\n",
+                hasStatTrak ? 1 : 0, itemStatTrak ? 1 : 0);
+            printItemDebug("Mismatched StatTrak state", debug);
             return false;
         }
     }
@@ -1763,6 +1795,8 @@ bool Inventory::TradeUp(const std::vector<uint64_t> &inputItemIds,
         std::vector<const LootListItem *> candidates;
         if (!m_itemSchema.GetTradeUpCandidates(collection, outputRarity, candidates))
         {
+            Platform::Print("%s Collection has no trade-up candidates at output rarity %u\n",
+                GetCollectionName(m_itemSchema, collection).c_str(), outputRarity);
             continue;
         }
 
