@@ -509,6 +509,23 @@ bool Inventory::UnlockCrate(uint64_t crateId,
         return false;
     }
 
+    if (keyId)
+    {
+        auto key = m_items.find(keyId);
+        if (key == m_items.end())
+        {
+            Platform::Print("UnlockCrate: key item %llu not found for crate %llu\n", keyId, crateId);
+            return false;
+        }
+
+        if (!m_itemSchema.IsKeyToolDefIndex(key->second.def_index()))
+        {
+            Platform::Print("UnlockCrate: item %llu def %u is not a key tool for crate %llu\n",
+                keyId, key->second.def_index(), crateId);
+            return false;
+        }
+    }
+
     // CASE OPENING
     CaseOpening caseOpening{ m_itemSchema, m_random };
 
@@ -532,9 +549,8 @@ bool Inventory::UnlockCrate(uint64_t crateId,
     {
         DestroyItem(crate, destroyCrate);
 
-        // remove the key if one was used (yes, we don't validate keys...)
         auto key = m_items.find(keyId);
-        if (key != m_items.end())
+        if (keyId && key != m_items.end())
         {
             DestroyItem(key, destroyKey);
         }
@@ -822,6 +838,21 @@ bool Inventory::ApplySticker(const CMsgApplySticker &message,
         return false;
     }
 
+    if (message.sticker_slot() >= MaxStickers)
+    {
+        Platform::Print("ApplySticker: invalid slot %u for tool %llu\n",
+            message.sticker_slot(), message.sticker_item_id());
+        return false;
+    }
+
+    if (sticker->second.def_index() != ItemSchema::ItemSticker
+        && sticker->second.def_index() != ItemSchema::ItemPatch)
+    {
+        Platform::Print("ApplySticker: item %llu def %u is not a sticker or patch tool\n",
+            message.sticker_item_id(), sticker->second.def_index());
+        return false;
+    }
+
     CSOEconItem *item = nullptr;
 
     if (message.baseitem_defidx())
@@ -856,6 +887,8 @@ bool Inventory::ApplySticker(const CMsgApplySticker &message,
 
     if (!stickerKit)
     {
+        Platform::Print("ApplySticker: item %llu def %u has no sticker kit attribute\n",
+            message.sticker_item_id(), sticker->second.def_index());
         assert(false);
         return false;
     }
@@ -1119,6 +1152,21 @@ bool Inventory::NameItem(uint64_t nameTagId,
     CMsgSOSingleObject &destroy,
     CMsgGCItemCustomizationNotification &notification)
 {
+    auto tag = m_items.find(nameTagId);
+    if (tag == m_items.end())
+    {
+        Platform::Print("NameItem: name tag item %llu not found for target %llu\n",
+            nameTagId, itemId);
+        return false;
+    }
+
+    if (!m_itemSchema.IsNameTagToolDefIndex(tag->second.def_index()))
+    {
+        Platform::Print("NameItem: item %llu def %u is not a name tag for target %llu\n",
+            nameTagId, tag->second.def_index(), itemId);
+        return false;
+    }
+
     auto it = m_items.find(itemId);
     if (it == m_items.end())
     {
@@ -1132,13 +1180,6 @@ bool Inventory::NameItem(uint64_t nameTagId,
 
     if (GetConfig().DestroyUsedItems())
     {
-        auto tag = m_items.find(nameTagId);
-        if (tag == m_items.end())
-        {
-            assert(false);
-            return false;
-        }
-
         DestroyItem(tag, destroy);
     }
 
@@ -1155,6 +1196,21 @@ bool Inventory::NameBaseItem(uint64_t nameTagId,
     CMsgSOSingleObject &destroy,
     CMsgGCItemCustomizationNotification &notification)
 {
+    auto tag = m_items.find(nameTagId);
+    if (tag == m_items.end())
+    {
+        Platform::Print("NameBaseItem: name tag item %llu not found for base def %u\n",
+            nameTagId, defIndex);
+        return false;
+    }
+
+    if (!m_itemSchema.IsNameTagToolDefIndex(tag->second.def_index()))
+    {
+        Platform::Print("NameBaseItem: item %llu def %u is not a name tag for base def %u\n",
+            nameTagId, tag->second.def_index(), defIndex);
+        return false;
+    }
+
     CSOEconItem &item = CreateItem(defIndex, ItemOriginBaseItem, UnacknowledgedInvalid);
 
     item.mutable_custom_name()->assign(name);
@@ -1163,13 +1219,6 @@ bool Inventory::NameBaseItem(uint64_t nameTagId,
 
     if (GetConfig().DestroyUsedItems())
     {
-        auto tag = m_items.find(nameTagId);
-        if (tag == m_items.end())
-        {
-            assert(false);
-            return false;
-        }
-
         DestroyItem(tag, destroy);
     }
 
@@ -1664,6 +1713,23 @@ Inventory::CounterSwapResult Inventory::PerformCounterSwap(uint64_t toolId, uint
     CounterSwapResult result{};
     result.weaponAId = weaponAId;
     result.weaponBId = weaponBId;
+
+    auto toolIt = m_items.find(toolId);
+    if (toolIt == m_items.end())
+    {
+        Platform::Print("StatTrakSwap: tool item %llu not found for weapons %llu and %llu\n",
+            toolId, weaponAId, weaponBId);
+        result.status = CounterSwapStatus::ToolMissing;
+        return result;
+    }
+
+    if (!m_itemSchema.IsStatTrakSwapToolDefIndex(toolIt->second.def_index()))
+    {
+        Platform::Print("StatTrakSwap: item %llu def %u is not a StatTrak Swap Tool\n",
+            toolId, toolIt->second.def_index());
+        result.status = CounterSwapStatus::InvalidTool;
+        return result;
+    }
     
     auto itA = m_items.find(weaponAId);
     auto itB = m_items.find(weaponBId);
@@ -1677,15 +1743,36 @@ Inventory::CounterSwapResult Inventory::PerformCounterSwap(uint64_t toolId, uint
     
     CSOEconItem &weaponA = itA->second;
     CSOEconItem &weaponB = itB->second;
+
+    if (weaponA.quality() != ItemSchema::QualityStrange
+        || weaponB.quality() != ItemSchema::QualityStrange)
+    {
+        Platform::Print("StatTrakSwap: weapons must both be Strange quality (weapon %llu quality %u, weapon %llu quality %u)\n",
+            weaponAId, weaponA.quality(), weaponBId, weaponB.quality());
+        result.status = CounterSwapStatus::InvalidWeaponState;
+        return result;
+    }
     
     CSOEconItemAttribute *attrA = nullptr;
     CSOEconItemAttribute *attrB = nullptr;
+    bool weaponAScoreType = false;
+    bool weaponBScoreType = false;
     
     for (int i = 0; i < weaponA.attribute_size(); ++i)
     {
         if (weaponA.attribute(i).def_index() == ItemSchema::AttributeKillEater)
         {
             attrA = weaponA.mutable_attribute(i);
+            break;
+        }
+    }
+
+    for (int i = 0; i < weaponA.attribute_size(); ++i)
+    {
+        if (weaponA.attribute(i).def_index() == ItemSchema::AttributeKillEaterScoreType
+            && m_itemSchema.AttributeUint32(&weaponA.attribute(i)) == 0)
+        {
+            weaponAScoreType = true;
             break;
         }
     }
@@ -1698,11 +1785,29 @@ Inventory::CounterSwapResult Inventory::PerformCounterSwap(uint64_t toolId, uint
             break;
         }
     }
+
+    for (int i = 0; i < weaponB.attribute_size(); ++i)
+    {
+        if (weaponB.attribute(i).def_index() == ItemSchema::AttributeKillEaterScoreType
+            && m_itemSchema.AttributeUint32(&weaponB.attribute(i)) == 0)
+        {
+            weaponBScoreType = true;
+            break;
+        }
+    }
     
     bool bothHaveCounters = attrA && attrB;
     if (!bothHaveCounters)
     {
         result.status = CounterSwapStatus::CounterAttributeAbsent;
+        return result;
+    }
+
+    if (!weaponAScoreType || !weaponBScoreType)
+    {
+        Platform::Print("StatTrakSwap: weapons must both use weapon kill counters (weapon %llu score type ok=%d, weapon %llu score type ok=%d)\n",
+            weaponAId, weaponAScoreType ? 1 : 0, weaponBId, weaponBScoreType ? 1 : 0);
+        result.status = CounterSwapStatus::InvalidWeaponState;
         return result;
     }
     

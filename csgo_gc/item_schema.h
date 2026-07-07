@@ -31,6 +31,8 @@ public:
     uint32_t m_quality;
     uint32_t m_level;
     uint32_t m_supplyCrateSeries; // cases only
+    std::string m_itemType;
+    std::vector<std::string> m_prefabs;
 
     // kludge for coupons so we can buy stuff from the store
     bool m_isCoupon;
@@ -154,6 +156,9 @@ public:
     bool GetTradeUpCandidates(std::string_view collectionName, uint32_t outputRarity,
         std::vector<const LootListItem *> &outCandidates) const;
     uint32_t GetPaintedRarity(uint32_t defIndex, uint32_t paintKitDefIndex, uint32_t fallbackRarity) const;
+    bool IsKeyToolDefIndex(uint32_t defIndex) const;
+    bool IsNameTagToolDefIndex(uint32_t defIndex) const;
+    bool IsStatTrakSwapToolDefIndex(uint32_t defIndex) const;
 
 
 public:
