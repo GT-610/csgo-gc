@@ -204,6 +204,8 @@ void Inventory::ReadFromFile()
             defaultEquip.set_slot_id(defaultEquipKey.GetNumber<uint32_t>("slot_id"));
         }
     }
+
+    LogInventoryConsistency();
 }
 
 void Inventory::ReadItem(const KeyValue &itemKey, CSOEconItem &item) const
@@ -1279,6 +1281,225 @@ static std::optional<uint64_t> StorageReference(const CSOEconItem &item, const I
     }
 
     return static_cast<uint64_t>(*low) | (static_cast<uint64_t>(*high) << 32);
+}
+
+void Inventory::LogInventoryConsistency() const
+{
+    size_t issueCount = 0;
+    std::unordered_map<uint64_t, uint32_t> storedItemCountByCasket;
+    std::unordered_map<uint64_t, uint32_t> configuredCasketCountById;
+
+    for (const auto &pair : m_items)
+    {
+        const CSOEconItem &item = pair.second;
+        if (item.def_index() != ItemSchema::ItemCasket)
+        {
+            continue;
+        }
+
+        bool hasCount = false;
+        for (const CSOEconItemAttribute &attribute : item.attribute())
+        {
+            if (attribute.def_index() == ItemSchema::AttributeCasketItemsCount)
+            {
+                configuredCasketCountById[item.id()] = m_itemSchema.AttributeUint32(&attribute);
+                hasCount = true;
+                break;
+            }
+        }
+
+        if (!hasCount)
+        {
+            issueCount++;
+            Platform::Print("InventoryCheck: casket %llu has no item count attribute\n", item.id());
+        }
+    }
+
+    for (const auto &pair : m_items)
+    {
+        const CSOEconItem &item = pair.second;
+        const ItemInfo *itemInfo = m_itemSchema.ItemInfoByDefIndex(item.def_index());
+
+        if (!itemInfo)
+        {
+            issueCount++;
+            Platform::Print("InventoryCheck: item %llu has unknown def_index %u\n",
+                item.id(), item.def_index());
+        }
+
+        int paintKitAttributes = 0;
+        int wearAttributes = 0;
+        int killEaterAttributes = 0;
+        int scoreTypeAttributes = 0;
+        int casketLowAttributes = 0;
+        int casketHighAttributes = 0;
+        uint32_t paintKitDefIndex = 0;
+        uint32_t scoreType = 0;
+
+        for (const CSOEconItemAttribute &attribute : item.attribute())
+        {
+            switch (attribute.def_index())
+            {
+            case ItemSchema::AttributeTexturePrefab:
+                paintKitDefIndex = m_itemSchema.AttributeUint32(&attribute);
+                paintKitAttributes++;
+                break;
+
+            case ItemSchema::AttributeTextureWear:
+                wearAttributes++;
+                break;
+
+            case ItemSchema::AttributeKillEater:
+                killEaterAttributes++;
+                break;
+
+            case ItemSchema::AttributeKillEaterScoreType:
+                scoreType = m_itemSchema.AttributeUint32(&attribute);
+                scoreTypeAttributes++;
+                break;
+
+            case ItemSchema::AttributeCasketIdLow:
+                casketLowAttributes++;
+                break;
+
+            case ItemSchema::AttributeCasketIdHigh:
+                casketHighAttributes++;
+                break;
+            }
+        }
+
+        if (paintKitAttributes > 1)
+        {
+            issueCount++;
+            Platform::Print("InventoryCheck: painted item %llu has %d paint kit attributes\n",
+                item.id(), paintKitAttributes);
+        }
+
+        if (paintKitAttributes > 0)
+        {
+            const PaintKitInfo *paintKitInfo = m_itemSchema.PaintKitInfoByDefIndex(paintKitDefIndex);
+            if (!paintKitInfo)
+            {
+                issueCount++;
+                Platform::Print("InventoryCheck: painted item %llu uses unknown paint kit %u (def %u)\n",
+                    item.id(), paintKitDefIndex, item.def_index());
+            }
+
+            uint32_t paintedRarity = m_itemSchema.GetPaintedRarity(
+                item.def_index(),
+                paintKitDefIndex,
+                item.rarity());
+            if (item.rarity() != paintedRarity)
+            {
+                issueCount++;
+                Platform::Print("InventoryCheck: painted item %llu has stored rarity %u but computed painted rarity %u (def %u, paint %u)\n",
+                    item.id(), item.rarity(), paintedRarity, item.def_index(), paintKitDefIndex);
+            }
+
+            if (wearAttributes == 0)
+            {
+                issueCount++;
+                Platform::Print("InventoryCheck: painted item %llu has no wear attribute (def %u, paint %u)\n",
+                    item.id(), item.def_index(), paintKitDefIndex);
+            }
+            else if (wearAttributes > 1)
+            {
+                issueCount++;
+                Platform::Print("InventoryCheck: painted item %llu has %d wear attributes\n",
+                    item.id(), wearAttributes);
+            }
+
+            std::vector<std::string> collections;
+            if (!m_itemSchema.GetCollectionsForPaintedItem(item.def_index(), paintKitDefIndex, collections)
+                && !m_itemSchema.GetCollectionsForPaintKit(paintKitDefIndex, collections))
+            {
+                issueCount++;
+                Platform::Print("InventoryCheck: painted item %llu has no collection mapping (def %u, paint %u)\n",
+                    item.id(), item.def_index(), paintKitDefIndex);
+            }
+        }
+        else if (wearAttributes > 0)
+        {
+            issueCount++;
+            Platform::Print("InventoryCheck: item %llu has wear attributes but no paint kit (def %u)\n",
+                item.id(), item.def_index());
+        }
+
+        if (killEaterAttributes > 0)
+        {
+            if (scoreTypeAttributes == 0)
+            {
+                issueCount++;
+                Platform::Print("InventoryCheck: StatTrak-like item %llu has kill eater but no score type\n",
+                    item.id());
+            }
+            else if (scoreType == 0 && item.quality() != ItemSchema::QualityStrange)
+            {
+                issueCount++;
+                Platform::Print("InventoryCheck: weapon StatTrak item %llu has quality %u instead of Strange\n",
+                    item.id(), item.quality());
+            }
+        }
+
+        if (casketLowAttributes != casketHighAttributes)
+        {
+            issueCount++;
+            Platform::Print("InventoryCheck: item %llu has incomplete casket reference attributes (low=%d, high=%d)\n",
+                item.id(), casketLowAttributes, casketHighAttributes);
+        }
+
+        std::optional<uint64_t> storageId = StorageReference(item, m_itemSchema);
+        if (storageId.has_value())
+        {
+            storedItemCountByCasket[*storageId]++;
+
+            auto storageIt = m_items.find(*storageId);
+            if (storageIt == m_items.end())
+            {
+                issueCount++;
+                Platform::Print("InventoryCheck: item %llu references missing casket %llu\n",
+                    item.id(), *storageId);
+            }
+            else if (storageIt->second.def_index() != ItemSchema::ItemCasket)
+            {
+                issueCount++;
+                Platform::Print("InventoryCheck: item %llu references non-casket item %llu (def %u)\n",
+                    item.id(), *storageId, storageIt->second.def_index());
+            }
+
+            if (item.equipped_state_size() > 0)
+            {
+                issueCount++;
+                Platform::Print("InventoryCheck: stored item %llu still has %d equipped state entries\n",
+                    item.id(), item.equipped_state_size());
+            }
+        }
+    }
+
+    for (const auto &pair : configuredCasketCountById)
+    {
+        uint64_t storageId = pair.first;
+        uint32_t configuredCount = pair.second;
+        uint32_t referencedCount = 0;
+
+        auto referencedIt = storedItemCountByCasket.find(storageId);
+        if (referencedIt != storedItemCountByCasket.end())
+        {
+            referencedCount = referencedIt->second;
+        }
+
+        if (configuredCount != referencedCount)
+        {
+            issueCount++;
+            Platform::Print("InventoryCheck: casket %llu count mismatch (attribute=%u, referenced items=%u)\n",
+                storageId, configuredCount, referencedCount);
+        }
+    }
+
+    if (issueCount)
+    {
+        Platform::Print("InventoryCheck: found %zu potential inventory issue(s)\n", issueCount);
+    }
 }
 
 bool Inventory::ModifyStorageCounter(CSOEconItem &storage, int delta)
