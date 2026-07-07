@@ -33,6 +33,10 @@ public:
     uint32_t m_supplyCrateSeries; // cases only
     std::string m_itemType;
     std::vector<std::string> m_prefabs;
+    std::string m_toolRestriction;
+    bool m_canSticker;
+    bool m_canPatch;
+    bool m_nameable;
 
     // kludge for coupons so we can buy stuff from the store
     bool m_isCoupon;
@@ -159,6 +163,10 @@ public:
     bool IsKeyToolDefIndex(uint32_t defIndex) const;
     bool IsNameTagToolDefIndex(uint32_t defIndex) const;
     bool IsStatTrakSwapToolDefIndex(uint32_t defIndex) const;
+    bool IsKeyCompatibleWithCrate(uint32_t keyDefIndex, uint32_t crateDefIndex) const;
+    bool CanApplyStickerToDefIndex(uint32_t defIndex) const;
+    bool CanApplyPatchToDefIndex(uint32_t defIndex) const;
+    bool CanNameDefIndex(uint32_t defIndex) const;
 
 
 public:

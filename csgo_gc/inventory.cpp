@@ -524,6 +524,13 @@ bool Inventory::UnlockCrate(uint64_t crateId,
                 keyId, key->second.def_index(), crateId);
             return false;
         }
+
+        if (!m_itemSchema.IsKeyCompatibleWithCrate(key->second.def_index(), crate->second.def_index()))
+        {
+            Platform::Print("UnlockCrate: key item %llu def %u is not compatible with crate %llu def %u\n",
+                keyId, key->second.def_index(), crateId, crate->second.def_index());
+            return false;
+        }
     }
 
     // CASE OPENING
@@ -853,11 +860,11 @@ bool Inventory::ApplySticker(const CMsgApplySticker &message,
         return false;
     }
 
+    uint32_t targetDefIndex = 0;
     CSOEconItem *item = nullptr;
-
     if (message.baseitem_defidx())
     {
-        item = &CreateItem(message.baseitem_defidx(), ItemOriginBaseItem, UnacknowledgedInvalid);
+        targetDefIndex = message.baseitem_defidx();
     }
     else
     {
@@ -868,7 +875,29 @@ bool Inventory::ApplySticker(const CMsgApplySticker &message,
             return false;
         }
 
+        targetDefIndex = it->second.def_index();
         item = &it->second;
+    }
+
+    if (sticker->second.def_index() == ItemSchema::ItemPatch)
+    {
+        if (!m_itemSchema.CanApplyPatchToDefIndex(targetDefIndex))
+        {
+            Platform::Print("ApplySticker: patch item %llu cannot be applied to target def %u (target item %llu)\n",
+                message.sticker_item_id(), targetDefIndex, message.item_item_id());
+            return false;
+        }
+    }
+    else if (!m_itemSchema.CanApplyStickerToDefIndex(targetDefIndex))
+    {
+        Platform::Print("ApplySticker: sticker item %llu cannot be applied to target def %u (target item %llu)\n",
+            message.sticker_item_id(), targetDefIndex, message.item_item_id());
+        return false;
+    }
+
+    if (message.baseitem_defidx())
+    {
+        item = &CreateItem(message.baseitem_defidx(), ItemOriginBaseItem, UnacknowledgedInvalid);
     }
 
     assert(item);
@@ -1174,6 +1203,13 @@ bool Inventory::NameItem(uint64_t nameTagId,
         return false;
     }
 
+    if (!m_itemSchema.CanNameDefIndex(it->second.def_index()))
+    {
+        Platform::Print("NameItem: target %llu def %u is not nameable by name tag %llu\n",
+            itemId, it->second.def_index(), nameTagId);
+        return false;
+    }
+
     it->second.mutable_custom_name()->assign(name);
 
     ToSingleObject(update, it->second);
@@ -1208,6 +1244,13 @@ bool Inventory::NameBaseItem(uint64_t nameTagId,
     {
         Platform::Print("NameBaseItem: item %llu def %u is not a name tag for base def %u\n",
             nameTagId, tag->second.def_index(), defIndex);
+        return false;
+    }
+
+    if (!m_itemSchema.CanNameDefIndex(defIndex))
+    {
+        Platform::Print("NameBaseItem: base def %u is not nameable by name tag %llu\n",
+            defIndex, nameTagId);
         return false;
     }
 
