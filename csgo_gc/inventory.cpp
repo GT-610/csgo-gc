@@ -1726,6 +1726,7 @@ bool Inventory::TradeUp(const std::vector<uint64_t> &inputItemIds,
 
         printItemDebug("Trade-up input", debug);
 
+        bool hasWear = false;
         bool hasKillEater = false;
         bool hasWeaponKillEaterScoreType = false;
         for (const CSOEconItemAttribute &attr : item.attribute())
@@ -1740,9 +1741,18 @@ bool Inventory::TradeUp(const std::vector<uint64_t> &inputItemIds,
             }
             else if (attr.def_index() == ItemSchema::AttributeTextureWear)
             {
+                hasWear = true;
                 totalWear += m_itemSchema.AttributeFloat(&attr);
                 wearCount++;
             }
+        }
+
+        if (!hasWear)
+        {
+            Platform::Print("Trade-up item %llu has no wear attribute; cannot calculate contract output float\n",
+                itemId);
+            printItemDebug("Missing trade-up wear", debug);
+            return false;
         }
 
         bool itemNormalTradeUp = (item.quality() == ItemSchema::QualityUnique
@@ -1795,9 +1805,9 @@ bool Inventory::TradeUp(const std::vector<uint64_t> &inputItemIds,
         std::vector<const LootListItem *> candidates;
         if (!m_itemSchema.GetTradeUpCandidates(collection, outputRarity, candidates))
         {
-            Platform::Print("%s Collection has no trade-up candidates at output rarity %u\n",
-                GetCollectionName(m_itemSchema, collection).c_str(), outputRarity);
-            continue;
+            Platform::Print("%s Collection has no trade-up candidates at output rarity %u; rejecting contract with %d input item(s) from this collection\n",
+                GetCollectionName(m_itemSchema, collection).c_str(), outputRarity, pair.second);
+            return false;
         }
 
         int count = pair.second;
