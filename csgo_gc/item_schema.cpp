@@ -680,6 +680,8 @@ void ItemSchema::ParseItemRecursive(ItemInfo &info, const KeyValue &itemKey, con
         std::vector<std::string_view> prefabNames = SplitString(prefabString, ' ');
         for (std::string_view prefabName : prefabNames)
         {
+            info.m_prefabs.emplace_back(prefabName);
+
             const KeyValue *prefabKey = prefabsKey->GetSubkey(prefabName);
             if (prefabKey)
             {
@@ -722,6 +724,7 @@ void ItemSchema::ParseItemRecursive(ItemInfo &info, const KeyValue &itemKey, con
     std::string_view itemType = itemKey.GetString("item_type");
     if (itemType.size())
     {
+        info.m_itemType = itemType;
         info.m_isCoupon = (itemType == "coupon");
     }
 
@@ -1295,4 +1298,135 @@ uint32_t ItemSchema::GetPaintedRarity(uint32_t defIndex, uint32_t paintKitDefInd
     }
 
     return PaintedItemRarity(itemInfo->m_rarity, paintKitInfo->m_rarity);
+}
+
+static char LowerAscii(char c)
+{
+    if (c >= 'A' && c <= 'Z')
+    {
+        return c - 'A' + 'a';
+    }
+
+    return c;
+}
+
+static bool ContainsInsensitive(std::string_view haystack, std::string_view needle)
+{
+    if (needle.empty() || haystack.size() < needle.size())
+    {
+        return false;
+    }
+
+    for (size_t i = 0; i <= haystack.size() - needle.size(); i++)
+    {
+        bool match = true;
+        for (size_t j = 0; j < needle.size(); j++)
+        {
+            if (LowerAscii(haystack[i + j]) != LowerAscii(needle[j]))
+            {
+                match = false;
+                break;
+            }
+        }
+
+        if (match)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static bool EqualsInsensitive(std::string_view left, std::string_view right)
+{
+    if (left.size() != right.size())
+    {
+        return false;
+    }
+
+    for (size_t i = 0; i < left.size(); i++)
+    {
+        if (LowerAscii(left[i]) != LowerAscii(right[i]))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool ItemInfoContains(const ItemInfo &info, std::string_view text)
+{
+    if (ContainsInsensitive(info.m_name, text) || ContainsInsensitive(info.m_itemType, text))
+    {
+        return true;
+    }
+
+    for (const std::string &prefab : info.m_prefabs)
+    {
+        if (ContainsInsensitive(prefab, text))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static bool ItemInfoMatchesIdentifier(const ItemInfo &info, std::string_view text)
+{
+    if (EqualsInsensitive(info.m_name, text) || EqualsInsensitive(info.m_itemType, text))
+    {
+        return true;
+    }
+
+    for (const std::string &prefab : info.m_prefabs)
+    {
+        if (EqualsInsensitive(prefab, text))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool ItemSchema::IsKeyToolDefIndex(uint32_t defIndex) const
+{
+    const ItemInfo *info = ItemInfoByDefIndex(defIndex);
+    if (!info)
+    {
+        return false;
+    }
+
+    return ItemInfoMatchesIdentifier(*info, "weapon_case_key")
+        || ItemInfoMatchesIdentifier(*info, "weaponcasekey")
+        || ItemInfoMatchesIdentifier(*info, "#CSGO_Type_WeaponCaseKey")
+        || ItemInfoMatchesIdentifier(*info, "CSGO_Type_WeaponCaseKey");
+}
+
+bool ItemSchema::IsNameTagToolDefIndex(uint32_t defIndex) const
+{
+    const ItemInfo *info = ItemInfoByDefIndex(defIndex);
+    if (!info)
+    {
+        return false;
+    }
+
+    return ItemInfoContains(*info, "name tag")
+        || ItemInfoContains(*info, "name_tag")
+        || ItemInfoContains(*info, "nametag");
+}
+
+bool ItemSchema::IsStatTrakSwapToolDefIndex(uint32_t defIndex) const
+{
+    const ItemInfo *info = ItemInfoByDefIndex(defIndex);
+    if (!info)
+    {
+        return false;
+    }
+
+    return ItemInfoContains(*info, "stattrak")
+        && ItemInfoContains(*info, "swap");
 }

@@ -103,8 +103,11 @@ public:
     enum class CounterSwapStatus
     {
         Completed,
+        ToolMissing,
+        InvalidTool,
         WeaponMissing,
-        CounterAttributeAbsent
+        CounterAttributeAbsent,
+        InvalidWeaponState
     };
 
     struct CounterSwapResult
