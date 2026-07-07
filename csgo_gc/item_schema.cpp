@@ -68,6 +68,9 @@ ItemInfo::ItemInfo(uint32_t defIndex)
     , m_quality{ ItemSchema::QualityNormal }
     , m_level{ 1 }
     , m_supplyCrateSeries{ 0 }
+    , m_canSticker{ false }
+    , m_canPatch{ false }
+    , m_nameable{ false }
     , m_isCoupon{ false }
     , m_willProduceStatTrak{ false }
 {
@@ -735,6 +738,38 @@ void ItemSchema::ParseItemRecursive(ItemInfo &info, const KeyValue &itemKey, con
     }
 
     info.m_willProduceStatTrak = itemKey.GetNumber("will_produce_stattrak", false);
+
+    const KeyValue *capabilities = itemKey.GetSubkey("capabilities");
+    if (capabilities)
+    {
+        const KeyValue *canSticker = capabilities->GetSubkey("can_sticker");
+        if (canSticker)
+        {
+            info.m_canSticker = FromString<int>(canSticker->String()) != 0;
+        }
+
+        const KeyValue *canPatch = capabilities->GetSubkey("can_patch");
+        if (canPatch)
+        {
+            info.m_canPatch = FromString<int>(canPatch->String()) != 0;
+        }
+
+        const KeyValue *nameable = capabilities->GetSubkey("nameable");
+        if (nameable)
+        {
+            info.m_nameable = FromString<int>(nameable->String()) != 0;
+        }
+    }
+
+    const KeyValue *tool = itemKey.GetSubkey("tool");
+    if (tool)
+    {
+        std::string_view restriction = tool->GetString("restriction");
+        if (restriction.size())
+        {
+            info.m_toolRestriction = restriction;
+        }
+    }
 
     const KeyValue *attributes = itemKey.GetSubkey("attributes");
     if (attributes)
@@ -1429,4 +1464,39 @@ bool ItemSchema::IsStatTrakSwapToolDefIndex(uint32_t defIndex) const
 
     return ItemInfoContains(*info, "stattrak")
         && ItemInfoContains(*info, "swap");
+}
+
+bool ItemSchema::IsKeyCompatibleWithCrate(uint32_t keyDefIndex, uint32_t crateDefIndex) const
+{
+    const ItemInfo *keyInfo = ItemInfoByDefIndex(keyDefIndex);
+    const ItemInfo *crateInfo = ItemInfoByDefIndex(crateDefIndex);
+    if (!keyInfo || !crateInfo)
+    {
+        return false;
+    }
+
+    if (keyInfo->m_toolRestriction.empty() || crateInfo->m_toolRestriction.empty())
+    {
+        return true;
+    }
+
+    return keyInfo->m_toolRestriction == crateInfo->m_toolRestriction;
+}
+
+bool ItemSchema::CanApplyStickerToDefIndex(uint32_t defIndex) const
+{
+    const ItemInfo *info = ItemInfoByDefIndex(defIndex);
+    return info && info->m_canSticker;
+}
+
+bool ItemSchema::CanApplyPatchToDefIndex(uint32_t defIndex) const
+{
+    const ItemInfo *info = ItemInfoByDefIndex(defIndex);
+    return info && info->m_canPatch;
+}
+
+bool ItemSchema::CanNameDefIndex(uint32_t defIndex) const
+{
+    const ItemInfo *info = ItemInfoByDefIndex(defIndex);
+    return info && info->m_nameable;
 }
