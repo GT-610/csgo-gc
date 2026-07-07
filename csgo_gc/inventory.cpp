@@ -1708,6 +1708,33 @@ void Inventory::ConsumeToolItem(uint64_t toolId, CMsgSOSingleObject &removalMsg)
     DestroyItem(it, removalMsg);
 }
 
+struct CounterSwapWeaponCounters
+{
+    CSOEconItemAttribute *killEater = nullptr;
+    bool usesWeaponKillCounter = false;
+};
+
+static CounterSwapWeaponCounters FindCounterSwapWeaponCounters(ItemSchema &schema, CSOEconItem &weapon)
+{
+    CounterSwapWeaponCounters counters{};
+
+    for (int i = 0; i < weapon.attribute_size(); ++i)
+    {
+        CSOEconItemAttribute *attribute = weapon.mutable_attribute(i);
+        if (attribute->def_index() == ItemSchema::AttributeKillEater)
+        {
+            counters.killEater = attribute;
+        }
+        else if (attribute->def_index() == ItemSchema::AttributeKillEaterScoreType
+            && schema.AttributeUint32(attribute) == 0)
+        {
+            counters.usesWeaponKillCounter = true;
+        }
+    }
+
+    return counters;
+}
+
 Inventory::CounterSwapResult Inventory::PerformCounterSwap(uint64_t toolId, uint64_t weaponAId, uint64_t weaponBId)
 {
     CounterSwapResult result{};
@@ -1753,48 +1780,10 @@ Inventory::CounterSwapResult Inventory::PerformCounterSwap(uint64_t toolId, uint
         return result;
     }
     
-    CSOEconItemAttribute *attrA = nullptr;
-    CSOEconItemAttribute *attrB = nullptr;
-    bool weaponAScoreType = false;
-    bool weaponBScoreType = false;
-    
-    for (int i = 0; i < weaponA.attribute_size(); ++i)
-    {
-        if (weaponA.attribute(i).def_index() == ItemSchema::AttributeKillEater)
-        {
-            attrA = weaponA.mutable_attribute(i);
-            break;
-        }
-    }
-
-    for (int i = 0; i < weaponA.attribute_size(); ++i)
-    {
-        if (weaponA.attribute(i).def_index() == ItemSchema::AttributeKillEaterScoreType
-            && m_itemSchema.AttributeUint32(&weaponA.attribute(i)) == 0)
-        {
-            weaponAScoreType = true;
-            break;
-        }
-    }
-    
-    for (int i = 0; i < weaponB.attribute_size(); ++i)
-    {
-        if (weaponB.attribute(i).def_index() == ItemSchema::AttributeKillEater)
-        {
-            attrB = weaponB.mutable_attribute(i);
-            break;
-        }
-    }
-
-    for (int i = 0; i < weaponB.attribute_size(); ++i)
-    {
-        if (weaponB.attribute(i).def_index() == ItemSchema::AttributeKillEaterScoreType
-            && m_itemSchema.AttributeUint32(&weaponB.attribute(i)) == 0)
-        {
-            weaponBScoreType = true;
-            break;
-        }
-    }
+    CounterSwapWeaponCounters countersA = FindCounterSwapWeaponCounters(m_itemSchema, weaponA);
+    CounterSwapWeaponCounters countersB = FindCounterSwapWeaponCounters(m_itemSchema, weaponB);
+    CSOEconItemAttribute *attrA = countersA.killEater;
+    CSOEconItemAttribute *attrB = countersB.killEater;
     
     bool bothHaveCounters = attrA && attrB;
     if (!bothHaveCounters)
@@ -1803,10 +1792,11 @@ Inventory::CounterSwapResult Inventory::PerformCounterSwap(uint64_t toolId, uint
         return result;
     }
 
-    if (!weaponAScoreType || !weaponBScoreType)
+    if (!countersA.usesWeaponKillCounter || !countersB.usesWeaponKillCounter)
     {
         Platform::Print("StatTrakSwap: weapons must both use weapon kill counters (weapon %llu score type ok=%d, weapon %llu score type ok=%d)\n",
-            weaponAId, weaponAScoreType ? 1 : 0, weaponBId, weaponBScoreType ? 1 : 0);
+            weaponAId, countersA.usesWeaponKillCounter ? 1 : 0,
+            weaponBId, countersB.usesWeaponKillCounter ? 1 : 0);
         result.status = CounterSwapStatus::InvalidWeaponState;
         return result;
     }

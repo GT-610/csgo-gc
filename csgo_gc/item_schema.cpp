@@ -1338,6 +1338,24 @@ static bool ContainsInsensitive(std::string_view haystack, std::string_view need
     return false;
 }
 
+static bool EqualsInsensitive(std::string_view left, std::string_view right)
+{
+    if (left.size() != right.size())
+    {
+        return false;
+    }
+
+    for (size_t i = 0; i < left.size(); i++)
+    {
+        if (LowerAscii(left[i]) != LowerAscii(right[i]))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 static bool ItemInfoContains(const ItemInfo &info, std::string_view text)
 {
     if (ContainsInsensitive(info.m_name, text) || ContainsInsensitive(info.m_itemType, text))
@@ -1356,6 +1374,24 @@ static bool ItemInfoContains(const ItemInfo &info, std::string_view text)
     return false;
 }
 
+static bool ItemInfoMatchesIdentifier(const ItemInfo &info, std::string_view text)
+{
+    if (EqualsInsensitive(info.m_name, text) || EqualsInsensitive(info.m_itemType, text))
+    {
+        return true;
+    }
+
+    for (const std::string &prefab : info.m_prefabs)
+    {
+        if (EqualsInsensitive(prefab, text))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 bool ItemSchema::IsKeyToolDefIndex(uint32_t defIndex) const
 {
     const ItemInfo *info = ItemInfoByDefIndex(defIndex);
@@ -1364,7 +1400,10 @@ bool ItemSchema::IsKeyToolDefIndex(uint32_t defIndex) const
         return false;
     }
 
-    return ItemInfoContains(*info, "key");
+    return ItemInfoMatchesIdentifier(*info, "weapon_case_key")
+        || ItemInfoMatchesIdentifier(*info, "weaponcasekey")
+        || ItemInfoMatchesIdentifier(*info, "#CSGO_Type_WeaponCaseKey")
+        || ItemInfoMatchesIdentifier(*info, "CSGO_Type_WeaponCaseKey");
 }
 
 bool ItemSchema::IsNameTagToolDefIndex(uint32_t defIndex) const
