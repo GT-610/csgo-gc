@@ -31,6 +31,7 @@ public:
     bool RconEnabled() const { return m_rconEnabled; }
     const std::string &RconBindAddress() const { return m_rconBindAddress; }
     uint16_t RconPort() const { return m_rconPort; }
+    const std::string &RconPassword() const { return m_rconPassword; }
 
     RankId CompetitiveRank() const { return m_competitiveRank; }
     int CompetitiveWins() const { return m_competitiveWins; }
@@ -60,6 +61,7 @@ private:
     bool m_rconEnabled{ false };
     std::string m_rconBindAddress{ "127.0.0.1" };
     uint16_t m_rconPort{ 37016 };
+    std::string m_rconPassword;
 
     RankId m_competitiveRank{ RankNone };
     int m_competitiveWins{ 0 };

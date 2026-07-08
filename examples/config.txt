@@ -41,12 +41,13 @@
 "show_csgo_gc_servers_only"	"1"
 
 // local unauthenticated text RCON. keep bind_address on localhost unless you
-// add authentication.
+// add authentication. empty password accepts any Source RCON password.
 "rcon"
 {
 	"enabled"		"0"
 	"bind_address"	"127.0.0.1"
 	"port"			"37016"
+	"password"		""
 }
 
 // 0 = don't log anything

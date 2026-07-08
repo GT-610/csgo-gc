@@ -18,6 +18,13 @@
 namespace
 {
 
+constexpr int32_t SourceRconResponseValue = 0;
+constexpr int32_t SourceRconExecCommand = 2;
+constexpr int32_t SourceRconAuth = 3;
+constexpr int32_t SourceRconAuthResponse = 2;
+constexpr int32_t SourceRconMinPacketSize = 10; // request id + type + two null bytes
+constexpr int32_t SourceRconMaxPacketSize = 4096;
+
 #ifdef _WIN32
 using SocketType = SOCKET;
 constexpr SocketType InvalidSocket = INVALID_SOCKET;
@@ -65,6 +72,30 @@ std::string Trim(std::string_view value)
     return std::string{ value };
 }
 
+int32_t ReadInt32LE(const char *data)
+{
+    const auto *bytes = reinterpret_cast<const unsigned char *>(data);
+    return static_cast<int32_t>(
+        static_cast<uint32_t>(bytes[0])
+        | (static_cast<uint32_t>(bytes[1]) << 8)
+        | (static_cast<uint32_t>(bytes[2]) << 16)
+        | (static_cast<uint32_t>(bytes[3]) << 24));
+}
+
+void AppendInt32LE(std::string &buffer, int32_t value)
+{
+    uint32_t unsignedValue = static_cast<uint32_t>(value);
+    buffer.push_back(static_cast<char>(unsignedValue & 0xff));
+    buffer.push_back(static_cast<char>((unsignedValue >> 8) & 0xff));
+    buffer.push_back(static_cast<char>((unsignedValue >> 16) & 0xff));
+    buffer.push_back(static_cast<char>((unsignedValue >> 24) & 0xff));
+}
+
+bool IsValidSourcePacketSize(int32_t size)
+{
+    return size >= SourceRconMinPacketSize && size <= SourceRconMaxPacketSize;
+}
+
 bool SendAll(SocketType socket, const char *data, size_t size)
 {
     while (size)
@@ -82,6 +113,19 @@ bool SendAll(SocketType socket, const char *data, size_t size)
     return true;
 }
 
+bool SendSourcePacket(SocketType socket, int32_t requestId, int32_t type, std::string_view body)
+{
+    std::string packet;
+    packet.reserve(sizeof(int32_t) * 3 + body.size() + 2);
+    AppendInt32LE(packet, static_cast<int32_t>(sizeof(int32_t) * 2 + body.size() + 2));
+    AppendInt32LE(packet, requestId);
+    AppendInt32LE(packet, type);
+    packet.append(body.data(), body.size());
+    packet.push_back('\0');
+    packet.push_back('\0');
+    return SendAll(socket, packet.data(), packet.size());
+}
+
 } // namespace
 
 RconServer::RconServer() = default;
@@ -93,10 +137,11 @@ RconServer::~RconServer()
 
 void RconServer::Start()
 {
-    Platform::Print("RCON: config enabled=%d bind_address=%s port=%u\n",
+    Platform::Print("RCON: config enabled=%d bind_address=%s port=%u source=1 text=1 password=%s\n",
         GetConfig().RconEnabled() ? 1 : 0,
         GetConfig().RconBindAddress().c_str(),
-        GetConfig().RconPort());
+        GetConfig().RconPort(),
+        GetConfig().RconPassword().empty() ? "empty" : "set");
 
     if (!GetConfig().RconEnabled())
     {
@@ -279,6 +324,8 @@ void RconServer::HandleConnection(uintptr_t socketHandle)
 
     std::string buffer;
     char chunk[1024];
+    std::optional<bool> sourceMode;
+    bool authenticated = false;
 
     while (m_running.load())
     {
@@ -306,37 +353,152 @@ void RconServer::HandleConnection(uintptr_t socketHandle)
 
         buffer.append(chunk, chunk + received);
 
-        while (true)
+        if (!sourceMode && buffer.size() >= sizeof(int32_t))
         {
-            size_t newline = buffer.find('\n');
-            if (newline == std::string::npos)
+            sourceMode = IsValidSourcePacketSize(ReadInt32LE(buffer.data()));
+        }
+
+        if (!sourceMode)
+        {
+            continue;
+        }
+
+        if (*sourceMode)
+        {
+            if (!HandleSourceBuffer(socketHandle, buffer, authenticated))
             {
                 break;
             }
-
-            std::string line = Trim(std::string_view{ buffer.data(), newline });
-            if (!line.empty() && line.back() == '\r')
-            {
-                line.pop_back();
-            }
-            buffer.erase(0, newline + 1);
-
-            if (line.empty())
-            {
-                continue;
-            }
-
-            std::string response = ExecuteCommand(std::move(line));
-            response.push_back('\n');
-            if (!SendAll(socket, response.data(), response.size()))
-            {
-                CloseSocket(socket);
-                return;
-            }
+        }
+        else if (!HandleTextBuffer(socketHandle, buffer))
+        {
+            break;
         }
     }
 
     CloseSocket(socket);
+}
+
+bool RconServer::HandleTextBuffer(uintptr_t socketHandle, std::string &buffer)
+{
+    SocketType socket = FromHandle(socketHandle);
+
+    while (true)
+    {
+        size_t newline = buffer.find('\n');
+        if (newline == std::string::npos)
+        {
+            return true;
+        }
+
+        std::string line = Trim(std::string_view{ buffer.data(), newline });
+        if (!line.empty() && line.back() == '\r')
+        {
+            line.pop_back();
+        }
+        buffer.erase(0, newline + 1);
+
+        if (line.empty())
+        {
+            continue;
+        }
+
+        std::string response = ExecuteCommand(std::move(line));
+        response.push_back('\n');
+        if (!SendAll(socket, response.data(), response.size()))
+        {
+            return false;
+        }
+    }
+}
+
+bool RconServer::HandleSourceBuffer(uintptr_t socketHandle, std::string &buffer, bool &authenticated)
+{
+    while (buffer.size() >= sizeof(int32_t))
+    {
+        int32_t packetSize = ReadInt32LE(buffer.data());
+        if (!IsValidSourcePacketSize(packetSize))
+        {
+            Platform::Print("RCON: malformed Source packet size %d\n", packetSize);
+            return false;
+        }
+
+        size_t fullPacketSize = sizeof(int32_t) + static_cast<size_t>(packetSize);
+        if (buffer.size() < fullPacketSize)
+        {
+            return true;
+        }
+
+        const char *packet = buffer.data() + sizeof(int32_t);
+        int32_t requestId = ReadInt32LE(packet);
+        int32_t type = ReadInt32LE(packet + sizeof(int32_t));
+        std::string_view payload{ packet + sizeof(int32_t) * 2, static_cast<size_t>(packetSize - sizeof(int32_t) * 2) };
+
+        size_t firstTerminator = payload.find('\0');
+        if (firstTerminator == std::string_view::npos)
+        {
+            Platform::Print("RCON: malformed Source packet without body terminator\n");
+            return false;
+        }
+
+        std::string_view body = payload.substr(0, firstTerminator);
+        std::string_view tail = payload.substr(firstTerminator + 1);
+        if (tail.empty() || tail.find('\0') == std::string_view::npos)
+        {
+            Platform::Print("RCON: malformed Source packet without empty terminator\n");
+            return false;
+        }
+
+        if (!HandleSourcePacket(socketHandle, requestId, type, body, authenticated))
+        {
+            return false;
+        }
+
+        buffer.erase(0, fullPacketSize);
+    }
+
+    return true;
+}
+
+bool RconServer::HandleSourcePacket(uintptr_t socketHandle, int32_t requestId, int32_t type, std::string_view body, bool &authenticated)
+{
+    SocketType socket = FromHandle(socketHandle);
+
+    if (type == SourceRconAuth)
+    {
+        authenticated = IsSourceRconPassword(body);
+        int32_t authResponseId = authenticated ? requestId : -1;
+
+        if (!authenticated)
+        {
+            Platform::Print("RCON: Source auth failed\n");
+        }
+
+        return SendSourcePacket(socket, requestId, SourceRconResponseValue, {})
+            && SendSourcePacket(socket, authResponseId, SourceRconAuthResponse, {});
+    }
+
+    if (type != SourceRconExecCommand)
+    {
+        std::string response = "ERR unsupported packet type";
+        return SendSourcePacket(socket, requestId, SourceRconResponseValue, response);
+    }
+
+    if (!authenticated)
+    {
+        std::string response = "ERR not authenticated";
+        return SendSourcePacket(socket, requestId, SourceRconResponseValue, response);
+    }
+
+    std::string command{ body };
+    std::string response = ExecuteCommand(std::move(command));
+    return SendSourcePacket(socket, requestId, SourceRconResponseValue, response);
+}
+
+bool RconServer::IsSourceRconPassword(std::string_view password) const
+{
+    const std::string &configuredPassword = GetConfig().RconPassword();
+    return configuredPassword.empty() || password == configuredPassword;
 }
 
 std::string RconServer::ExecuteCommand(std::string command)

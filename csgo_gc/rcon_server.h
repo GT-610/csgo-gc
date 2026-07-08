@@ -17,6 +17,9 @@ public:
 private:
     void ThreadMain();
     void HandleConnection(uintptr_t socketHandle);
+    bool HandlePacketBuffer(uintptr_t socketHandle, std::string &buffer, bool &authenticated);
+    bool HandlePacket(uintptr_t socketHandle, int32_t requestId, int32_t type, std::string_view body, bool &authenticated);
+    bool IsSourceRconPassword(std::string_view password) const;
     std::string ExecuteCommand(std::string command);
 
     std::mutex m_mutex;

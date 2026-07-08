@@ -31,6 +31,7 @@ GCConfig::GCConfig()
         m_rconEnabled = rcon->GetNumber("enabled", m_rconEnabled);
         m_rconBindAddress = rcon->GetString("bind_address", m_rconBindAddress);
         m_rconPort = rcon->GetNumber("port", m_rconPort);
+        m_rconPassword = rcon->GetString("password", m_rconPassword);
     }
 
     const KeyValue *ranks = config.GetSubkey("ranks");
