@@ -1182,6 +1182,19 @@ const StickerKitInfo *ItemSchema::StickerKitByTournamentTeamId(uint32_t eventId,
     return nullptr;
 }
 
+const StickerKitInfo *ItemSchema::StickerKitInfoByDefIndex(uint32_t defIndex) const
+{
+    for (const auto &pair : m_stickerKitInfo)
+    {
+        if (pair.second.m_defIndex == defIndex)
+        {
+            return &pair.second;
+        }
+    }
+
+    return nullptr;
+}
+
 PaintKitInfo *ItemSchema::PaintKitInfoByName(std::string_view name)
 {
     auto it = m_paintKitInfo.find(std::string{ name });
@@ -1216,6 +1229,19 @@ MusicDefinitionInfo *ItemSchema::MusicDefinitionInfoByName(std::string_view name
     }
 
     return &it->second;
+}
+
+const MusicDefinitionInfo *ItemSchema::MusicDefinitionInfoByDefIndex(uint32_t defIndex) const
+{
+    for (const auto &pair : m_musicDefinitionInfo)
+    {
+        if (pair.second.m_defIndex == defIndex)
+        {
+            return &pair.second;
+        }
+    }
+
+    return nullptr;
 }
 
 bool ItemSchema::GetCollectionsForPaintedItem(uint32_t defIndex, uint32_t paintKitDefIndex,

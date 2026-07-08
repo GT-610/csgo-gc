@@ -498,7 +498,7 @@ std::string RconServer::ExecuteCommand(std::string command)
 
         if (name == "help")
         {
-            return "OK commands: help, ping, status, clients, give_item <defindex> [count], remove_item <itemid>, refresh_inventory";
+            return "OK commands: help, ping, status, clients, give_item <defindex> [count] [key=value...], remove_item <itemid>, refresh_inventory";
         }
 
         return "ERR no client gc";

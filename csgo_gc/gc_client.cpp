@@ -33,6 +33,26 @@ bool TryParseNumber(std::string_view text, T &value)
     return true;
 }
 
+bool TryParseFloat01(std::string_view text, float &value)
+{
+    if (!TryParseNumber(text, value))
+    {
+        return false;
+    }
+
+    return value >= 0.0f && value <= 1.0f;
+}
+
+bool IsValidQuality(uint32_t quality)
+{
+    return quality <= ItemSchema::QualityTournament;
+}
+
+bool IsValidRarity(uint32_t rarity)
+{
+    return rarity <= ItemSchema::RarityImmortal || rarity == ItemSchema::RarityUnusual;
+}
+
 std::string ToLower(std::string value)
 {
     for (char &ch : value)
@@ -43,10 +63,87 @@ std::string ToLower(std::string value)
     return value;
 }
 
+bool TokenizeRconCommand(std::string_view command, std::vector<std::string> &tokens)
+{
+    size_t i = 0;
+    while (i < command.size())
+    {
+        while (i < command.size() && command[i] <= ' ')
+        {
+            i++;
+        }
+
+        if (i >= command.size())
+        {
+            break;
+        }
+
+        std::string token;
+        bool quoted = false;
+        for (; i < command.size(); i++)
+        {
+            char ch = command[i];
+            if (quoted)
+            {
+                if (ch == '\\' && i + 1 < command.size())
+                {
+                    token.push_back(command[++i]);
+                    continue;
+                }
+
+                if (ch == '"')
+                {
+                    quoted = false;
+                    continue;
+                }
+
+                token.push_back(ch);
+                continue;
+            }
+
+            if (ch <= ' ')
+            {
+                break;
+            }
+
+            if (ch == '"')
+            {
+                quoted = true;
+                continue;
+            }
+
+            token.push_back(ch);
+        }
+
+        if (quoted)
+        {
+            return false;
+        }
+
+        tokens.push_back(std::move(token));
+    }
+
+    return true;
+}
+
 std::string Usage(std::string_view usage)
 {
     std::string response{ "ERR usage: " };
     response.append(usage.data(), usage.size());
+    return response;
+}
+
+std::string InvalidParameter(std::string_view key)
+{
+    std::string response{ "ERR invalid parameter " };
+    response.append(key.data(), key.size());
+    return response;
+}
+
+std::string UnknownParameter(std::string_view key)
+{
+    std::string response{ "ERR unknown parameter " };
+    response.append(key.data(), key.size());
     return response;
 }
 
@@ -219,7 +316,7 @@ const ClientGC::RconCommandDef *ClientGC::RconCommands(size_t &count)
         { "ping", "ping", &ClientGC::RconPing },
         { "status", "status", &ClientGC::RconStatus },
         { "clients", "clients", &ClientGC::RconClients },
-        { "give_item", "give_item <defindex> [count]", &ClientGC::RconGiveItem },
+        { "give_item", "give_item <defindex> [count] [key=value...]", &ClientGC::RconGiveItem },
         { "remove_item", "remove_item <itemid>", &ClientGC::RconRemoveItem },
         { "refresh_inventory", "refresh_inventory", &ClientGC::RconRefreshInventory },
     };
@@ -231,17 +328,22 @@ const ClientGC::RconCommandDef *ClientGC::RconCommands(size_t &count)
 std::string ClientGC::ExecuteRconCommand(std::string_view command)
 {
     RconRequest request;
-    std::string token;
-    std::istringstream stream{ std::string{ command } };
-    if (!(stream >> request.name))
+    std::vector<std::string> tokens;
+    if (!TokenizeRconCommand(command, tokens))
+    {
+        return "ERR malformed command";
+    }
+
+    if (tokens.empty())
     {
         return "ERR unknown command";
     }
 
+    request.name = std::move(tokens[0]);
     request.name = ToLower(std::move(request.name));
-    while (stream >> token)
+    for (size_t i = 1; i < tokens.size(); i++)
     {
-        request.args.push_back(std::move(token));
+        request.args.push_back(std::move(tokens[i]));
     }
 
     size_t commandCount = 0;
@@ -315,22 +417,162 @@ std::string ClientGC::RconClients(const RconRequest &request)
 
 std::string ClientGC::RconGiveItem(const RconRequest &request)
 {
-    if (request.args.empty() || request.args.size() > 2)
+    constexpr const char *GiveItemUsage = "give_item <defindex> [count] [key=value...]";
+
+    if (request.args.empty())
     {
-        return Usage("give_item <defindex> [count]");
+        return Usage(GiveItemUsage);
     }
 
     uint32_t defIndex;
     if (!TryParseNumber(request.args[0], defIndex))
     {
-        return Usage("give_item <defindex> [count]");
+        return Usage(GiveItemUsage);
     }
 
     uint32_t count = 1;
-    if (request.args.size() == 2
-        && (!TryParseNumber(request.args[1], count) || count == 0 || count > 100))
+    size_t parameterStart = 1;
+    if (parameterStart < request.args.size() && request.args[parameterStart].find('=') == std::string::npos)
     {
-        return Usage("give_item <defindex> [count]");
+        if (!TryParseNumber(request.args[parameterStart], count) || count == 0 || count > 100)
+        {
+            return Usage(GiveItemUsage);
+        }
+        parameterStart++;
+    }
+
+    Inventory::ParameterizedItemOptions options;
+    bool hasParameters = parameterStart < request.args.size();
+
+    for (size_t i = parameterStart; i < request.args.size(); i++)
+    {
+        std::string_view parameter{ request.args[i] };
+        size_t separator = parameter.find('=');
+        if (separator == std::string_view::npos || separator == 0)
+        {
+            return Usage(GiveItemUsage);
+        }
+
+        std::string key = ToLower(std::string{ parameter.substr(0, separator) });
+        std::string_view value = parameter.substr(separator + 1);
+
+        auto parseUint32 = [&](std::optional<uint32_t> &target) -> std::optional<std::string> {
+            uint32_t parsed;
+            if (!TryParseNumber(value, parsed))
+            {
+                return InvalidParameter(key);
+            }
+            target = parsed;
+            return {};
+        };
+
+        auto parseFloat01 = [&](std::optional<float> &target) -> std::optional<std::string> {
+            float parsed;
+            if (!TryParseFloat01(value, parsed))
+            {
+                return InvalidParameter(key);
+            }
+            target = parsed;
+            return {};
+        };
+
+        auto parseFloat = [&](std::optional<float> &target) -> std::optional<std::string> {
+            float parsed;
+            if (!TryParseNumber(value, parsed))
+            {
+                return InvalidParameter(key);
+            }
+            target = parsed;
+            return {};
+        };
+
+        std::optional<std::string> error;
+        if (key == "level")
+        {
+            error = parseUint32(options.level);
+        }
+        else if (key == "quality")
+        {
+            error = parseUint32(options.quality);
+            if (!error && !IsValidQuality(*options.quality))
+            {
+                error = InvalidParameter(key);
+            }
+        }
+        else if (key == "rarity")
+        {
+            error = parseUint32(options.rarity);
+            if (!error && !IsValidRarity(*options.rarity))
+            {
+                error = InvalidParameter(key);
+            }
+        }
+        else if (key == "name")
+        {
+            options.customName = std::string{ value };
+        }
+        else if (key == "paint")
+        {
+            error = parseUint32(options.paint);
+        }
+        else if (key == "seed")
+        {
+            error = parseUint32(options.seed);
+        }
+        else if (key == "wear")
+        {
+            error = parseFloat01(options.wear);
+        }
+        else if (key == "stattrak")
+        {
+            error = parseUint32(options.statTrak);
+        }
+        else if (key == "music")
+        {
+            error = parseUint32(options.music);
+        }
+        else if (key == "spray_color")
+        {
+            error = parseUint32(options.sprayColor);
+        }
+        else if (key == "spray_remaining")
+        {
+            error = parseUint32(options.sprayRemaining);
+        }
+        else if (key.rfind("sticker", 0) == 0 && key.size() >= 8 && key[7] >= '0' && key[7] <= '5')
+        {
+            size_t stickerSlot = static_cast<size_t>(key[7] - '0');
+            std::string_view suffix{ key.data() + 8, key.size() - 8 };
+            if (suffix.empty())
+            {
+                error = parseUint32(options.sticker[stickerSlot]);
+            }
+            else if (suffix == "_wear")
+            {
+                error = parseFloat01(options.stickerWear[stickerSlot]);
+            }
+            else if (suffix == "_scale")
+            {
+                error = parseFloat(options.stickerScale[stickerSlot]);
+            }
+            else if (suffix == "_rotation")
+            {
+                error = parseFloat(options.stickerRotation[stickerSlot]);
+            }
+            else
+            {
+                return UnknownParameter(key);
+            }
+        }
+        else
+        {
+            return UnknownParameter(key);
+        }
+
+        if (error)
+        {
+            return *error;
+        }
     }
 
     std::vector<CMsgSOSingleObject> updates;
@@ -340,7 +582,27 @@ std::string ClientGC::RconGiveItem(const RconRequest &request)
 
     for (uint32_t i = 0; i < count; i++)
     {
-        uint64_t itemId = m_inventory.PurchaseItem(defIndex, updates);
+        uint64_t itemId = 0;
+        if (hasParameters)
+        {
+            CMsgSOSingleObject &update = updates.emplace_back();
+            std::string error;
+            itemId = m_inventory.CreateParameterizedItem(defIndex, options, update, error);
+            if (!itemId)
+            {
+                updates.pop_back();
+                if (error == "unknown defindex")
+                {
+                    return "ERR unknown defindex";
+                }
+                return std::string{ "ERR " }.append(error);
+            }
+        }
+        else
+        {
+            itemId = m_inventory.PurchaseItem(defIndex, updates);
+        }
+
         if (!itemId)
         {
             return "ERR unknown defindex";
