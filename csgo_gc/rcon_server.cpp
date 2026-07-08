@@ -57,6 +57,20 @@ void CloseSocket(SocketType socket)
 #endif
 }
 
+void ShutdownSocket(SocketType socket)
+{
+    if (socket == InvalidSocket)
+    {
+        return;
+    }
+
+#ifdef _WIN32
+    shutdown(socket, SD_BOTH);
+#else
+    shutdown(socket, SHUT_RDWR);
+#endif
+}
+
 int32_t ReadInt32LE(const char *data)
 {
     const auto *bytes = reinterpret_cast<const unsigned char *>(data);
@@ -85,7 +99,12 @@ bool SendAll(SocketType socket, const char *data, size_t size)
 {
     while (size)
     {
-        int sent = send(socket, data, static_cast<int>(size), 0);
+#if defined(_WIN32) || !defined(MSG_NOSIGNAL)
+        constexpr int SendFlags = 0;
+#else
+        constexpr int SendFlags = MSG_NOSIGNAL;
+#endif
+        int sent = send(socket, data, static_cast<int>(size), SendFlags);
         if (sent <= 0)
         {
             return false;
@@ -169,6 +188,7 @@ void RconServer::Stop()
         m_listenSocket = ToHandle(InvalidSocket);
     }
 
+    ShutdownSocket(listenSocket);
     CloseSocket(listenSocket);
 
     if (m_thread.joinable())
@@ -302,6 +322,11 @@ void RconServer::ThreadMain()
 void RconServer::HandleConnection(uintptr_t socketHandle)
 {
     SocketType socket = FromHandle(socketHandle);
+
+#if !defined(_WIN32) && defined(SO_NOSIGPIPE)
+    int noSigPipe = 1;
+    setsockopt(socket, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, sizeof(noSigPipe));
+#endif
 
 #ifdef _WIN32
     DWORD timeoutMs = 1000;

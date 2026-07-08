@@ -46,7 +46,8 @@ target_link_libraries(csgo_gc PRIVATE
     cryptopp
     funchook-static
     libprotobuf-lite
-    steam_api)
+    steam_api
+    Threads::Threads)
 
 if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
     target_link_libraries(csgo_gc PRIVATE ws2_32)
