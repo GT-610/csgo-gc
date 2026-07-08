@@ -57,21 +57,6 @@ void CloseSocket(SocketType socket)
 #endif
 }
 
-std::string Trim(std::string_view value)
-{
-    while (!value.empty() && value.front() <= ' ')
-    {
-        value.remove_prefix(1);
-    }
-
-    while (!value.empty() && value.back() <= ' ')
-    {
-        value.remove_suffix(1);
-    }
-
-    return std::string{ value };
-}
-
 int32_t ReadInt32LE(const char *data)
 {
     const auto *bytes = reinterpret_cast<const unsigned char *>(data);
@@ -115,6 +100,11 @@ bool SendAll(SocketType socket, const char *data, size_t size)
 
 bool SendSourcePacket(SocketType socket, int32_t requestId, int32_t type, std::string_view body)
 {
+    if (body.size() > static_cast<size_t>(SourceRconMaxPacketSize - SourceRconMinPacketSize))
+    {
+        body = body.substr(0, static_cast<size_t>(SourceRconMaxPacketSize - SourceRconMinPacketSize));
+    }
+
     std::string packet;
     packet.reserve(sizeof(int32_t) * 3 + body.size() + 2);
     AppendInt32LE(packet, static_cast<int32_t>(sizeof(int32_t) * 2 + body.size() + 2));
@@ -137,7 +127,7 @@ RconServer::~RconServer()
 
 void RconServer::Start()
 {
-    Platform::Print("RCON: config enabled=%d bind_address=%s port=%u source=1 text=1 password=%s\n",
+    Platform::Print("RCON: config enabled=%d bind_address=%s port=%u protocol=source password=%s\n",
         GetConfig().RconEnabled() ? 1 : 0,
         GetConfig().RconBindAddress().c_str(),
         GetConfig().RconPort(),
@@ -324,7 +314,6 @@ void RconServer::HandleConnection(uintptr_t socketHandle)
 
     std::string buffer;
     char chunk[1024];
-    std::optional<bool> sourceMode;
     bool authenticated = false;
 
     while (m_running.load())
@@ -353,24 +342,7 @@ void RconServer::HandleConnection(uintptr_t socketHandle)
 
         buffer.append(chunk, chunk + received);
 
-        if (!sourceMode && buffer.size() >= sizeof(int32_t))
-        {
-            sourceMode = IsValidSourcePacketSize(ReadInt32LE(buffer.data()));
-        }
-
-        if (!sourceMode)
-        {
-            continue;
-        }
-
-        if (*sourceMode)
-        {
-            if (!HandleSourceBuffer(socketHandle, buffer, authenticated))
-            {
-                break;
-            }
-        }
-        else if (!HandleTextBuffer(socketHandle, buffer))
+        if (!HandlePacketBuffer(socketHandle, buffer, authenticated))
         {
             break;
         }
@@ -379,40 +351,7 @@ void RconServer::HandleConnection(uintptr_t socketHandle)
     CloseSocket(socket);
 }
 
-bool RconServer::HandleTextBuffer(uintptr_t socketHandle, std::string &buffer)
-{
-    SocketType socket = FromHandle(socketHandle);
-
-    while (true)
-    {
-        size_t newline = buffer.find('\n');
-        if (newline == std::string::npos)
-        {
-            return true;
-        }
-
-        std::string line = Trim(std::string_view{ buffer.data(), newline });
-        if (!line.empty() && line.back() == '\r')
-        {
-            line.pop_back();
-        }
-        buffer.erase(0, newline + 1);
-
-        if (line.empty())
-        {
-            continue;
-        }
-
-        std::string response = ExecuteCommand(std::move(line));
-        response.push_back('\n');
-        if (!SendAll(socket, response.data(), response.size()))
-        {
-            return false;
-        }
-    }
-}
-
-bool RconServer::HandleSourceBuffer(uintptr_t socketHandle, std::string &buffer, bool &authenticated)
+bool RconServer::HandlePacketBuffer(uintptr_t socketHandle, std::string &buffer, bool &authenticated)
 {
     while (buffer.size() >= sizeof(int32_t))
     {
@@ -449,7 +388,7 @@ bool RconServer::HandleSourceBuffer(uintptr_t socketHandle, std::string &buffer,
             return false;
         }
 
-        if (!HandleSourcePacket(socketHandle, requestId, type, body, authenticated))
+        if (!HandlePacket(socketHandle, requestId, type, body, authenticated))
         {
             return false;
         }
@@ -460,7 +399,7 @@ bool RconServer::HandleSourceBuffer(uintptr_t socketHandle, std::string &buffer,
     return true;
 }
 
-bool RconServer::HandleSourcePacket(uintptr_t socketHandle, int32_t requestId, int32_t type, std::string_view body, bool &authenticated)
+bool RconServer::HandlePacket(uintptr_t socketHandle, int32_t requestId, int32_t type, std::string_view body, bool &authenticated)
 {
     SocketType socket = FromHandle(socketHandle);
 
