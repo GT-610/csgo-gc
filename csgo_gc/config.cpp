@@ -25,6 +25,14 @@ GCConfig::GCConfig()
     m_appIdOverride = config.GetNumber("appid_override", m_appIdOverride);
     m_showCsgoGCServersOnly = config.GetNumber("show_csgo_gc_servers_only", m_showCsgoGCServersOnly);
 
+    const KeyValue *rcon = config.GetSubkey("rcon");
+    if (rcon)
+    {
+        m_rconEnabled = rcon->GetNumber("enabled", m_rconEnabled);
+        m_rconBindAddress = rcon->GetString("bind_address", m_rconBindAddress);
+        m_rconPort = rcon->GetNumber("port", m_rconPort);
+    }
+
     const KeyValue *ranks = config.GetSubkey("ranks");
     if (ranks)
     {

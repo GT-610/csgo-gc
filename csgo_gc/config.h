@@ -28,6 +28,9 @@ public:
     // options used by steam hook
     uint32_t AppIdOverride() const { return m_appIdOverride; }
     bool ShowCsgoGCServersOnly() const { return m_showCsgoGCServersOnly; }
+    bool RconEnabled() const { return m_rconEnabled; }
+    const std::string &RconBindAddress() const { return m_rconBindAddress; }
+    uint16_t RconPort() const { return m_rconPort; }
 
     RankId CompetitiveRank() const { return m_competitiveRank; }
     int CompetitiveWins() const { return m_competitiveWins; }
@@ -54,6 +57,9 @@ private:
     // and then wonder why the game doesn't work and open an issue on github otherwise
     uint32_t m_appIdOverride{ 4465480 };
     bool m_showCsgoGCServersOnly{ true };
+    bool m_rconEnabled{ false };
+    std::string m_rconBindAddress{ "127.0.0.1" };
+    uint16_t m_rconPort{ 37016 };
 
     RankId m_competitiveRank{ RankNone };
     int m_competitiveWins{ 0 };

@@ -1,0 +1,27 @@
+#pragma once
+
+class ClientGC;
+
+class RconServer
+{
+public:
+    RconServer();
+    ~RconServer();
+
+    void Start();
+    void Stop();
+
+    void RegisterClient(ClientGC *client);
+    void UnregisterClient(ClientGC *client);
+
+private:
+    void ThreadMain();
+    void HandleConnection(uintptr_t socketHandle);
+    std::string ExecuteCommand(std::string command);
+
+    std::mutex m_mutex;
+    ClientGC *m_client{};
+    std::thread m_thread;
+    std::atomic<bool> m_running{ false };
+    uintptr_t m_listenSocket{ UINTPTR_MAX };
+};

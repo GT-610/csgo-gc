@@ -138,6 +138,7 @@ public:
     // returns the item id and adds the item to the provided CMsgSOMultipleObjects
     // on failure returns 0 and does nothing
     uint64_t PurchaseItem(uint32_t defIndex, std::vector<CMsgSOSingleObject> &update);
+    size_t ItemCount() const { return m_items.size(); }
 
 private:
     uint32_t AccountId() const;

@@ -5,6 +5,46 @@
 #include "keyvalue.h"
 #include "networking_shared.h"
 
+namespace
+{
+
+struct RconCommand
+{
+    explicit RconCommand(std::string command_)
+        : command{ std::move(command_) }
+    {
+    }
+
+    std::string command;
+    std::promise<std::string> response;
+};
+
+template<typename T>
+bool TryParseNumber(std::string_view text, T &value)
+{
+    T parsed{};
+    auto result = std::from_chars(text.data(), text.data() + text.size(), parsed);
+    if (result.ec != std::errc{} || result.ptr != text.data() + text.size())
+    {
+        return false;
+    }
+
+    value = parsed;
+    return true;
+}
+
+std::string ToLower(std::string value)
+{
+    for (char &ch : value)
+    {
+        ch = static_cast<char>(tolower(static_cast<unsigned char>(ch)));
+    }
+
+    return value;
+}
+
+} // namespace
+
 ClientGC::ClientGC(uint64_t steamId)
     : m_steamId{ steamId }
     , m_inventory{ steamId }
@@ -36,6 +76,22 @@ uint32_t ClientGC::LocalPlayerMusicKitMVPsForRoundMVPEvent() const
     // the local increment, so expose the post-MVP value here.
     int32_t cachedMVPs = m_cachedMusicKitMVPs.load();
     return cachedMVPs >= 0 ? static_cast<uint32_t>(cachedMVPs + 1) : 0;
+}
+
+std::string ClientGC::RunRconCommand(std::string command)
+{
+    auto request = std::make_shared<RconCommand>(std::move(command));
+    std::future<std::string> response = request->response.get_future();
+
+    auto holder = new std::shared_ptr<RconCommand>{ request };
+    PostToGC(GCEvent::RconCommand, 0, &holder, sizeof(holder));
+
+    if (response.wait_for(std::chrono::seconds{ 5 }) != std::future_status::ready)
+    {
+        return "ERR timeout";
+    }
+
+    return response.get();
 }
 
 void ClientGC::RefreshCachedMusicKitMVPs()
@@ -126,10 +182,172 @@ void ClientGC::HandleEvent(GCEvent type, uint64_t id, const std::vector<uint8_t>
         }
         break;
 
+    case GCEvent::RconCommand:
+        if (buffer.size() == sizeof(std::shared_ptr<RconCommand> *))
+        {
+            std::shared_ptr<RconCommand> *holder;
+            memcpy(&holder, buffer.data(), sizeof(holder));
+
+            std::shared_ptr<RconCommand> request = std::move(*holder);
+            delete holder;
+
+            request->response.set_value(ExecuteRconCommand(request->command));
+        }
+        else
+        {
+            Platform::Print("ClientGC::HandleEvent: invalid RconCommand buffer size\n");
+        }
+        break;
+
     default:
         Platform::Print("ClientGC::HandleEvent: unknown event type %d\n", static_cast<int>(type));
         break;
     }
+}
+
+std::string ClientGC::ExecuteRconCommand(std::string_view command)
+{
+    std::string commandString{ command };
+    std::istringstream stream{ commandString };
+    std::string name;
+    stream >> name;
+    name = ToLower(std::move(name));
+
+    if (name == "help")
+    {
+        return "OK commands: help, ping, status, clients, give_item <defindex> [count], remove_item <itemid>, refresh_inventory";
+    }
+
+    if (name == "ping")
+    {
+        return "OK pong";
+    }
+
+    if (name == "status")
+    {
+        std::ostringstream response;
+        response << "OK rcon=enabled client=online steamid=" << m_steamId
+                 << " items=" << m_inventory.ItemCount();
+        return response.str();
+    }
+
+    if (name == "clients")
+    {
+        std::ostringstream response;
+        response << "OK steamid=" << m_steamId;
+        return response.str();
+    }
+
+    if (name == "give_item")
+    {
+        std::string defIndexText;
+        if (!(stream >> defIndexText))
+        {
+            return "ERR usage: give_item <defindex> [count]";
+        }
+
+        uint32_t defIndex;
+        if (!TryParseNumber(defIndexText, defIndex))
+        {
+            return "ERR usage: give_item <defindex> [count]";
+        }
+
+        uint32_t count = 1;
+        std::string countText;
+        if (stream >> countText)
+        {
+            if (!TryParseNumber(countText, count) || count == 0 || count > 100)
+            {
+                return "ERR usage: give_item <defindex> [count]";
+            }
+        }
+
+        std::string extra;
+        if (stream >> extra)
+        {
+            return "ERR usage: give_item <defindex> [count]";
+        }
+
+        std::vector<CMsgSOSingleObject> updates;
+        std::vector<uint64_t> itemIds;
+        updates.reserve(count);
+        itemIds.reserve(count);
+
+        for (uint32_t i = 0; i < count; i++)
+        {
+            uint64_t itemId = m_inventory.PurchaseItem(defIndex, updates);
+            if (!itemId)
+            {
+                return "ERR unknown defindex";
+            }
+
+            itemIds.push_back(itemId);
+        }
+
+        for (CMsgSOSingleObject &update : updates)
+        {
+            SendMessageToGame(true, k_ESOMsg_Create, update);
+        }
+
+        std::ostringstream response;
+        response << "OK item_ids=";
+        for (size_t i = 0; i < itemIds.size(); i++)
+        {
+            if (i)
+            {
+                response << ",";
+            }
+            response << itemIds[i];
+        }
+
+        return response.str();
+    }
+
+    if (name == "remove_item")
+    {
+        std::string itemIdText;
+        if (!(stream >> itemIdText))
+        {
+            return "ERR usage: remove_item <itemid>";
+        }
+
+        uint64_t itemId;
+        if (!TryParseNumber(itemIdText, itemId))
+        {
+            return "ERR usage: remove_item <itemid>";
+        }
+
+        std::string extra;
+        if (stream >> extra)
+        {
+            return "ERR usage: remove_item <itemid>";
+        }
+
+        CMsgSOSingleObject destroyed;
+        if (!m_inventory.RemoveItem(itemId, destroyed))
+        {
+            return "ERR item not found";
+        }
+
+        SendMessageToGame(true, k_ESOMsg_Destroy, destroyed);
+        return "OK removed";
+    }
+
+    if (name == "refresh_inventory")
+    {
+        std::string extra;
+        if (stream >> extra)
+        {
+            return "ERR usage: refresh_inventory";
+        }
+
+        CMsgSOCacheSubscribed message;
+        m_inventory.BuildCacheSubscription(message, GetConfig().Level(), false);
+        SendMessageToGame(false, k_ESOMsg_CacheSubscribed, message);
+        return "OK refreshed";
+    }
+
+    return "ERR unknown command";
 }
 
 void ClientGC::HandleMessage(uint32_t type, const void *data, uint32_t size)
