@@ -23,7 +23,9 @@ private:
     std::string ExecuteCommand(std::string command);
 
     std::mutex m_mutex;
+    std::condition_variable m_clientIdle;
     ClientGC *m_client{};
+    size_t m_activeClientCommands{};
     std::thread m_thread;
     std::atomic<bool> m_running{ false };
     uintptr_t m_listenSocket{ UINTPTR_MAX };

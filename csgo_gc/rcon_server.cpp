@@ -207,10 +207,11 @@ void RconServer::RegisterClient(ClientGC *client)
 
 void RconServer::UnregisterClient(ClientGC *client)
 {
-    std::lock_guard lock{ m_mutex };
+    std::unique_lock lock{ m_mutex };
     if (m_client == client)
     {
         m_client = nullptr;
+        m_clientIdle.wait(lock, [this] { return m_activeClientCommands == 0; });
     }
 }
 
@@ -481,28 +482,38 @@ std::string RconServer::ExecuteCommand(std::string command)
         return "OK pong";
     }
 
-    std::lock_guard lock{ m_mutex };
-    ClientGC *client = m_client;
-
-    if (!client)
     {
-        if (name == "status")
-        {
-            return "OK rcon=enabled client=none";
-        }
+        std::unique_lock lock{ m_mutex };
+        ClientGC *client = m_client;
 
-        if (name == "clients")
+        if (client)
         {
-            return "OK no clients";
-        }
+            m_activeClientCommands++;
+            lock.unlock();
 
-        if (name == "help")
-        {
-            return "OK commands: help, ping, status, clients, give_item <defindex> [count] [key=value...], remove_item <itemid>, refresh_inventory";
-        }
+            std::string response = client->RunRconCommand(std::move(command));
 
-        return "ERR no client gc";
+            std::lock_guard finishLock{ m_mutex };
+            m_activeClientCommands--;
+            m_clientIdle.notify_all();
+            return response;
+        }
     }
 
-    return client->RunRconCommand(std::move(command));
+    if (name == "status")
+    {
+        return "OK rcon=enabled client=none";
+    }
+
+    if (name == "clients")
+    {
+        return "OK no clients";
+    }
+
+    if (name == "help")
+    {
+        return "OK commands: help, ping, status, clients, give_item <defindex> [count] [key=value...], remove_item <itemid>, refresh_inventory";
+    }
+
+    return "ERR no client gc";
 }

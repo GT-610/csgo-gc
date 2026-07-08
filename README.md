@@ -62,7 +62,7 @@ The local RCON interface can also create and remove items while the game is runn
 See [csgo_gc/config.txt](examples/config.txt) for available options.
 
 ## RCON
-RCON is disabled by default and listens on localhost when enabled. It uses the Source RCON binary protocol, so existing Source RCON clients can be used.
+RCON is disabled by default and binds to localhost with the default configuration; the actual listen address is controlled by `bind_address`. It uses the Source RCON binary protocol, so existing Source RCON clients can be used.
 
 See [rcon.md](docs/rcon.md) for protocol details, configuration, supported parameters and error formats.
 
