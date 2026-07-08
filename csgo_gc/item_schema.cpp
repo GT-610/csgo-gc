@@ -71,6 +71,7 @@ ItemInfo::ItemInfo(uint32_t defIndex)
     , m_canSticker{ false }
     , m_canPatch{ false }
     , m_nameable{ false }
+    , m_canStatTrakSwap{ false }
     , m_isCoupon{ false }
     , m_willProduceStatTrak{ false }
 {
@@ -758,6 +759,12 @@ void ItemSchema::ParseItemRecursive(ItemInfo &info, const KeyValue &itemKey, con
         if (nameable)
         {
             info.m_nameable = FromString<int>(nameable->String()) != 0;
+        }
+
+        const KeyValue *canStatTrakSwap = capabilities->GetSubkey("can_stattrack_swap");
+        if (canStatTrakSwap)
+        {
+            info.m_canStatTrakSwap = FromString<int>(canStatTrakSwap->String()) != 0;
         }
     }
 
@@ -1499,4 +1506,10 @@ bool ItemSchema::CanNameDefIndex(uint32_t defIndex) const
 {
     const ItemInfo *info = ItemInfoByDefIndex(defIndex);
     return info && info->m_nameable;
+}
+
+bool ItemSchema::CanStatTrakSwapDefIndex(uint32_t defIndex) const
+{
+    const ItemInfo *info = ItemInfoByDefIndex(defIndex);
+    return info && info->m_canStatTrakSwap;
 }

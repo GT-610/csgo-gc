@@ -1,5 +1,3 @@
-# Agent Notes
-
 This repository is developed from `main`. Keep `master` as the branch that tracks upstream-oriented integration work and DO NOT TOUCH UNLESS EXPLICITLY ASKED.
 
 ## Build Environment
@@ -105,3 +103,75 @@ Generated protobuf sources and vendored Steamworks SDK headers are noisy. When s
 ```bat
 rg <pattern> csgo_gc launcher CMakeLists.txt README.md AGENTS.md
 ```
+
+## Reverse Engineering Notes
+
+This project is often developed alongside a local Ghidra project for the final
+CS:GO client build. When Ghidra is connected through MCP, use it as the preferred way
+to inspect Ghidra programs from an agent session.
+
+Start by listing and connecting to the open Ghidra instance, then list project
+files and open programs before running analysis queries. If a program was saved
+with an older Ghidra language version, Ghidra may need a manual open/save or
+language upgrade in the GUI before MCP tools can open it.
+
+MCP methods varies based on the MCP server user has chosen. Recommended to use https://github.com/bethington/ghidra-mcp.
+
+Prefer targeted analysis over full-project analysis. The CS:GO binaries are
+large, and full auto-analysis can be slow. For most tasks, first search strings,
+symbols, imports, and nearby functions, then analyze/decompile only the relevant
+area.
+
+The most useful reverse-engineering targets are usually:
+
+- `client.dll`: primary client gameplay and GC-facing logic.
+- `client_panorama.dll`: useful comparison target; it contains many similar GC
+  strings and classes even if the running game path appears to use `client.dll`.
+- `server.dll`: server-side gameplay behavior, dedicated-server interactions,
+  and client/server state effects.
+- `matchmaking.dll`: lobby, session, server browser, and join-data behavior.
+- `engine.dll`: module loading, Steam interface access, networking, and
+  client/server boundaries.
+- The original game launcher executable: useful for comparing launcher,
+  bootstrap, and module-loading behavior against this project's replacement
+  launcher.
+- `steam_api.dll`: lower-priority boundary reference for Steam interfaces such
+  as `SteamGameCoordinator001`.
+- Panorama runtime modules only when investigating UI/runtime behavior.
+
+Avoid importing or analyzing every bundled third-party runtime DLL by default.
+Libraries such as V8, ICU, media codecs, font/rendering libraries, and audio
+middleware add noise unless the task specifically involves them.
+
+Local reference source trees, when present, are valuable for naming and
+orientation:
+
+- Older CS:GO/source-engine code is best treated as a structure and naming
+  dictionary. The `gcsdk`, `game/client`, `game/server`, `matchmaking`,
+  `public`, and `engine` areas are especially useful.
+- The final Panorama frontend source is useful for tracing inventory, store,
+  loadout, and lobby UI behavior before diving into native Panorama binaries.
+
+Useful GC-related anchors to search in Ghidra or reference source include:
+
+```text
+SteamGameCoordinator001
+ISteamGameCoordinator
+CMsgClientHello
+CMsgClientWelcome
+CMsgSOCacheSubscribed
+SOCache
+CSOEconItem
+ClientJob_EMsgGCCStrike15_v2_MatchmakingGC2ClientHello
+```
+
+When comparing the local game install with build outputs, remember that the DLL
+installed into the game directory may lag behind the current `build` output.
+Check file size, timestamp, or hash before assuming runtime behavior matches
+the current source tree.
+
+Some Windows agent environments may expose both `PATH` and `Path`. MSBuild can
+fail with a duplicate environment key before compiling project code. If this
+happens, normalize the child process environment before invoking the Visual
+Studio developer prompt, for example by clearing one spelling and preserving the
+other in the same `cmd` session.

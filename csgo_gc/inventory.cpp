@@ -1814,6 +1814,17 @@ Inventory::CounterSwapResult Inventory::PerformCounterSwap(uint64_t toolId, uint
     CSOEconItem &weaponA = itA->second;
     CSOEconItem &weaponB = itB->second;
 
+    bool weaponACanSwap = m_itemSchema.CanStatTrakSwapDefIndex(weaponA.def_index());
+    bool weaponBCanSwap = m_itemSchema.CanStatTrakSwapDefIndex(weaponB.def_index());
+    if (!weaponACanSwap || !weaponBCanSwap)
+    {
+        Platform::Print("StatTrakSwap: weapon definitions must both support StatTrak Swap (weapon %llu def %u ok=%d, weapon %llu def %u ok=%d)\n",
+            weaponAId, weaponA.def_index(), weaponACanSwap ? 1 : 0,
+            weaponBId, weaponB.def_index(), weaponBCanSwap ? 1 : 0);
+        result.status = CounterSwapStatus::InvalidWeaponState;
+        return result;
+    }
+
     if (weaponA.quality() != ItemSchema::QualityStrange
         || weaponB.quality() != ItemSchema::QualityStrange)
     {

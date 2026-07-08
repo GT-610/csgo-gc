@@ -37,6 +37,7 @@ public:
     bool m_canSticker;
     bool m_canPatch;
     bool m_nameable;
+    bool m_canStatTrakSwap;
 
     // kludge for coupons so we can buy stuff from the store
     bool m_isCoupon;
@@ -167,6 +168,7 @@ public:
     bool CanApplyStickerToDefIndex(uint32_t defIndex) const;
     bool CanApplyPatchToDefIndex(uint32_t defIndex) const;
     bool CanNameDefIndex(uint32_t defIndex) const;
+    bool CanStatTrakSwapDefIndex(uint32_t defIndex) const;
 
 
 public:
