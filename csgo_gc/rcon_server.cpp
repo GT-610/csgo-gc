@@ -93,17 +93,25 @@ RconServer::~RconServer()
 
 void RconServer::Start()
 {
+    Platform::Print("RCON: config enabled=%d bind_address=%s port=%u\n",
+        GetConfig().RconEnabled() ? 1 : 0,
+        GetConfig().RconBindAddress().c_str(),
+        GetConfig().RconPort());
+
     if (!GetConfig().RconEnabled())
     {
+        Platform::Print("RCON: disabled\n");
         return;
     }
 
     bool expected = false;
     if (!m_running.compare_exchange_strong(expected, true))
     {
+        Platform::Print("RCON: already running\n");
         return;
     }
 
+    Platform::Print("RCON: starting listener thread\n");
     m_thread = std::thread{ &RconServer::ThreadMain, this };
 }
 
@@ -136,6 +144,8 @@ void RconServer::Stop()
 
 void RconServer::RegisterClient(ClientGC *client)
 {
+    Start();
+
     std::lock_guard lock{ m_mutex };
     m_client = client;
 }
