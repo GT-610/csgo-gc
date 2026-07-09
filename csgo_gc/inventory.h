@@ -14,6 +14,27 @@ public:
     Inventory(uint64_t steamId);
     ~Inventory();
 
+    struct ParameterizedItemOptions
+    {
+        std::optional<uint32_t> level;
+        std::optional<uint32_t> quality;
+        std::optional<uint32_t> rarity;
+        std::optional<std::string> customName;
+
+        std::optional<uint32_t> paint;
+        std::optional<uint32_t> seed;
+        std::optional<float> wear;
+        std::optional<uint32_t> statTrak;
+        std::optional<uint32_t> music;
+        std::optional<uint32_t> sprayColor;
+        std::optional<uint32_t> sprayRemaining;
+
+        std::array<std::optional<uint32_t>, 6> sticker;
+        std::array<std::optional<float>, 6> stickerWear;
+        std::array<std::optional<float>, 6> stickerScale;
+        std::array<std::optional<float>, 6> stickerRotation;
+    };
+
     void BuildCacheSubscription(CMsgSOCacheSubscribed &message, int level, bool server);
 
     bool EquipItem(uint64_t itemId, uint32_t classId, uint32_t slotId, CMsgSOMultipleObjects &update);
@@ -138,6 +159,11 @@ public:
     // returns the item id and adds the item to the provided CMsgSOMultipleObjects
     // on failure returns 0 and does nothing
     uint64_t PurchaseItem(uint32_t defIndex, std::vector<CMsgSOSingleObject> &update);
+    uint64_t CreateParameterizedItem(uint32_t defIndex,
+        const ParameterizedItemOptions &options,
+        CMsgSOSingleObject &update,
+        std::string &error);
+    size_t ItemCount() const { return m_items.size(); }
 
 private:
     uint32_t AccountId() const;

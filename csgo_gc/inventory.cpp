@@ -39,6 +39,42 @@ inline bool IsDefaultItemId(uint64_t itemId, uint32_t &defIndex, uint32_t &paint
     return false;
 }
 
+CSOEconItemAttribute *FindOrAddAttribute(CSOEconItem &item, uint32_t defIndex)
+{
+    for (int i = 0; i < item.attribute_size(); i++)
+    {
+        CSOEconItemAttribute *attribute = item.mutable_attribute(i);
+        if (attribute->def_index() == defIndex)
+        {
+            return attribute;
+        }
+    }
+
+    CSOEconItemAttribute *attribute = item.add_attribute();
+    attribute->set_def_index(defIndex);
+    return attribute;
+}
+
+uint32_t StickerIdAttribute(size_t slot)
+{
+    return ItemSchema::AttributeStickerId0 + static_cast<uint32_t>(slot) * 4;
+}
+
+uint32_t StickerWearAttribute(size_t slot)
+{
+    return ItemSchema::AttributeStickerWear0 + static_cast<uint32_t>(slot) * 4;
+}
+
+uint32_t StickerScaleAttribute(size_t slot)
+{
+    return ItemSchema::AttributeStickerScale0 + static_cast<uint32_t>(slot) * 4;
+}
+
+uint32_t StickerRotationAttribute(size_t slot)
+{
+    return ItemSchema::AttributeStickerRotation0 + static_cast<uint32_t>(slot) * 4;
+}
+
 Inventory::Inventory(uint64_t steamId)
     : m_steamId{ steamId }
 {
@@ -1883,6 +1919,190 @@ uint64_t Inventory::PurchaseItem(uint32_t defIndex, std::vector<CMsgSOSingleObje
     CMsgSOSingleObject &single = update.emplace_back();
     ToSingleObject(single, item);
 
+    return item.id();
+}
+
+uint64_t Inventory::CreateParameterizedItem(uint32_t defIndex,
+    const ParameterizedItemOptions &options,
+    CMsgSOSingleObject &update,
+    std::string &error)
+{
+    if (!m_itemSchema.ItemInfoByDefIndex(defIndex))
+    {
+        error = "unknown defindex";
+        return 0;
+    }
+
+    if (options.paint && !m_itemSchema.PaintKitInfoByDefIndex(*options.paint))
+    {
+        error = "unknown paint";
+        return 0;
+    }
+
+    if (options.music && !m_itemSchema.MusicDefinitionInfoByDefIndex(*options.music))
+    {
+        error = "unknown music";
+        return 0;
+    }
+
+    if (options.music && defIndex != ItemSchema::ItemMusicKit)
+    {
+        error = "music requires defindex 1314";
+        return 0;
+    }
+
+    if (options.sprayColor
+        && (*options.sprayColor < ItemSchema::GraffitiTintMin || *options.sprayColor > ItemSchema::GraffitiTintMax))
+    {
+        error = "invalid parameter spray_color";
+        return 0;
+    }
+
+    for (const std::optional<uint32_t> &sticker : options.sticker)
+    {
+        if (sticker && !m_itemSchema.StickerKitInfoByDefIndex(*sticker))
+        {
+            error = "unknown sticker";
+            return 0;
+        }
+    }
+
+    CSOEconItem &item = CreateItem(defIndex, ItemOriginPurchased, UnacknowledgedPurchased);
+
+    if (options.level)
+    {
+        item.set_level(*options.level);
+    }
+
+    if (options.customName && !options.customName->empty())
+    {
+        item.set_custom_name(*options.customName);
+    }
+
+    if (options.paint)
+    {
+        CSOEconItemAttribute *attribute = FindOrAddAttribute(item, ItemSchema::AttributeTexturePrefab);
+        m_itemSchema.SetAttributeUint32(attribute, *options.paint);
+
+        attribute = FindOrAddAttribute(item, ItemSchema::AttributeTextureSeed);
+        m_itemSchema.SetAttributeUint32(attribute, options.seed.value_or(0));
+
+        attribute = FindOrAddAttribute(item, ItemSchema::AttributeTextureWear);
+        m_itemSchema.SetAttributeFloat(attribute, options.wear.value_or(0.001f));
+
+        if (!options.quality)
+        {
+            item.set_quality(ItemSchema::QualityUnique);
+        }
+
+        if (!options.rarity)
+        {
+            item.set_rarity(m_itemSchema.GetPaintedRarity(defIndex, *options.paint, item.rarity()));
+        }
+    }
+    else
+    {
+        if (options.seed)
+        {
+            CSOEconItemAttribute *attribute = FindOrAddAttribute(item, ItemSchema::AttributeTextureSeed);
+            m_itemSchema.SetAttributeUint32(attribute, *options.seed);
+        }
+
+        if (options.wear)
+        {
+            CSOEconItemAttribute *attribute = FindOrAddAttribute(item, ItemSchema::AttributeTextureWear);
+            m_itemSchema.SetAttributeFloat(attribute, *options.wear);
+        }
+    }
+
+    if (options.music)
+    {
+        CSOEconItemAttribute *attribute = FindOrAddAttribute(item, ItemSchema::AttributeMusicId);
+        m_itemSchema.SetAttributeUint32(attribute, *options.music);
+
+        attribute = FindOrAddAttribute(item, ItemSchema::AttributeKillEater);
+        m_itemSchema.SetAttributeUint32(attribute, options.statTrak ? (*options.statTrak == 1 ? 0 : *options.statTrak) : 0);
+
+        attribute = FindOrAddAttribute(item, ItemSchema::AttributeKillEaterScoreType);
+        m_itemSchema.SetAttributeUint32(attribute, 1);
+
+        if (!options.quality)
+        {
+            item.set_quality(options.statTrak ? ItemSchema::QualityStrange : ItemSchema::QualityUnique);
+        }
+
+        if (!options.rarity)
+        {
+            item.set_rarity(ItemSchema::RarityRare);
+        }
+    }
+
+    if (options.statTrak && !options.music)
+    {
+        CSOEconItemAttribute *attribute = FindOrAddAttribute(item, ItemSchema::AttributeKillEater);
+        m_itemSchema.SetAttributeUint32(attribute, *options.statTrak == 1 ? 0 : *options.statTrak);
+
+        attribute = FindOrAddAttribute(item, ItemSchema::AttributeKillEaterScoreType);
+        m_itemSchema.SetAttributeUint32(attribute, 0);
+
+        if (!options.quality)
+        {
+            item.set_quality(ItemSchema::QualityStrange);
+        }
+    }
+
+    if (options.sprayColor)
+    {
+        CSOEconItemAttribute *attribute = FindOrAddAttribute(item, ItemSchema::AttributeSprayTintId);
+        m_itemSchema.SetAttributeUint32(attribute, *options.sprayColor);
+    }
+
+    if (options.sprayRemaining)
+    {
+        CSOEconItemAttribute *attribute = FindOrAddAttribute(item, ItemSchema::AttributeSpraysRemaining);
+        m_itemSchema.SetAttributeUint32(attribute, *options.sprayRemaining);
+    }
+
+    for (size_t i = 0; i < options.sticker.size(); i++)
+    {
+        if (options.sticker[i])
+        {
+            CSOEconItemAttribute *attribute = FindOrAddAttribute(item, StickerIdAttribute(i));
+            m_itemSchema.SetAttributeUint32(attribute, *options.sticker[i]);
+
+            attribute = FindOrAddAttribute(item, StickerWearAttribute(i));
+            m_itemSchema.SetAttributeFloat(attribute, options.stickerWear[i].value_or(0.0f));
+        }
+        else if (options.stickerWear[i])
+        {
+            CSOEconItemAttribute *attribute = FindOrAddAttribute(item, StickerWearAttribute(i));
+            m_itemSchema.SetAttributeFloat(attribute, *options.stickerWear[i]);
+        }
+
+        if (options.stickerScale[i])
+        {
+            CSOEconItemAttribute *attribute = FindOrAddAttribute(item, StickerScaleAttribute(i));
+            m_itemSchema.SetAttributeFloat(attribute, *options.stickerScale[i]);
+        }
+
+        if (options.stickerRotation[i])
+        {
+            CSOEconItemAttribute *attribute = FindOrAddAttribute(item, StickerRotationAttribute(i));
+            m_itemSchema.SetAttributeFloat(attribute, *options.stickerRotation[i]);
+        }
+    }
+
+    if (options.quality)
+    {
+        item.set_quality(*options.quality);
+    }
+
+    if (options.rarity)
+    {
+        item.set_rarity(*options.rarity);
+    }
+
+    ToSingleObject(update, item);
     return item.id();
 }
 

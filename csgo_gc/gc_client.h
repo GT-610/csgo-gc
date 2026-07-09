@@ -10,8 +10,22 @@ public:
     ClientGC(uint64_t steamId);
     ~ClientGC();
     uint32_t LocalPlayerMusicKitMVPsForRoundMVPEvent() const;
+    std::string RunRconCommand(std::string command);
 
 private:
+    struct RconRequest
+    {
+        std::string name;
+        std::vector<std::string> args;
+    };
+
+    struct RconCommandDef
+    {
+        const char *name;
+        const char *usage;
+        std::string (ClientGC::*handler)(const RconRequest &request);
+    };
+
     void HandleEvent(GCEvent type, uint64_t id, const std::vector<uint8_t> &buffer) override;
 
     // event handlers
@@ -21,6 +35,15 @@ private:
     void RefreshCachedMusicKitMVPs();
     void SyncLocalPlayerMusicKitState(int userId);
     void SendMusicKitMVPStateToGameServer();
+    static const RconCommandDef *RconCommands(size_t &count);
+    std::string ExecuteRconCommand(std::string_view command);
+    std::string RconHelp(const RconRequest &request);
+    std::string RconPing(const RconRequest &request);
+    std::string RconStatus(const RconRequest &request);
+    std::string RconClients(const RconRequest &request);
+    std::string RconGiveItem(const RconRequest &request);
+    std::string RconRemoveItem(const RconRequest &request);
+    std::string RconRefreshInventory(const RconRequest &request);
 
     // send to the local game and the game server we're connected to (if we're connected)
     void SendMessageToGame(bool sendToGameServer, uint32_t type,

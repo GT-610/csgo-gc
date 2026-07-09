@@ -15,6 +15,7 @@
 #include "gc_client.h"
 #include "gc_server.h"
 #include "platform.h"
+#include "rcon_server.h"
 #include <funchook.h>
 
 #ifdef _WIN32
@@ -153,6 +154,7 @@ public:
 // client connect/disconnect notifications
 static GCWrapper<ClientGC, NetworkingClient> *s_clientGC;
 static GCWrapper<ServerGC, NetworkingServer> *s_serverGC;
+static RconServer s_rconServer;
 
 struct PlayerInfo
 {
@@ -505,6 +507,7 @@ public:
         {
             assert(!s_clientGC);
             s_clientGC = new GCWrapper<ClientGC, NetworkingClient>{ SteamNetworkingMessages(), steamId };
+            s_rconServer.RegisterClient(&s_clientGC->m_gc);
         }
     }
 
@@ -519,6 +522,7 @@ public:
         else
         {
             assert(s_clientGC);
+            s_rconServer.UnregisterClient(&s_clientGC->m_gc);
             delete s_clientGC;
             s_clientGC = nullptr;
         }
@@ -2410,4 +2414,6 @@ void SteamHookInstall(bool dedicated)
     INLINE_HOOK(SteamAPI_UnregisterCallback);
     INLINE_HOOK(SteamAPI_RunCallbacks);
     INLINE_HOOK(SteamGameServer_RunCallbacks);
+
+    s_rconServer.Start();
 }

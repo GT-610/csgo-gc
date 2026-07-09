@@ -25,6 +25,20 @@ GCConfig::GCConfig()
     m_appIdOverride = config.GetNumber("appid_override", m_appIdOverride);
     m_showCsgoGCServersOnly = config.GetNumber("show_csgo_gc_servers_only", m_showCsgoGCServersOnly);
 
+    const KeyValue *rcon = config.GetSubkey("rcon");
+    if (rcon)
+    {
+        m_rconEnabled = rcon->GetNumber("enabled", m_rconEnabled);
+        m_rconBindAddress = rcon->GetString("bind_address", m_rconBindAddress);
+        m_rconPort = rcon->GetNumber("port", m_rconPort);
+        m_rconPassword = rcon->GetString("password", m_rconPassword);
+
+        if (m_rconEnabled && m_rconPassword.empty())
+        {
+            Platform::Print("WARNING: RCON is enabled with an empty password; any Source RCON password will authenticate. Keep bind_address local or set rcon.password.\n");
+        }
+    }
+
     const KeyValue *ranks = config.GetSubkey("ranks");
     if (ranks)
     {

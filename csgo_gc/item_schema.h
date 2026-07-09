@@ -151,6 +151,8 @@ public:
     // trade-up helpers
     const ItemInfo *ItemInfoByDefIndex(uint32_t defIndex) const;
     const PaintKitInfo *PaintKitInfoByDefIndex(uint32_t defIndex) const;
+    const StickerKitInfo *StickerKitInfoByDefIndex(uint32_t defIndex) const;
+    const MusicDefinitionInfo *MusicDefinitionInfoByDefIndex(uint32_t defIndex) const;
     const StickerKitInfo *StickerKitByTournamentEventId(uint32_t eventId) const;
     const StickerKitInfo *StickerKitByTournamentTeamId(uint32_t eventId, uint32_t teamId) const;
     bool GetCollectionsForPaintedItem(uint32_t defIndex, uint32_t paintKitDefIndex,

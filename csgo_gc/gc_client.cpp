@@ -5,6 +5,174 @@
 #include "keyvalue.h"
 #include "networking_shared.h"
 
+#include <cerrno>
+#include <cmath>
+#include <cstdlib>
+
+namespace
+{
+
+struct RconCommand
+{
+    explicit RconCommand(std::string command_)
+        : command{ std::move(command_) }
+    {
+    }
+
+    std::string command;
+    std::promise<std::string> response;
+};
+
+template<typename T>
+bool TryParseNumber(std::string_view text, T &value)
+{
+    T parsed{};
+    auto result = std::from_chars(text.data(), text.data() + text.size(), parsed);
+    if (result.ec != std::errc{} || result.ptr != text.data() + text.size())
+    {
+        return false;
+    }
+
+    value = parsed;
+    return true;
+}
+
+bool TryParseFloat01(std::string_view text, float &value)
+{
+    std::string input{ text };
+    char *end = nullptr;
+    errno = 0;
+    float parsed = std::strtof(input.c_str(), &end);
+    if (input.empty() || errno == ERANGE || end != input.c_str() + input.size() || !std::isfinite(parsed))
+    {
+        return false;
+    }
+
+    value = parsed;
+    return value >= 0.0f && value <= 1.0f;
+}
+
+bool TryParseFloat(std::string_view text, float &value)
+{
+    std::string input{ text };
+    char *end = nullptr;
+    errno = 0;
+    float parsed = std::strtof(input.c_str(), &end);
+    if (input.empty() || errno == ERANGE || end != input.c_str() + input.size() || !std::isfinite(parsed))
+    {
+        return false;
+    }
+
+    value = parsed;
+    return true;
+}
+
+bool IsValidQuality(uint32_t quality)
+{
+    return quality <= ItemSchema::QualityTournament;
+}
+
+bool IsValidRarity(uint32_t rarity)
+{
+    return rarity <= ItemSchema::RarityImmortal || rarity == ItemSchema::RarityUnusual;
+}
+
+std::string ToLower(std::string value)
+{
+    for (char &ch : value)
+    {
+        ch = static_cast<char>(tolower(static_cast<unsigned char>(ch)));
+    }
+
+    return value;
+}
+
+bool TokenizeRconCommand(std::string_view command, std::vector<std::string> &tokens)
+{
+    size_t i = 0;
+    while (i < command.size())
+    {
+        while (i < command.size() && command[i] <= ' ')
+        {
+            i++;
+        }
+
+        if (i >= command.size())
+        {
+            break;
+        }
+
+        std::string token;
+        bool quoted = false;
+        for (; i < command.size(); i++)
+        {
+            char ch = command[i];
+            if (quoted)
+            {
+                if (ch == '\\' && i + 1 < command.size())
+                {
+                    token.push_back(command[++i]);
+                    continue;
+                }
+
+                if (ch == '"')
+                {
+                    quoted = false;
+                    continue;
+                }
+
+                token.push_back(ch);
+                continue;
+            }
+
+            if (ch <= ' ')
+            {
+                break;
+            }
+
+            if (ch == '"')
+            {
+                quoted = true;
+                continue;
+            }
+
+            token.push_back(ch);
+        }
+
+        if (quoted)
+        {
+            return false;
+        }
+
+        tokens.push_back(std::move(token));
+    }
+
+    return true;
+}
+
+std::string Usage(std::string_view usage)
+{
+    std::string response{ "ERR usage: " };
+    response.append(usage.data(), usage.size());
+    return response;
+}
+
+std::string InvalidParameter(std::string_view key)
+{
+    std::string response{ "ERR invalid parameter " };
+    response.append(key.data(), key.size());
+    return response;
+}
+
+std::string UnknownParameter(std::string_view key)
+{
+    std::string response{ "ERR unknown parameter " };
+    response.append(key.data(), key.size());
+    return response;
+}
+
+} // namespace
+
 ClientGC::ClientGC(uint64_t steamId)
     : m_steamId{ steamId }
     , m_inventory{ steamId }
@@ -36,6 +204,22 @@ uint32_t ClientGC::LocalPlayerMusicKitMVPsForRoundMVPEvent() const
     // the local increment, so expose the post-MVP value here.
     int32_t cachedMVPs = m_cachedMusicKitMVPs.load();
     return cachedMVPs >= 0 ? static_cast<uint32_t>(cachedMVPs + 1) : 0;
+}
+
+std::string ClientGC::RunRconCommand(std::string command)
+{
+    auto request = std::make_shared<RconCommand>(std::move(command));
+    std::future<std::string> response = request->response.get_future();
+
+    auto holder = new std::shared_ptr<RconCommand>{ request };
+    PostToGC(GCEvent::RconCommand, 0, &holder, sizeof(holder));
+
+    if (response.wait_for(std::chrono::seconds{ 5 }) != std::future_status::ready)
+    {
+        return "ERR timeout";
+    }
+
+    return response.get();
 }
 
 void ClientGC::RefreshCachedMusicKitMVPs()
@@ -126,10 +310,384 @@ void ClientGC::HandleEvent(GCEvent type, uint64_t id, const std::vector<uint8_t>
         }
         break;
 
+    case GCEvent::RconCommand:
+        if (buffer.size() == sizeof(std::shared_ptr<RconCommand> *))
+        {
+            std::shared_ptr<RconCommand> *holder;
+            memcpy(&holder, buffer.data(), sizeof(holder));
+
+            std::shared_ptr<RconCommand> request = std::move(*holder);
+            delete holder;
+
+            request->response.set_value(ExecuteRconCommand(request->command));
+        }
+        else
+        {
+            Platform::Print("ClientGC::HandleEvent: invalid RconCommand buffer size\n");
+        }
+        break;
+
     default:
         Platform::Print("ClientGC::HandleEvent: unknown event type %d\n", static_cast<int>(type));
         break;
     }
+}
+
+const ClientGC::RconCommandDef *ClientGC::RconCommands(size_t &count)
+{
+    static const RconCommandDef Commands[]{
+        { "help", "help", &ClientGC::RconHelp },
+        { "ping", "ping", &ClientGC::RconPing },
+        { "status", "status", &ClientGC::RconStatus },
+        { "clients", "clients", &ClientGC::RconClients },
+        { "give_item", "give_item <defindex> [count] [key=value...]", &ClientGC::RconGiveItem },
+        { "remove_item", "remove_item <itemid>", &ClientGC::RconRemoveItem },
+        { "refresh_inventory", "refresh_inventory", &ClientGC::RconRefreshInventory },
+    };
+
+    count = sizeof(Commands) / sizeof(Commands[0]);
+    return Commands;
+}
+
+std::string ClientGC::ExecuteRconCommand(std::string_view command)
+{
+    RconRequest request;
+    std::vector<std::string> tokens;
+    if (!TokenizeRconCommand(command, tokens))
+    {
+        return "ERR malformed command";
+    }
+
+    if (tokens.empty())
+    {
+        return "ERR unknown command";
+    }
+
+    request.name = std::move(tokens[0]);
+    request.name = ToLower(std::move(request.name));
+    for (size_t i = 1; i < tokens.size(); i++)
+    {
+        request.args.push_back(std::move(tokens[i]));
+    }
+
+    size_t commandCount = 0;
+    const RconCommandDef *commands = RconCommands(commandCount);
+    for (size_t i = 0; i < commandCount; i++)
+    {
+        const RconCommandDef &commandDef = commands[i];
+        if (request.name == commandDef.name)
+        {
+            return (this->*commandDef.handler)(request);
+        }
+    }
+
+    return "ERR unknown command";
+}
+
+std::string ClientGC::RconHelp(const RconRequest &request)
+{
+    if (!request.args.empty())
+    {
+        return Usage("help");
+    }
+
+    std::ostringstream response;
+    response << "OK commands:";
+
+    size_t commandCount = 0;
+    const RconCommandDef *commands = RconCommands(commandCount);
+    for (size_t i = 0; i < commandCount; i++)
+    {
+        response << (i ? ", " : " ") << commands[i].usage;
+    }
+
+    return response.str();
+}
+
+std::string ClientGC::RconPing(const RconRequest &request)
+{
+    if (!request.args.empty())
+    {
+        return Usage("ping");
+    }
+
+    return "OK pong";
+}
+
+std::string ClientGC::RconStatus(const RconRequest &request)
+{
+    if (!request.args.empty())
+    {
+        return Usage("status");
+    }
+
+    std::ostringstream response;
+    response << "OK rcon=enabled client=online steamid=" << m_steamId
+             << " items=" << m_inventory.ItemCount();
+    return response.str();
+}
+
+std::string ClientGC::RconClients(const RconRequest &request)
+{
+    if (!request.args.empty())
+    {
+        return Usage("clients");
+    }
+
+    std::ostringstream response;
+    response << "OK steamid=" << m_steamId;
+    return response.str();
+}
+
+std::string ClientGC::RconGiveItem(const RconRequest &request)
+{
+    constexpr const char *GiveItemUsage = "give_item <defindex> [count] [key=value...]";
+
+    if (request.args.empty())
+    {
+        return Usage(GiveItemUsage);
+    }
+
+    uint32_t defIndex;
+    if (!TryParseNumber(request.args[0], defIndex))
+    {
+        return Usage(GiveItemUsage);
+    }
+
+    uint32_t count = 1;
+    size_t parameterStart = 1;
+    if (parameterStart < request.args.size() && request.args[parameterStart].find('=') == std::string::npos)
+    {
+        if (!TryParseNumber(request.args[parameterStart], count) || count == 0 || count > 100)
+        {
+            return Usage(GiveItemUsage);
+        }
+        parameterStart++;
+    }
+
+    Inventory::ParameterizedItemOptions options;
+    bool hasParameters = parameterStart < request.args.size();
+
+    for (size_t i = parameterStart; i < request.args.size(); i++)
+    {
+        std::string_view parameter{ request.args[i] };
+        size_t separator = parameter.find('=');
+        if (separator == std::string_view::npos || separator == 0)
+        {
+            return Usage(GiveItemUsage);
+        }
+
+        std::string key = ToLower(std::string{ parameter.substr(0, separator) });
+        std::string_view value = parameter.substr(separator + 1);
+
+        auto parseUint32 = [&](std::optional<uint32_t> &target) -> std::optional<std::string> {
+            uint32_t parsed;
+            if (!TryParseNumber(value, parsed))
+            {
+                return InvalidParameter(key);
+            }
+            target = parsed;
+            return {};
+        };
+
+        auto parseFloat01 = [&](std::optional<float> &target) -> std::optional<std::string> {
+            float parsed;
+            if (!TryParseFloat01(value, parsed))
+            {
+                return InvalidParameter(key);
+            }
+            target = parsed;
+            return {};
+        };
+
+        auto parseFloat = [&](std::optional<float> &target) -> std::optional<std::string> {
+            float parsed;
+            if (!TryParseFloat(value, parsed))
+            {
+                return InvalidParameter(key);
+            }
+            target = parsed;
+            return {};
+        };
+
+        std::optional<std::string> error;
+        if (key == "level")
+        {
+            error = parseUint32(options.level);
+        }
+        else if (key == "quality")
+        {
+            error = parseUint32(options.quality);
+            if (!error && !IsValidQuality(*options.quality))
+            {
+                error = InvalidParameter(key);
+            }
+        }
+        else if (key == "rarity")
+        {
+            error = parseUint32(options.rarity);
+            if (!error && !IsValidRarity(*options.rarity))
+            {
+                error = InvalidParameter(key);
+            }
+        }
+        else if (key == "name")
+        {
+            options.customName = std::string{ value };
+        }
+        else if (key == "paint")
+        {
+            error = parseUint32(options.paint);
+        }
+        else if (key == "seed")
+        {
+            error = parseUint32(options.seed);
+        }
+        else if (key == "wear")
+        {
+            error = parseFloat01(options.wear);
+        }
+        else if (key == "stattrak")
+        {
+            error = parseUint32(options.statTrak);
+        }
+        else if (key == "music")
+        {
+            error = parseUint32(options.music);
+        }
+        else if (key == "spray_color")
+        {
+            error = parseUint32(options.sprayColor);
+        }
+        else if (key == "spray_remaining")
+        {
+            error = parseUint32(options.sprayRemaining);
+        }
+        else if (key.rfind("sticker", 0) == 0 && key.size() >= 8 && key[7] >= '0' && key[7] <= '5')
+        {
+            size_t stickerSlot = static_cast<size_t>(key[7] - '0');
+            std::string_view suffix{ key.data() + 8, key.size() - 8 };
+            if (suffix.empty())
+            {
+                error = parseUint32(options.sticker[stickerSlot]);
+            }
+            else if (suffix == "_wear")
+            {
+                error = parseFloat01(options.stickerWear[stickerSlot]);
+            }
+            else if (suffix == "_scale")
+            {
+                error = parseFloat(options.stickerScale[stickerSlot]);
+            }
+            else if (suffix == "_rotation")
+            {
+                error = parseFloat(options.stickerRotation[stickerSlot]);
+            }
+            else
+            {
+                return UnknownParameter(key);
+            }
+        }
+        else
+        {
+            return UnknownParameter(key);
+        }
+
+        if (error)
+        {
+            return *error;
+        }
+    }
+
+    std::vector<CMsgSOSingleObject> updates;
+    std::vector<uint64_t> itemIds;
+    updates.reserve(count);
+    itemIds.reserve(count);
+
+    for (uint32_t i = 0; i < count; i++)
+    {
+        uint64_t itemId = 0;
+        if (hasParameters)
+        {
+            CMsgSOSingleObject &update = updates.emplace_back();
+            std::string error;
+            itemId = m_inventory.CreateParameterizedItem(defIndex, options, update, error);
+            if (!itemId)
+            {
+                updates.pop_back();
+                if (error == "unknown defindex")
+                {
+                    return "ERR unknown defindex";
+                }
+                return std::string{ "ERR " }.append(error);
+            }
+        }
+        else
+        {
+            itemId = m_inventory.PurchaseItem(defIndex, updates);
+        }
+
+        if (!itemId)
+        {
+            return "ERR unknown defindex";
+        }
+
+        itemIds.push_back(itemId);
+    }
+
+    for (CMsgSOSingleObject &update : updates)
+    {
+        SendMessageToGame(true, k_ESOMsg_Create, update);
+    }
+
+    std::ostringstream response;
+    response << "OK item_ids=";
+    for (size_t i = 0; i < itemIds.size(); i++)
+    {
+        if (i)
+        {
+            response << ",";
+        }
+        response << itemIds[i];
+    }
+
+    return response.str();
+}
+
+std::string ClientGC::RconRemoveItem(const RconRequest &request)
+{
+    if (request.args.size() != 1)
+    {
+        return Usage("remove_item <itemid>");
+    }
+
+    uint64_t itemId;
+    if (!TryParseNumber(request.args[0], itemId))
+    {
+        return Usage("remove_item <itemid>");
+    }
+
+    CMsgSOSingleObject destroyed;
+    if (!m_inventory.RemoveItem(itemId, destroyed))
+    {
+        return "ERR item not found";
+    }
+
+    SendMessageToGame(true, k_ESOMsg_Destroy, destroyed);
+    return "OK removed";
+}
+
+std::string ClientGC::RconRefreshInventory(const RconRequest &request)
+{
+    if (!request.args.empty())
+    {
+        return Usage("refresh_inventory");
+    }
+
+    CMsgSOCacheSubscribed message;
+    m_inventory.BuildCacheSubscription(message, GetConfig().Level(), false);
+    SendMessageToGame(false, k_ESOMsg_CacheSubscribed, message);
+    return "OK refreshed";
 }
 
 void ClientGC::HandleMessage(uint32_t type, const void *data, uint32_t size)

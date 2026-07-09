@@ -16,6 +16,7 @@ add_library(csgo_gc SHARED
     main.cpp
     networking_client.cpp
     networking_server.cpp
+    rcon_server.cpp
     souvenir.cpp
     steam_hook.cpp)
 
@@ -45,7 +46,12 @@ target_link_libraries(csgo_gc PRIVATE
     cryptopp
     funchook-static
     libprotobuf-lite
-    steam_api)
+    steam_api
+    Threads::Threads)
+
+if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    target_link_libraries(csgo_gc PRIVATE ws2_32)
+endif()
 
 # apple message box
 if (APPLE)
