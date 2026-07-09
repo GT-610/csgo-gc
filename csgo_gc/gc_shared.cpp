@@ -30,7 +30,7 @@ void SharedGC::WorkerThread()
             m_cv.wait(lock, [this]
                 { return !m_gcEvents.empty() || m_stopping; });
 
-            if (m_stopping)
+            if (m_gcEvents.empty() && m_stopping)
             {
                 break;
             }

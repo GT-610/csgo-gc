@@ -228,6 +228,8 @@ void RconServer::Stop()
     {
         m_thread.join();
     }
+
+    JoinConnectionThreads();
 }
 
 void RconServer::RegisterClient(ClientGC *client)
@@ -335,7 +337,8 @@ void RconServer::ThreadMain()
             break;
         }
 
-        HandleConnection(ToHandle(clientSocket));
+        std::lock_guard lock{ m_mutex };
+        m_connectionThreads.emplace_back(&RconServer::HandleConnection, this, ToHandle(clientSocket));
     }
 
     {
@@ -537,4 +540,21 @@ std::string RconServer::ExecuteCommand(std::string command)
     }
 
     return "ERR no client gc";
+}
+
+void RconServer::JoinConnectionThreads()
+{
+    std::vector<std::thread> threads;
+    {
+        std::lock_guard lock{ m_mutex };
+        threads.swap(m_connectionThreads);
+    }
+
+    for (std::thread &thread : threads)
+    {
+        if (thread.joinable())
+        {
+            thread.join();
+        }
+    }
 }
