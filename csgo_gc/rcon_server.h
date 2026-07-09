@@ -22,6 +22,8 @@ private:
     bool IsSourceRconPassword(std::string_view password) const;
     std::string ExecuteCommand(std::string command);
 
+    class ActiveClientCommand;
+
     std::mutex m_mutex;
     std::condition_variable m_clientIdle;
     ClientGC *m_client{};

@@ -5,6 +5,10 @@
 #include "keyvalue.h"
 #include "networking_shared.h"
 
+#include <cerrno>
+#include <cmath>
+#include <cstdlib>
+
 namespace
 {
 
@@ -35,12 +39,32 @@ bool TryParseNumber(std::string_view text, T &value)
 
 bool TryParseFloat01(std::string_view text, float &value)
 {
-    if (!TryParseNumber(text, value))
+    std::string input{ text };
+    char *end = nullptr;
+    errno = 0;
+    float parsed = std::strtof(input.c_str(), &end);
+    if (input.empty() || errno == ERANGE || end != input.c_str() + input.size() || !std::isfinite(parsed))
     {
         return false;
     }
 
+    value = parsed;
     return value >= 0.0f && value <= 1.0f;
+}
+
+bool TryParseFloat(std::string_view text, float &value)
+{
+    std::string input{ text };
+    char *end = nullptr;
+    errno = 0;
+    float parsed = std::strtof(input.c_str(), &end);
+    if (input.empty() || errno == ERANGE || end != input.c_str() + input.size() || !std::isfinite(parsed))
+    {
+        return false;
+    }
+
+    value = parsed;
+    return true;
 }
 
 bool IsValidQuality(uint32_t quality)
@@ -478,7 +502,7 @@ std::string ClientGC::RconGiveItem(const RconRequest &request)
 
         auto parseFloat = [&](std::optional<float> &target) -> std::optional<std::string> {
             float parsed;
-            if (!TryParseNumber(value, parsed))
+            if (!TryParseFloat(value, parsed))
             {
                 return InvalidParameter(key);
             }

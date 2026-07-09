@@ -139,6 +139,39 @@ bool SendSourcePacket(SocketType socket, int32_t requestId, int32_t type, std::s
 
 RconServer::RconServer() = default;
 
+class RconServer::ActiveClientCommand
+{
+public:
+    explicit ActiveClientCommand(RconServer &server)
+        : m_server{ server }
+    {
+        std::lock_guard lock{ m_server.m_mutex };
+        m_client = m_server.m_client;
+        if (m_client)
+        {
+            m_server.m_activeClientCommands++;
+        }
+    }
+
+    ~ActiveClientCommand()
+    {
+        if (!m_client)
+        {
+            return;
+        }
+
+        std::lock_guard lock{ m_server.m_mutex };
+        m_server.m_activeClientCommands--;
+        m_server.m_clientIdle.notify_all();
+    }
+
+    ClientGC *Client() const { return m_client; }
+
+private:
+    RconServer &m_server;
+    ClientGC *m_client{};
+};
+
 RconServer::~RconServer()
 {
     Stop();
@@ -482,22 +515,10 @@ std::string RconServer::ExecuteCommand(std::string command)
         return "OK pong";
     }
 
+    ActiveClientCommand activeCommand{ *this };
+    if (ClientGC *client = activeCommand.Client())
     {
-        std::unique_lock lock{ m_mutex };
-        ClientGC *client = m_client;
-
-        if (client)
-        {
-            m_activeClientCommands++;
-            lock.unlock();
-
-            std::string response = client->RunRconCommand(std::move(command));
-
-            std::lock_guard finishLock{ m_mutex };
-            m_activeClientCommands--;
-            m_clientIdle.notify_all();
-            return response;
-        }
+        return client->RunRconCommand(std::move(command));
     }
 
     if (name == "status")
