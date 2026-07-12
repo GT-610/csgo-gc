@@ -73,11 +73,17 @@ OK <message>
 ERR <message>
 ```
 
+Responses are kept within one Source RCON response packet. Commands that can
+produce many lines, such as inventory listing or item detail inspection, include
+`shown` and `truncated` fields. `truncated=1` means output stopped before all
+available lines could fit in the single response packet.
+
 Examples:
 
 ```text
 OK pong
 OK item_ids=1234567890123
+OK total=500 shown=48 truncated=1
 ERR no client gc
 ERR unknown parameter foo
 ```
@@ -120,6 +126,9 @@ list_items [limit]
 
 The default limit is `50`; the maximum is `500`.
 
+The response includes `total`, `shown`, and `truncated` fields. If
+`truncated=1`, reduce the limit or use `find_item` to narrow the output.
+
 ### `find_item`
 
 Finds inventory items by exact item id, exact defindex, display name, or custom
@@ -131,6 +140,10 @@ Syntax:
 find_item <itemid|defindex|text>
 ```
 
+The response includes `total`, `shown`, and `truncated` fields. At most the
+first 50 matches are considered for display, and fewer may be shown if the
+single Source RCON packet budget is reached.
+
 ### `item_info`
 
 Shows detailed information for one inventory item, including attributes and
@@ -141,6 +154,10 @@ Syntax:
 ```text
 item_info <itemid>
 ```
+
+The response includes `attributes`, `attr_shown`, and `truncated` fields. If an
+item has unusually many or long attributes, `truncated=1` indicates that some
+attribute lines were omitted from the response.
 
 ### `give_item`
 

@@ -17,7 +17,7 @@ enum class GCEvent
     LocalPlayerRoundMVP, // sent to client gc when the local player earns round MVP
     SyncLocalPlayerMusicKitState, // sent to client gc from the main thread, buffer contains the local userid
     ClientSOCacheUnsubscribe, // sent to server gc when a client disconnects, id contains the steam id
-    RconCommand, // sent to client gc, buffer contains a RconCommand shared_ptr holder
+    RconCommand, // sent to client gc, buffer contains an owned RconCommand holder pointer
 };
 
 struct EventData

@@ -23,6 +23,10 @@ struct RconCommand
     std::promise<std::string> response;
 };
 
+using RconCommandHolder = std::shared_ptr<RconCommand>;
+
+constexpr size_t SourceRconResponseBodyLimit = 4096 - 10;
+
 template<typename T>
 bool TryParseNumber(std::string_view text, T &value)
 {
@@ -241,6 +245,41 @@ std::vector<const CSOEconItem *> SortedInventoryItems(const Inventory &inventory
     return items;
 }
 
+template<typename HeaderFor, typename LineFor>
+std::string BuildLimitedRconLines(size_t lineCount, HeaderFor headerFor, LineFor lineFor)
+{
+    std::vector<std::string> lines;
+    lines.reserve(lineCount);
+
+    size_t lineBytes = 0;
+    bool truncated = false;
+
+    for (size_t i = 0; i < lineCount; i++)
+    {
+        std::string line = lineFor(i);
+        std::string header = headerFor(lines.size() + 1, false);
+        size_t nextLineBytes = lineBytes + 1 + line.size();
+        if (header.size() + nextLineBytes > SourceRconResponseBodyLimit)
+        {
+            truncated = true;
+            break;
+        }
+
+        lineBytes = nextLineBytes;
+        lines.push_back(std::move(line));
+    }
+
+    std::string response = headerFor(lines.size(), truncated);
+    response.reserve(response.size() + lineBytes);
+    for (const std::string &line : lines)
+    {
+        response.push_back('\n');
+        response.append(line);
+    }
+
+    return response;
+}
+
 std::string Usage(std::string_view usage)
 {
     std::string response{ "ERR usage: " };
@@ -302,8 +341,10 @@ std::string ClientGC::RunRconCommand(std::string command)
     auto request = std::make_shared<RconCommand>(std::move(command));
     std::future<std::string> response = request->response.get_future();
 
-    auto holder = new std::shared_ptr<RconCommand>{ request };
-    PostToGC(GCEvent::RconCommand, 0, &holder, sizeof(holder));
+    auto holder = std::make_unique<RconCommandHolder>(request);
+    RconCommandHolder *rawHolder = holder.get();
+    PostToGC(GCEvent::RconCommand, 0, &rawHolder, sizeof(rawHolder));
+    holder.release();
 
     if (response.wait_for(std::chrono::seconds{ 5 }) != std::future_status::ready)
     {
@@ -402,13 +443,13 @@ void ClientGC::HandleEvent(GCEvent type, uint64_t id, const std::vector<uint8_t>
         break;
 
     case GCEvent::RconCommand:
-        if (buffer.size() == sizeof(std::shared_ptr<RconCommand> *))
+        if (buffer.size() == sizeof(RconCommandHolder *))
         {
-            std::shared_ptr<RconCommand> *holder;
-            memcpy(&holder, buffer.data(), sizeof(holder));
+            RconCommandHolder *rawHolder;
+            memcpy(&rawHolder, buffer.data(), sizeof(rawHolder));
 
-            std::shared_ptr<RconCommand> request = std::move(*holder);
-            delete holder;
+            std::unique_ptr<RconCommandHolder> holder{ rawHolder };
+            RconCommandHolder request = std::move(*holder);
 
             request->response.set_value(ExecuteRconCommand(request->command));
         }
@@ -442,6 +483,20 @@ const ClientGC::RconCommandDef *ClientGC::RconCommands(size_t &count)
 
     count = sizeof(Commands) / sizeof(Commands[0]);
     return Commands;
+}
+
+std::string ClientGC::RconCommandUsageList()
+{
+    std::ostringstream response;
+
+    size_t commandCount = 0;
+    const RconCommandDef *commands = RconCommands(commandCount);
+    for (size_t i = 0; i < commandCount; i++)
+    {
+        response << (i ? ", " : "") << commands[i].usage;
+    }
+
+    return response.str();
 }
 
 std::string ClientGC::ExecuteRconCommand(std::string_view command)
@@ -486,17 +541,7 @@ std::string ClientGC::RconHelp(const RconRequest &request)
         return Usage("help");
     }
 
-    std::ostringstream response;
-    response << "OK commands:";
-
-    size_t commandCount = 0;
-    const RconCommandDef *commands = RconCommands(commandCount);
-    for (size_t i = 0; i < commandCount; i++)
-    {
-        response << (i ? ", " : " ") << commands[i].usage;
-    }
-
-    return response.str();
+    return "OK commands: " + RconCommandUsageList();
 }
 
 std::string ClientGC::RconPing(const RconRequest &request)
@@ -550,20 +595,18 @@ std::string ClientGC::RconListItems(const RconRequest &request)
     std::vector<const CSOEconItem *> items = SortedInventoryItems(m_inventory);
     const ItemSchema &schema = m_inventory.GetItemSchema();
 
-    std::ostringstream response;
-    response << "OK count=" << items.size() << " shown=" << std::min<size_t>(limit, items.size());
-
-    size_t shown = 0;
-    for (const CSOEconItem *item : items)
-    {
-        if (shown++ >= limit)
-        {
-            break;
-        }
-        response << "\n" << ItemSummary(schema, *item);
-    }
-
-    return response.str();
+    size_t maxShown = std::min<size_t>(limit, items.size());
+    return BuildLimitedRconLines(maxShown,
+        [&](size_t shown, bool truncated) {
+            std::ostringstream response;
+            response << "OK total=" << items.size()
+                     << " shown=" << shown
+                     << " truncated=" << (truncated ? 1 : 0);
+            return response.str();
+        },
+        [&](size_t index) {
+            return ItemSummary(schema, *items[index]);
+        });
 }
 
 std::string ClientGC::RconFindItem(const RconRequest &request)
@@ -594,20 +637,18 @@ std::string ClientGC::RconFindItem(const RconRequest &request)
     }
 
     constexpr size_t MaxShown = 50;
-    std::ostringstream response;
-    response << "OK matches=" << matches.size() << " shown=" << std::min(MaxShown, matches.size());
-
-    size_t shown = 0;
-    for (const CSOEconItem *item : matches)
-    {
-        if (shown++ >= MaxShown)
-        {
-            break;
-        }
-        response << "\n" << ItemSummary(schema, *item);
-    }
-
-    return response.str();
+    size_t maxShown = std::min(MaxShown, matches.size());
+    return BuildLimitedRconLines(maxShown,
+        [&](size_t shown, bool truncated) {
+            std::ostringstream response;
+            response << "OK total=" << matches.size()
+                     << " shown=" << shown
+                     << " truncated=" << (truncated ? 1 : 0);
+            return response.str();
+        },
+        [&](size_t index) {
+            return ItemSummary(schema, *matches[index]);
+        });
 }
 
 std::string ClientGC::RconItemInfo(const RconRequest &request)
@@ -630,22 +671,29 @@ std::string ClientGC::RconItemInfo(const RconRequest &request)
     }
 
     const ItemSchema &schema = m_inventory.GetItemSchema();
-    std::ostringstream response;
-    response << "OK " << ItemSummary(schema, *item)
-             << " inventory=" << item->inventory()
-             << " origin=" << item->origin()
-             << " flags=" << item->flags()
-             << " in_use=" << item->in_use()
-             << " equipped=" << EquippedSummary(*item)
-             << " attributes=" << item->attribute_size();
+    auto header = [&](size_t shown, bool truncated) {
+        std::ostringstream response;
+        response << "OK " << ItemSummary(schema, *item)
+                 << " inventory=" << item->inventory()
+                 << " origin=" << item->origin()
+                 << " flags=" << item->flags()
+                 << " in_use=" << item->in_use()
+                 << " equipped=" << EquippedSummary(*item)
+                 << " attributes=" << item->attribute_size()
+                 << " attr_shown=" << shown
+                 << " truncated=" << (truncated ? 1 : 0);
+        return response.str();
+    };
 
-    for (const CSOEconItemAttribute &attribute : item->attribute())
-    {
-        response << "\nattr defindex=" << attribute.def_index()
+    return BuildLimitedRconLines(static_cast<size_t>(item->attribute_size()),
+        header,
+        [&](size_t index) {
+            const CSOEconItemAttribute &attribute = item->attribute(static_cast<int>(index));
+            std::ostringstream line;
+            line << "attr defindex=" << attribute.def_index()
                  << " value=" << QuoteRconValue(schema.AttributeString(&attribute));
-    }
-
-    return response.str();
+            return line.str();
+        });
 }
 
 std::string ClientGC::RconGiveItem(const RconRequest &request)
