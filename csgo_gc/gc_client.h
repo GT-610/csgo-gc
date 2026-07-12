@@ -11,6 +11,7 @@ public:
     ~ClientGC();
     uint32_t LocalPlayerMusicKitMVPsForRoundMVPEvent() const;
     std::string RunRconCommand(std::string command);
+    static std::string RconCommandUsageList();
 
 private:
     struct RconRequest
