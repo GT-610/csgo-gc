@@ -108,6 +108,40 @@ includes the local SteamID and basic inventory stats.
 
 Lists the controllable ClientGC instance. v1 only controls the local ClientGC.
 
+### `list_items`
+
+Lists inventory items in stable item-id order.
+
+Syntax:
+
+```text
+list_items [limit]
+```
+
+The default limit is `50`; the maximum is `500`.
+
+### `find_item`
+
+Finds inventory items by exact item id, exact defindex, display name, or custom
+name.
+
+Syntax:
+
+```text
+find_item <itemid|defindex|text>
+```
+
+### `item_info`
+
+Shows detailed information for one inventory item, including attributes and
+equipped state.
+
+Syntax:
+
+```text
+item_info <itemid>
+```
+
 ### `give_item`
 
 Creates one or more inventory items and sends live SO create updates to the game.
@@ -192,6 +226,16 @@ remove_item <itemid>
 
 Resends the full inventory cache subscription to the game. This is a repair and
 debug command, not the normal path for adding items.
+
+### `save_inventory`
+
+Writes the current in-memory inventory to `csgo_gc/inventory.txt`.
+
+Syntax:
+
+```text
+save_inventory
+```
 
 ## Common Errors
 

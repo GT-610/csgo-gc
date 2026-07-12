@@ -164,6 +164,8 @@ public:
         CMsgSOSingleObject &update,
         std::string &error);
     size_t ItemCount() const { return m_items.size(); }
+    const ItemMap &Items() const { return m_items; }
+    void Save() const { WriteToFile(); }
 
 private:
     uint32_t AccountId() const;

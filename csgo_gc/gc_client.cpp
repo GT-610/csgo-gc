@@ -150,6 +150,97 @@ bool TokenizeRconCommand(std::string_view command, std::vector<std::string> &tok
     return true;
 }
 
+std::string QuoteRconValue(std::string_view value)
+{
+    std::string result{ "\"" };
+    for (char ch : value)
+    {
+        if (ch == '\\' || ch == '"')
+        {
+            result.push_back('\\');
+        }
+        result.push_back(ch);
+    }
+    result.push_back('"');
+    return result;
+}
+
+std::string ItemName(const ItemSchema &schema, const CSOEconItem &item)
+{
+    const ItemInfo *itemInfo = schema.ItemInfoByDefIndex(item.def_index());
+    if (itemInfo && !itemInfo->m_name.empty())
+    {
+        return itemInfo->m_name;
+    }
+
+    return "Unknown Item";
+}
+
+std::string ItemSummary(const ItemSchema &schema, const CSOEconItem &item)
+{
+    std::ostringstream response;
+    response << "item id=" << item.id()
+             << " defindex=" << item.def_index()
+             << " name=" << QuoteRconValue(ItemName(schema, item))
+             << " quality=" << item.quality()
+             << " rarity=" << item.rarity()
+             << " level=" << item.level();
+
+    if (!item.custom_name().empty())
+    {
+        response << " custom_name=" << QuoteRconValue(item.custom_name());
+    }
+
+    return response.str();
+}
+
+std::string EquippedSummary(const CSOEconItem &item)
+{
+    if (item.equipped_state_size() == 0)
+    {
+        return "none";
+    }
+
+    std::ostringstream response;
+    for (int i = 0; i < item.equipped_state_size(); i++)
+    {
+        const CSOEconItemEquipped &equipped = item.equipped_state(i);
+        if (i)
+        {
+            response << ",";
+        }
+        response << equipped.new_class() << ":" << equipped.new_slot();
+    }
+    return response.str();
+}
+
+bool ItemMatchesText(const ItemSchema &schema, const CSOEconItem &item, std::string_view query)
+{
+    std::string loweredQuery = ToLower(std::string{ query });
+    std::string loweredName = ToLower(ItemName(schema, item));
+    std::string loweredCustomName = ToLower(item.custom_name());
+
+    return loweredName.find(loweredQuery) != std::string::npos
+        || loweredCustomName.find(loweredQuery) != std::string::npos;
+}
+
+std::vector<const CSOEconItem *> SortedInventoryItems(const Inventory &inventory)
+{
+    std::vector<const CSOEconItem *> items;
+    items.reserve(inventory.ItemCount());
+
+    for (const auto &pair : inventory.Items())
+    {
+        items.push_back(&pair.second);
+    }
+
+    std::sort(items.begin(), items.end(), [](const CSOEconItem *left, const CSOEconItem *right) {
+        return left->id() < right->id();
+    });
+
+    return items;
+}
+
 std::string Usage(std::string_view usage)
 {
     std::string response{ "ERR usage: " };
@@ -340,9 +431,13 @@ const ClientGC::RconCommandDef *ClientGC::RconCommands(size_t &count)
         { "ping", "ping", &ClientGC::RconPing },
         { "status", "status", &ClientGC::RconStatus },
         { "clients", "clients", &ClientGC::RconClients },
+        { "list_items", "list_items [limit]", &ClientGC::RconListItems },
+        { "find_item", "find_item <itemid|defindex|text>", &ClientGC::RconFindItem },
+        { "item_info", "item_info <itemid>", &ClientGC::RconItemInfo },
         { "give_item", "give_item <defindex> [count] [key=value...]", &ClientGC::RconGiveItem },
         { "remove_item", "remove_item <itemid>", &ClientGC::RconRemoveItem },
         { "refresh_inventory", "refresh_inventory", &ClientGC::RconRefreshInventory },
+        { "save_inventory", "save_inventory", &ClientGC::RconSaveInventory },
     };
 
     count = sizeof(Commands) / sizeof(Commands[0]);
@@ -436,6 +531,120 @@ std::string ClientGC::RconClients(const RconRequest &request)
 
     std::ostringstream response;
     response << "OK steamid=" << m_steamId;
+    return response.str();
+}
+
+std::string ClientGC::RconListItems(const RconRequest &request)
+{
+    if (request.args.size() > 1)
+    {
+        return Usage("list_items [limit]");
+    }
+
+    uint32_t limit = 50;
+    if (!request.args.empty() && (!TryParseNumber(request.args[0], limit) || limit == 0 || limit > 500))
+    {
+        return Usage("list_items [limit]");
+    }
+
+    std::vector<const CSOEconItem *> items = SortedInventoryItems(m_inventory);
+    const ItemSchema &schema = m_inventory.GetItemSchema();
+
+    std::ostringstream response;
+    response << "OK count=" << items.size() << " shown=" << std::min<size_t>(limit, items.size());
+
+    size_t shown = 0;
+    for (const CSOEconItem *item : items)
+    {
+        if (shown++ >= limit)
+        {
+            break;
+        }
+        response << "\n" << ItemSummary(schema, *item);
+    }
+
+    return response.str();
+}
+
+std::string ClientGC::RconFindItem(const RconRequest &request)
+{
+    if (request.args.size() != 1)
+    {
+        return Usage("find_item <itemid|defindex|text>");
+    }
+
+    std::vector<const CSOEconItem *> matches;
+    const ItemSchema &schema = m_inventory.GetItemSchema();
+
+    uint64_t numericQuery = 0;
+    bool numeric = TryParseNumber(request.args[0], numericQuery);
+    for (const CSOEconItem *item : SortedInventoryItems(m_inventory))
+    {
+        if (numeric)
+        {
+            if (item->id() == numericQuery || item->def_index() == numericQuery)
+            {
+                matches.push_back(item);
+            }
+        }
+        else if (ItemMatchesText(schema, *item, request.args[0]))
+        {
+            matches.push_back(item);
+        }
+    }
+
+    constexpr size_t MaxShown = 50;
+    std::ostringstream response;
+    response << "OK matches=" << matches.size() << " shown=" << std::min(MaxShown, matches.size());
+
+    size_t shown = 0;
+    for (const CSOEconItem *item : matches)
+    {
+        if (shown++ >= MaxShown)
+        {
+            break;
+        }
+        response << "\n" << ItemSummary(schema, *item);
+    }
+
+    return response.str();
+}
+
+std::string ClientGC::RconItemInfo(const RconRequest &request)
+{
+    if (request.args.size() != 1)
+    {
+        return Usage("item_info <itemid>");
+    }
+
+    uint64_t itemId;
+    if (!TryParseNumber(request.args[0], itemId))
+    {
+        return Usage("item_info <itemid>");
+    }
+
+    const CSOEconItem *item = m_inventory.GetItem(itemId);
+    if (!item)
+    {
+        return "ERR item not found";
+    }
+
+    const ItemSchema &schema = m_inventory.GetItemSchema();
+    std::ostringstream response;
+    response << "OK " << ItemSummary(schema, *item)
+             << " inventory=" << item->inventory()
+             << " origin=" << item->origin()
+             << " flags=" << item->flags()
+             << " in_use=" << item->in_use()
+             << " equipped=" << EquippedSummary(*item)
+             << " attributes=" << item->attribute_size();
+
+    for (const CSOEconItemAttribute &attribute : item->attribute())
+    {
+        response << "\nattr defindex=" << attribute.def_index()
+                 << " value=" << QuoteRconValue(schema.AttributeString(&attribute));
+    }
+
     return response.str();
 }
 
@@ -688,6 +897,17 @@ std::string ClientGC::RconRefreshInventory(const RconRequest &request)
     m_inventory.BuildCacheSubscription(message, GetConfig().Level(), false);
     SendMessageToGame(false, k_ESOMsg_CacheSubscribed, message);
     return "OK refreshed";
+}
+
+std::string ClientGC::RconSaveInventory(const RconRequest &request)
+{
+    if (!request.args.empty())
+    {
+        return Usage("save_inventory");
+    }
+
+    m_inventory.Save();
+    return "OK saved";
 }
 
 void ClientGC::HandleMessage(uint32_t type, const void *data, uint32_t size)

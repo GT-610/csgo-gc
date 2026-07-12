@@ -4,6 +4,7 @@
 #include <ctype.h>
 #include <stdint.h>
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <charconv>
