@@ -1101,13 +1101,11 @@ void ClientGC::BuildMatchmakingHello(CMsgGCCStrike15_v2_MatchmakingGC2ClientHell
 
     message.mutable_global_stats()->set_main_post_url("");
 
-    // bullshit
-    message.mutable_global_stats()->set_required_appid_version(13857);
+    // Leave required client versions unset so archived builds are not forced to update.
     message.mutable_global_stats()->set_pricesheet_version(1680057676);
     message.mutable_global_stats()->set_twitch_streams_version(2);
     message.mutable_global_stats()->set_active_tournament_eventid(20);
     message.mutable_global_stats()->set_active_survey_id(0);
-    message.mutable_global_stats()->set_required_appid_version2(13862); // csgo s2
 
     message.set_vac_banned(GetConfig().AccountStatus());
     message.mutable_commendation()->set_cmd_friendly(GetConfig().CommendedFriendly());
