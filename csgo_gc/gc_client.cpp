@@ -1149,7 +1149,8 @@ void ClientGC::BuildMatchmakingHello(CMsgGCCStrike15_v2_MatchmakingGC2ClientHell
 
     message.mutable_global_stats()->set_main_post_url("");
 
-    // Leave required client versions unset so archived builds are not forced to update.
+    // Do not set required_appid_version fields: archived clients interpret them as a minimum build
+    // and show "Game update required" when the advertised version is newer than their own.
     message.mutable_global_stats()->set_pricesheet_version(1680057676);
     message.mutable_global_stats()->set_twitch_streams_version(2);
     message.mutable_global_stats()->set_active_tournament_eventid(20);
