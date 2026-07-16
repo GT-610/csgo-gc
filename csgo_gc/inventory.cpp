@@ -2063,6 +2063,22 @@ uint64_t Inventory::CreateParameterizedItem(uint32_t defIndex,
         m_itemSchema.SetAttributeUint32(attribute, *options.sprayRemaining);
     }
 
+    auto setTournamentAttribute = [&](const std::optional<uint32_t> &value, uint32_t attributeDefIndex)
+    {
+        if (!value)
+        {
+            return;
+        }
+
+        CSOEconItemAttribute *attribute = FindOrAddAttribute(item, attributeDefIndex);
+        m_itemSchema.SetAttributeUint32(attribute, *value);
+    };
+
+    setTournamentAttribute(options.tournamentEvent, ItemSchema::AttributeTournamentEventId);
+    setTournamentAttribute(options.tournamentStage, ItemSchema::AttributeTournamentEventStageId);
+    setTournamentAttribute(options.tournamentTeam0, ItemSchema::AttributeTournamentTeam0Id);
+    setTournamentAttribute(options.tournamentTeam1, ItemSchema::AttributeTournamentTeam1Id);
+
     for (size_t i = 0; i < options.sticker.size(); i++)
     {
         if (options.sticker[i])

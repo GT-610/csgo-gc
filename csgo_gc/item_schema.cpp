@@ -68,6 +68,10 @@ ItemInfo::ItemInfo(uint32_t defIndex)
     , m_quality{ ItemSchema::QualityNormal }
     , m_level{ 1 }
     , m_supplyCrateSeries{ 0 }
+    , m_tournamentEventId{ 0 }
+    , m_tournamentEventStageId{ 0 }
+    , m_tournamentTeam0Id{ 0 }
+    , m_tournamentTeam1Id{ 0 }
     , m_canSticker{ false }
     , m_canPatch{ false }
     , m_nameable{ false }
@@ -802,6 +806,20 @@ void ItemSchema::ParseItemRecursive(ItemInfo &info, const KeyValue &itemKey, con
         {
             info.m_supplyCrateSeries = supplyCrateSeries->GetNumber<uint32_t>("value");
         }
+
+        auto parseTournamentAttribute = [&](std::string_view name, uint32_t &value)
+        {
+            const KeyValue *attribute = attributes->GetSubkey(name);
+            if (attribute)
+            {
+                value = attribute->GetNumber<uint32_t>("value");
+            }
+        };
+
+        parseTournamentAttribute("tournament event id", info.m_tournamentEventId);
+        parseTournamentAttribute("tournament event stage id", info.m_tournamentEventStageId);
+        parseTournamentAttribute("tournament event team0 id", info.m_tournamentTeam0Id);
+        parseTournamentAttribute("tournament event team1 id", info.m_tournamentTeam1Id);
     }
 }
 

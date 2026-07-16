@@ -67,10 +67,13 @@ bool SouvenirOpening::OpenPackage(const CSOEconItem &package, CSOEconItem &item)
     // override quality to tournament
     item.set_quality(ItemSchema::QualityTournament);
 
-    // read tournament attributes from the package and look up sticker kits
-    uint32_t eventId = 0;
-    uint32_t teamId1 = 0;
-    uint32_t teamId2 = 0;
+    // Static tournament metadata comes from the package definition. Instance
+    // attributes identify the particular match and override those defaults.
+    const ItemInfo *packageInfo = m_itemSchema.ItemInfoByDefIndex(package.def_index());
+    uint32_t eventId = packageInfo ? packageInfo->m_tournamentEventId : 0;
+    uint32_t stageId = packageInfo ? packageInfo->m_tournamentEventStageId : 0;
+    uint32_t team0Id = packageInfo ? packageInfo->m_tournamentTeam0Id : 0;
+    uint32_t team1Id = packageInfo ? packageInfo->m_tournamentTeam1Id : 0;
 
     for (const CSOEconItemAttribute &attribute : package.attribute())
     {
@@ -82,25 +85,49 @@ bool SouvenirOpening::OpenPackage(const CSOEconItem &package, CSOEconItem &item)
             eventId = value;
             break;
 
-        case ItemSchema::AttributeTournamentTeamId1:
-            teamId1 = value;
+        case ItemSchema::AttributeTournamentEventStageId:
+            stageId = value;
             break;
 
-        case ItemSchema::AttributeTournamentTeamId2:
-            teamId2 = value;
+        case ItemSchema::AttributeTournamentTeam0Id:
+            team0Id = value;
+            break;
+
+        case ItemSchema::AttributeTournamentTeam1Id:
+            team1Id = value;
             break;
         }
     }
 
+    auto addTournamentAttribute = [&](uint32_t attributeDefIndex, uint32_t value)
+    {
+        if (!value)
+        {
+            return;
+        }
+
+        CSOEconItemAttribute *attribute = item.add_attribute();
+        attribute->set_def_index(attributeDefIndex);
+        m_itemSchema.SetAttributeUint32(attribute, value);
+    };
+
+    addTournamentAttribute(ItemSchema::AttributeTournamentEventId, eventId);
+    addTournamentAttribute(ItemSchema::AttributeTournamentEventStageId, stageId);
+    addTournamentAttribute(ItemSchema::AttributeTournamentTeam0Id, team0Id);
+    addTournamentAttribute(ItemSchema::AttributeTournamentTeam1Id, team1Id);
+
     const StickerKitInfo *eventKit = eventId ? m_itemSchema.StickerKitByTournamentEventId(eventId) : nullptr;
-    const StickerKitInfo *team1Kit = eventId && teamId1 ? m_itemSchema.StickerKitByTournamentTeamId(eventId, teamId1) : nullptr;
-    const StickerKitInfo *team2Kit = eventId && teamId2 ? m_itemSchema.StickerKitByTournamentTeamId(eventId, teamId2) : nullptr;
+    const StickerKitInfo *team0Kit = eventId && team0Id ? m_itemSchema.StickerKitByTournamentTeamId(eventId, team0Id) : nullptr;
+    const StickerKitInfo *team1Kit = eventId && team1Id ? m_itemSchema.StickerKitByTournamentTeamId(eventId, team1Id) : nullptr;
 
     uint32_t eventStickerKit = eventKit ? eventKit->m_defIndex : 0;
+    uint32_t team0StickerKit = team0Kit ? team0Kit->m_defIndex : 0;
     uint32_t team1StickerKit = team1Kit ? team1Kit->m_defIndex : 0;
-    uint32_t team2StickerKit = team2Kit ? team2Kit->m_defIndex : 0;
 
-    ApplyTournamentAttributes(item, eventStickerKit, team1StickerKit, team2StickerKit, 0);
+    Platform::Print("SouvenirOpening: event %u stage %u teams %u/%u stickers %u/%u/%u\n",
+        eventId, stageId, team0Id, team1Id, eventStickerKit, team0StickerKit, team1StickerKit);
+
+    ApplyTournamentAttributes(item, eventStickerKit, team0StickerKit, team1StickerKit, 0);
 
     return true;
 }

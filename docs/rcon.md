@@ -184,6 +184,7 @@ give_item 7 paint=44 wear=0.12 seed=123 stattrak=5
 give_item 7 paint=44 name="RCON Test"
 give_item 1314 music=3 stattrak=10
 give_item 7 paint=44 sticker0=12 sticker0_wear=0
+give_item 4013 tournament_team0=31 tournament_team1=1
 ```
 
 Rules:
@@ -212,6 +213,10 @@ Supported parameters:
 | `music` | uint32 | Music definition id. Requires music kit defindex `1314`. |
 | `spray_color` | uint32 | Graffiti tint id. |
 | `spray_remaining` | uint32 | Remaining spray uses. |
+| `tournament_event` | uint32 | Tournament event id. Souvenir package definitions normally provide this automatically. |
+| `tournament_stage` | uint32 | Tournament event stage id for a specific match. |
+| `tournament_team0` | uint32 | First tournament team id for a souvenir package. |
+| `tournament_team1` | uint32 | Second tournament team id for a souvenir package. |
 | `sticker0`..`sticker5` | uint32 | Sticker kit defindex. Must exist in the item schema. |
 | `stickerN_wear` | float | Sticker wear, `0.0..1.0`. |
 | `stickerN_scale` | float | Sticker scale. |

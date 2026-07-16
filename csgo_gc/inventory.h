@@ -28,6 +28,10 @@ public:
         std::optional<uint32_t> music;
         std::optional<uint32_t> sprayColor;
         std::optional<uint32_t> sprayRemaining;
+        std::optional<uint32_t> tournamentEvent;
+        std::optional<uint32_t> tournamentStage;
+        std::optional<uint32_t> tournamentTeam0;
+        std::optional<uint32_t> tournamentTeam1;
 
         std::array<std::optional<uint32_t>, 6> sticker;
         std::array<std::optional<float>, 6> stickerWear;

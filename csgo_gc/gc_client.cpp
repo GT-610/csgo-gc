@@ -820,6 +820,22 @@ std::string ClientGC::RconGiveItem(const RconRequest &request)
         {
             error = parseUint32(options.sprayRemaining);
         }
+        else if (key == "tournament_event")
+        {
+            error = parseUint32(options.tournamentEvent);
+        }
+        else if (key == "tournament_stage")
+        {
+            error = parseUint32(options.tournamentStage);
+        }
+        else if (key == "tournament_team0")
+        {
+            error = parseUint32(options.tournamentTeam0);
+        }
+        else if (key == "tournament_team1")
+        {
+            error = parseUint32(options.tournamentTeam1);
+        }
         else if (key.rfind("sticker", 0) == 0 && key.size() >= 8 && key[7] >= '0' && key[7] <= '5')
         {
             size_t stickerSlot = static_cast<size_t>(key[7] - '0');

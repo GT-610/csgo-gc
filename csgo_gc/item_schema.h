@@ -31,6 +31,10 @@ public:
     uint32_t m_quality;
     uint32_t m_level;
     uint32_t m_supplyCrateSeries; // cases only
+    uint32_t m_tournamentEventId;
+    uint32_t m_tournamentEventStageId;
+    uint32_t m_tournamentTeam0Id;
+    uint32_t m_tournamentTeam1Id;
     std::string m_itemType;
     std::vector<std::string> m_prefabs;
     std::string m_toolRestriction;
@@ -273,10 +277,10 @@ public:
         AttributeCasketIdLow = 272,
         AttributeCasketIdHigh = 273,
 
-        // these are on souvenir package items, mikkotodo parse from schema
-        AttributeTournamentEventId = 267,
-        AttributeTournamentTeamId1 = 268,
-        AttributeTournamentTeamId2 = 269,
+        AttributeTournamentEventId = 137,
+        AttributeTournamentEventStageId = 138,
+        AttributeTournamentTeam0Id = 139,
+        AttributeTournamentTeam1Id = 140,
     };
 
 private:
