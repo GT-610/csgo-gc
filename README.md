@@ -58,6 +58,10 @@ Inventory can still be edited offline through `inventory.txt`. For manual editin
 
 The local RCON interface can also create and remove items while the game is running. This is intended for scripts and GUI editors that want to avoid the old edit-file-and-restart workflow.
 
+See [Souvenir Packages](docs/souvenirs.md) for tournament attributes, examples
+for different Major eras, manual `inventory.txt` editing, and an explanation of
+how package loot lists differ from souvenir sticker metadata.
+
 ## Configuration
 See [csgo_gc/config.txt](examples/config.txt) for available options.
 

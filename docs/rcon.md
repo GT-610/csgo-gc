@@ -185,6 +185,7 @@ give_item 7 paint=44 name="RCON Test"
 give_item 1314 music=3 stattrak=10
 give_item 7 paint=44 sticker0=12 sticker0_wear=0
 give_item 4013 tournament_team0=31 tournament_team1=1
+give_item 4132 tournament_team0=46 tournament_team1=1 tournament_mvp=64640068
 ```
 
 Rules:
@@ -217,6 +218,7 @@ Supported parameters:
 | `tournament_stage` | uint32 | Tournament event stage id for a specific match. |
 | `tournament_team0` | uint32 | First tournament team id for a souvenir package. |
 | `tournament_team1` | uint32 | Second tournament team id for a souvenir package. |
+| `tournament_mvp` | uint32 | MVP Steam account id for Cologne 2015 through Berlin 2019 souvenir packages. |
 | `sticker0`..`sticker5` | uint32 | Sticker kit defindex. Must exist in the item schema. |
 | `stickerN_wear` | float | Sticker wear, `0.0..1.0`. |
 | `stickerN_scale` | float | Sticker scale. |
@@ -233,6 +235,10 @@ Derived defaults:
 - Explicit `quality` and `rarity` override derived defaults.
 - If no parameters are supplied, the command uses the original basic purchase
   path.
+
+See [Souvenir Packages](souvenirs.md) for complete package examples, tournament
+attribute numbers, historical sticker formats, and manual `inventory.txt`
+editing.
 
 ### `remove_item`
 
