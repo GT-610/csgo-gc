@@ -39,7 +39,7 @@ inline bool IsDefaultItemId(uint64_t itemId, uint32_t &defIndex, uint32_t &paint
     return false;
 }
 
-CSOEconItemAttribute *FindOrAddAttribute(CSOEconItem &item, uint32_t defIndex)
+static CSOEconItemAttribute *FindAttribute(CSOEconItem &item, uint32_t defIndex)
 {
     for (int i = 0; i < item.attribute_size(); i++)
     {
@@ -48,6 +48,16 @@ CSOEconItemAttribute *FindOrAddAttribute(CSOEconItem &item, uint32_t defIndex)
         {
             return attribute;
         }
+    }
+
+    return nullptr;
+}
+
+static CSOEconItemAttribute *FindOrAddAttribute(CSOEconItem &item, uint32_t defIndex)
+{
+    if (CSOEconItemAttribute *attribute = FindAttribute(item, defIndex))
+    {
+        return attribute;
     }
 
     CSOEconItemAttribute *attribute = item.add_attribute();
@@ -1210,6 +1220,25 @@ uint32_t Inventory::EquippedMusicKitMVPCount(bool incrementForLocalMVP) const
     return 0;
 }
 
+static bool PrepareCasketForNaming(ItemSchema &schema, CSOEconItem &casket)
+{
+    assert(casket.def_index() == ItemSchema::ItemCasket);
+
+    if (!FindAttribute(casket, ItemSchema::AttributeCasketItemsCount))
+    {
+        CSOEconItemAttribute *countAttribute = casket.add_attribute();
+        countAttribute->set_def_index(ItemSchema::AttributeCasketItemsCount);
+        if (!schema.SetAttributeUint32(countAttribute, 0))
+        {
+            return false;
+        }
+    }
+
+    CSOEconItemAttribute *dateAttribute =
+        FindOrAddAttribute(casket, ItemSchema::AttributeCasketModificationDate);
+    return schema.SetAttributeUint32(dateAttribute, static_cast<uint32_t>(time(nullptr)));
+}
+
 bool Inventory::NameItem(uint64_t nameTagId,
     uint64_t itemId,
     std::string_view name,
@@ -1217,40 +1246,58 @@ bool Inventory::NameItem(uint64_t nameTagId,
     CMsgSOSingleObject &destroy,
     CMsgGCItemCustomizationNotification &notification)
 {
-    auto tag = m_items.find(nameTagId);
-    if (tag == m_items.end())
-    {
-        Platform::Print("NameItem: name tag item %llu not found for target %llu\n",
-            nameTagId, itemId);
-        return false;
-    }
-
-    if (!m_itemSchema.IsNameTagToolDefIndex(tag->second.def_index()))
-    {
-        Platform::Print("NameItem: item %llu def %u is not a name tag for target %llu\n",
-            nameTagId, tag->second.def_index(), itemId);
-        return false;
-    }
-
     auto it = m_items.find(itemId);
     if (it == m_items.end())
     {
-        assert(false);
+        Platform::Print("NameItem: target item %llu not found\n", itemId);
         return false;
     }
 
-    if (!m_itemSchema.CanNameDefIndex(it->second.def_index()))
+    // The client sends the casket's built-in naming action as NameItem with a
+    // zero tool id. It does not use an inventory Name Tag or the ordinary
+    // item-schema nameable capability.
+    const bool isCasketNaming =
+        nameTagId == 0 && it->second.def_index() == ItemSchema::ItemCasket;
+
+    auto tag = m_items.end();
+    if (isCasketNaming)
     {
-        Platform::Print("NameItem: target %llu def %u is not nameable by name tag %llu\n",
-            itemId, it->second.def_index(), nameTagId);
-        return false;
+        if (!PrepareCasketForNaming(m_itemSchema, it->second))
+        {
+            Platform::Print("NameItem: failed to initialize casket %llu\n", itemId);
+            return false;
+        }
+    }
+    else
+    {
+        if (!m_itemSchema.CanNameDefIndex(it->second.def_index()))
+        {
+            Platform::Print("NameItem: target %llu def %u is not nameable by name tag %llu\n",
+                itemId, it->second.def_index(), nameTagId);
+            return false;
+        }
+
+        tag = m_items.find(nameTagId);
+        if (tag == m_items.end())
+        {
+            Platform::Print("NameItem: name tag item %llu not found for target %llu\n",
+                nameTagId, itemId);
+            return false;
+        }
+
+        if (!m_itemSchema.IsNameTagToolDefIndex(tag->second.def_index()))
+        {
+            Platform::Print("NameItem: item %llu def %u is not a name tag for target %llu\n",
+                nameTagId, tag->second.def_index(), itemId);
+            return false;
+        }
     }
 
     it->second.mutable_custom_name()->assign(name);
 
     ToSingleObject(update, it->second);
 
-    if (GetConfig().DestroyUsedItems())
+    if (GetConfig().DestroyUsedItems() && tag != m_items.end())
     {
         DestroyItem(tag, destroy);
     }

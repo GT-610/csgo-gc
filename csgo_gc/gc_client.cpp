@@ -1694,7 +1694,10 @@ void ClientGC::NameItem(GCMessageRead &messageRead)
     if (m_inventory.NameItem(nameTagId, itemId, name, update, destroy, notification))
     {
         SendMessageToGame(true, k_ESOMsg_Update, update);
-        SendMessageToGame(true, k_ESOMsg_Destroy, destroy);
+        if (destroy.has_type_id())
+        {
+            SendMessageToGame(true, k_ESOMsg_Destroy, destroy);
+        }
 
         SendMessageToGame(false, k_EMsgGCItemCustomizationNotification, notification);
     }
@@ -1722,7 +1725,10 @@ void ClientGC::NameBaseItem(GCMessageRead &messageRead)
     if (m_inventory.NameBaseItem(nameTagId, defIndex, name, create, destroy, notification))
     {
         SendMessageToGame(true, k_ESOMsg_Create, create);
-        SendMessageToGame(true, k_ESOMsg_Destroy, destroy);
+        if (destroy.has_type_id())
+        {
+            SendMessageToGame(true, k_ESOMsg_Destroy, destroy);
+        }
 
         SendMessageToGame(false, k_EMsgGCItemCustomizationNotification, notification);
     }
