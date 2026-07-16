@@ -37,6 +37,7 @@ namespace SouvenirTournament
     constexpr uint32_t Cologne2015 = 7;
     constexpr uint32_t Berlin2019 = 16;
     constexpr uint32_t Stockholm2021 = 18;
+    constexpr uint32_t Paris2023 = 21;
 }
 
 enum class SouvenirFormat
@@ -71,7 +72,7 @@ static SouvenirFormat SouvenirFormatForEvent(uint32_t eventId)
         return SouvenirFormat::GoldMvp;
     }
 
-    if (eventId >= SouvenirTournament::Stockholm2021)
+    if (eventId >= SouvenirTournament::Stockholm2021 && eventId <= SouvenirTournament::Paris2023)
     {
         return SouvenirFormat::GoldMap;
     }
