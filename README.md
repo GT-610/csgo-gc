@@ -61,6 +61,11 @@ The local RCON interface can also create and remove items while the game is runn
 ## Configuration
 See [csgo_gc/config.txt](examples/config.txt) for available options.
 
+Server-only loot lists that are missing from the client item schema are stored
+in [csgo_gc/gc_loot_lists.txt](examples/gc_loot_lists.txt). An external loot
+list can include an `item_sets` block to reuse collections from
+`items_game.txt` without duplicating every item in the collection.
+
 ## RCON
 RCON is disabled by default and binds to localhost with the default configuration; the actual listen address is controlled by `bind_address`. It uses the Source RCON binary protocol, so existing Source RCON clients can be used.
 

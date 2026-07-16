@@ -200,6 +200,22 @@ ItemSchema::ItemSchema()
         ParseLootLists(lootListsKey, false);
     }
 
+    // Some loot lists are only present in Valve's GC schema and are not
+    // included in the client items_game.txt. Keep replacements in an external
+    // file so they can be updated without rebuilding the GC library.
+    {
+        KeyValue gcLootLists{ "gc_loot_lists" };
+
+        if (gcLootLists.ParseFromFile("csgo_gc/gc_loot_lists.txt"))
+        {
+            ParseLootLists(&gcLootLists, false);
+        }
+        else
+        {
+            Platform::Print("csgo_gc/gc_loot_lists.txt not found, server-only loot lists will be unavailable\n");
+        }
+    }
+
     const KeyValue *revolvingLootListsKey = itemsGame->GetSubkey("revolving_loot_lists");
     if (revolvingLootListsKey)
     {
@@ -951,6 +967,35 @@ void ItemSchema::ParseLootLists(const KeyValue *lootListsKey, bool unusual)
         for (const KeyValue &entryKey : lootListKey)
         {
             std::string_view entryName = entryKey.Name();
+
+            // External GC loot-list replacements can reuse collections from
+            // items_game.txt instead of duplicating every painted item.
+            if (entryName == "item_sets")
+            {
+                for (const KeyValue &itemSetKey : entryKey)
+                {
+                    auto itemSetSearch = m_itemSets.find(std::string{ itemSetKey.Name() });
+                    if (itemSetSearch == m_itemSets.end())
+                    {
+                        Platform::Print("Loot list %s references missing item set %s\n",
+                            std::string{ lootListKey.Name() }.c_str(),
+                            std::string{ itemSetKey.Name() }.c_str());
+                        continue;
+                    }
+
+                    for (LootListItem item : itemSetSearch->second.items)
+                    {
+                        if (unusual)
+                        {
+                            item.quality = QualityUnusual;
+                        }
+
+                        lootList.items.push_back(item);
+                    }
+                }
+
+                continue;
+            }
 
             // check for options that we ignore
             if (entryName == "will_produce_stattrak")
