@@ -27,6 +27,58 @@ static bool CompareRarity(const LootListItem *a, const LootListItem *b) { return
 static bool RarityLower(const LootListItem *a, uint32_t b) { return a->CaseRarity() < b; }
 static bool RarityUpper(uint32_t a, const LootListItem *b) { return a < b->CaseRarity(); }
 
+namespace SouvenirTournament
+{
+    constexpr uint32_t DreamHack2013 = 1;
+    constexpr uint32_t Katowice2014 = 3;
+    constexpr uint32_t Cologne2014 = 4;
+    constexpr uint32_t DreamHack2014 = 5;
+    constexpr uint32_t Katowice2015 = 6;
+    constexpr uint32_t Cologne2015 = 7;
+    constexpr uint32_t Berlin2019 = 16;
+    constexpr uint32_t Stockholm2021 = 18;
+}
+
+enum class SouvenirFormat
+{
+    Unknown,
+    EventOnly,
+    FoilTeams,
+    GoldTeams,
+    GoldMvp,
+    GoldMap,
+};
+
+static SouvenirFormat SouvenirFormatForEvent(uint32_t eventId)
+{
+    if (eventId == SouvenirTournament::DreamHack2013)
+    {
+        return SouvenirFormat::EventOnly;
+    }
+
+    if (eventId >= SouvenirTournament::Katowice2014 && eventId <= SouvenirTournament::Cologne2014)
+    {
+        return SouvenirFormat::FoilTeams;
+    }
+
+    if (eventId >= SouvenirTournament::DreamHack2014 && eventId <= SouvenirTournament::Katowice2015)
+    {
+        return SouvenirFormat::GoldTeams;
+    }
+
+    if (eventId >= SouvenirTournament::Cologne2015 && eventId <= SouvenirTournament::Berlin2019)
+    {
+        return SouvenirFormat::GoldMvp;
+    }
+
+    if (eventId >= SouvenirTournament::Stockholm2021)
+    {
+        return SouvenirFormat::GoldMap;
+    }
+
+    return SouvenirFormat::Unknown;
+}
+
 static bool EndsWith(std::string_view value, std::string_view suffix)
 {
     return value.size() >= suffix.size() && value.compare(value.size() - suffix.size(), suffix.size(), suffix) == 0;
@@ -56,50 +108,31 @@ static const StickerKitInfo *SelectStickerKit(const std::vector<const StickerKit
     return matches[random.Integer<size_t>(0, matches.size() - 1)];
 }
 
-static const StickerKitInfo *SelectHighestDefIndex(const std::vector<const StickerKitInfo *> &candidates)
+static const StickerKitInfo *SelectEventStickerKit(
+    const ItemSchema &schema, uint32_t eventId, SouvenirFormat format, Random &random)
 {
-    if (candidates.empty())
-    {
-        return nullptr;
-    }
+    std::vector<const StickerKitInfo *> candidates = schema.TournamentStickerKits(TournamentStickerRole::Event, eventId);
 
-    return *std::max_element(candidates.begin(), candidates.end(), [](const StickerKitInfo *a, const StickerKitInfo *b) {
-        return a->m_defIndex < b->m_defIndex;
-    });
-}
-
-static const StickerKitInfo *SelectEventStickerKit(const ItemSchema &schema, uint32_t eventId, Random &random)
-{
-    std::vector<const StickerKitInfo *> candidates;
-    schema.GetStickerKitsByTournamentEventId(eventId, candidates);
-
-    // The first four Majors predate the later all-gold souvenir format.
-    // Their dedicated souvenir variants are still identifiable from the
-    // schema, but use different finishes.
-    if (eventId == 1)
+    if (format == SouvenirFormat::EventOnly)
     {
         return SelectStickerKit(candidates, [](const StickerKitInfo &) { return true; }, random);
     }
 
-    if (eventId == 3)
+    if (eventId == SouvenirTournament::Katowice2014)
     {
         return SelectStickerKit(candidates, [](const StickerKitInfo &kit) {
             return kit.m_name.find("_gold_") != std::string::npos;
         }, random);
     }
 
-    if (eventId == 4)
+    if (eventId == SouvenirTournament::Cologne2014)
     {
-        // Cologne 2014 has one additional event-only sticker after the two
-        // capsule variants. Its definition index is the highest of the three.
-        return SelectHighestDefIndex(candidates);
+        return schema.FindStickerKitInfoByName("cologne2014_esl_c");
     }
 
-    if (eventId == 5)
+    if (eventId == SouvenirTournament::DreamHack2014)
     {
-        return SelectStickerKit(candidates, [](const StickerKitInfo &kit) {
-            return !EndsWith(kit.m_name, "_foil");
-        }, random);
+        return schema.FindStickerKitInfoByName("dhw2014_dhw");
     }
 
     return SelectStickerKit(candidates, [](const StickerKitInfo &kit) {
@@ -107,12 +140,12 @@ static const StickerKitInfo *SelectEventStickerKit(const ItemSchema &schema, uin
     }, random);
 }
 
-static const StickerKitInfo *SelectTeamStickerKit(const ItemSchema &schema, uint32_t eventId, uint32_t teamId, Random &random)
+static const StickerKitInfo *SelectTeamStickerKit(
+    const ItemSchema &schema, uint32_t eventId, uint32_t teamId, SouvenirFormat format, Random &random)
 {
-    std::vector<const StickerKitInfo *> candidates;
-    schema.GetStickerKitsByTournamentTeamId(eventId, teamId, candidates);
+    std::vector<const StickerKitInfo *> candidates = schema.TournamentStickerKits(TournamentStickerRole::Team, eventId, teamId);
 
-    const char *suffix = eventId <= 4 ? "_foil" : "_gold";
+    const char *suffix = format == SouvenirFormat::FoilTeams ? "_foil" : "_gold";
     return SelectStickerKit(candidates, [suffix](const StickerKitInfo &kit) {
         return EndsWith(kit.m_name, suffix);
     }, random);
@@ -120,8 +153,7 @@ static const StickerKitInfo *SelectTeamStickerKit(const ItemSchema &schema, uint
 
 static const StickerKitInfo *SelectPlayerStickerKit(const ItemSchema &schema, uint32_t eventId, uint32_t playerId, Random &random)
 {
-    std::vector<const StickerKitInfo *> candidates;
-    schema.GetStickerKitsByTournamentPlayerId(eventId, playerId, candidates);
+    std::vector<const StickerKitInfo *> candidates = schema.TournamentStickerKits(TournamentStickerRole::Player, eventId, playerId);
     return SelectStickerKit(candidates, [](const StickerKitInfo &kit) {
         return EndsWith(kit.m_name, "_gold");
     }, random);
@@ -142,7 +174,7 @@ static const StickerKitInfo *MapStickerKit(const ItemSchema &schema, const ItemI
 
     std::string stickerName = packageInfo->m_name.substr(mapPosition + 1);
     stickerName += "_gold";
-    return schema.StickerKitInfoByName(stickerName);
+    return schema.FindStickerKitInfoByName(stickerName);
 }
 
 bool SouvenirOpening::OpenPackage(const CSOEconItem &package, CSOEconItem &item)
@@ -188,11 +220,7 @@ bool SouvenirOpening::OpenPackage(const CSOEconItem &package, CSOEconItem &item)
     // Static tournament metadata comes from the package definition. Instance
     // attributes identify the particular match and override those defaults.
     const ItemInfo *packageInfo = m_itemSchema.ItemInfoByDefIndex(package.def_index());
-    uint32_t eventId = packageInfo ? packageInfo->m_tournamentEventId : 0;
-    uint32_t stageId = packageInfo ? packageInfo->m_tournamentEventStageId : 0;
-    uint32_t team0Id = packageInfo ? packageInfo->m_tournamentTeam0Id : 0;
-    uint32_t team1Id = packageInfo ? packageInfo->m_tournamentTeam1Id : 0;
-    uint32_t mvpAccountId = 0;
+    TournamentMetadata tournament = packageInfo ? packageInfo->m_tournament : TournamentMetadata{};
 
     for (const CSOEconItemAttribute &attribute : package.attribute())
     {
@@ -201,23 +229,23 @@ bool SouvenirOpening::OpenPackage(const CSOEconItem &package, CSOEconItem &item)
         switch (attribute.def_index())
         {
         case ItemSchema::AttributeTournamentEventId:
-            eventId = value;
+            tournament.eventId = value;
             break;
 
         case ItemSchema::AttributeTournamentEventStageId:
-            stageId = value;
+            tournament.stageId = value;
             break;
 
         case ItemSchema::AttributeTournamentTeam0Id:
-            team0Id = value;
+            tournament.team0Id = value;
             break;
 
         case ItemSchema::AttributeTournamentTeam1Id:
-            team1Id = value;
+            tournament.team1Id = value;
             break;
 
         case ItemSchema::AttributeTournamentMvpAccountId:
-            mvpAccountId = value;
+            tournament.mvpAccountId = value;
             break;
         }
     }
@@ -234,24 +262,36 @@ bool SouvenirOpening::OpenPackage(const CSOEconItem &package, CSOEconItem &item)
         m_itemSchema.SetAttributeUint32(attribute, value);
     };
 
-    addTournamentAttribute(ItemSchema::AttributeTournamentEventId, eventId);
-    addTournamentAttribute(ItemSchema::AttributeTournamentEventStageId, stageId);
-    addTournamentAttribute(ItemSchema::AttributeTournamentTeam0Id, team0Id);
-    addTournamentAttribute(ItemSchema::AttributeTournamentTeam1Id, team1Id);
-    addTournamentAttribute(ItemSchema::AttributeTournamentMvpAccountId, mvpAccountId);
+    addTournamentAttribute(ItemSchema::AttributeTournamentEventId, tournament.eventId);
+    addTournamentAttribute(ItemSchema::AttributeTournamentEventStageId, tournament.stageId);
+    addTournamentAttribute(ItemSchema::AttributeTournamentTeam0Id, tournament.team0Id);
+    addTournamentAttribute(ItemSchema::AttributeTournamentTeam1Id, tournament.team1Id);
+    addTournamentAttribute(ItemSchema::AttributeTournamentMvpAccountId, tournament.mvpAccountId);
 
-    const StickerKitInfo *eventKit = eventId ? SelectEventStickerKit(m_itemSchema, eventId, m_random) : nullptr;
-    const StickerKitInfo *team0Kit = eventId && team0Id ? SelectTeamStickerKit(m_itemSchema, eventId, team0Id, m_random) : nullptr;
-    const StickerKitInfo *team1Kit = eventId && team1Id ? SelectTeamStickerKit(m_itemSchema, eventId, team1Id, m_random) : nullptr;
+    SouvenirFormat format = SouvenirFormatForEvent(tournament.eventId);
+    if (tournament.eventId && format == SouvenirFormat::Unknown)
+    {
+        Platform::Print("SouvenirOpening: unsupported tournament event %u\n", tournament.eventId);
+    }
+
+    const StickerKitInfo *eventKit = format != SouvenirFormat::Unknown
+        ? SelectEventStickerKit(m_itemSchema, tournament.eventId, format, m_random)
+        : nullptr;
+    const StickerKitInfo *team0Kit = format != SouvenirFormat::Unknown && tournament.team0Id
+        ? SelectTeamStickerKit(m_itemSchema, tournament.eventId, tournament.team0Id, format, m_random)
+        : nullptr;
+    const StickerKitInfo *team1Kit = format != SouvenirFormat::Unknown && tournament.team1Id
+        ? SelectTeamStickerKit(m_itemSchema, tournament.eventId, tournament.team1Id, format, m_random)
+        : nullptr;
     const StickerKitInfo *fourthKit = nullptr;
 
-    if (eventId >= 18)
+    if (format == SouvenirFormat::GoldMap)
     {
         fourthKit = MapStickerKit(m_itemSchema, packageInfo);
     }
-    else if (eventId >= 7 && mvpAccountId)
+    else if (format == SouvenirFormat::GoldMvp && tournament.mvpAccountId)
     {
-        fourthKit = SelectPlayerStickerKit(m_itemSchema, eventId, mvpAccountId, m_random);
+        fourthKit = SelectPlayerStickerKit(m_itemSchema, tournament.eventId, tournament.mvpAccountId, m_random);
     }
 
     uint32_t eventStickerKit = eventKit ? eventKit->m_defIndex : 0;
@@ -260,7 +300,7 @@ bool SouvenirOpening::OpenPackage(const CSOEconItem &package, CSOEconItem &item)
     uint32_t fourthStickerKit = fourthKit ? fourthKit->m_defIndex : 0;
 
     Platform::Print("SouvenirOpening: event %u stage %u teams %u/%u mvp %u stickers %u/%u/%u/%u\n",
-        eventId, stageId, team0Id, team1Id, mvpAccountId,
+        tournament.eventId, tournament.stageId, tournament.team0Id, tournament.team1Id, tournament.mvpAccountId,
         eventStickerKit, team0StickerKit, team1StickerKit, fourthStickerKit);
 
     ApplyTournamentAttributes(item, eventStickerKit, team0StickerKit, team1StickerKit, fourthStickerKit);

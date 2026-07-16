@@ -822,23 +822,23 @@ std::string ClientGC::RconGiveItem(const RconRequest &request)
         }
         else if (key == "tournament_event")
         {
-            error = parseUint32(options.tournamentEvent);
+            error = parseUint32(options.tournament.eventId);
         }
         else if (key == "tournament_stage")
         {
-            error = parseUint32(options.tournamentStage);
+            error = parseUint32(options.tournament.stageId);
         }
         else if (key == "tournament_team0")
         {
-            error = parseUint32(options.tournamentTeam0);
+            error = parseUint32(options.tournament.team0Id);
         }
         else if (key == "tournament_team1")
         {
-            error = parseUint32(options.tournamentTeam1);
+            error = parseUint32(options.tournament.team1Id);
         }
         else if (key == "tournament_mvp")
         {
-            error = parseUint32(options.tournamentMvp);
+            error = parseUint32(options.tournament.mvpAccountId);
         }
         else if (key.rfind("sticker", 0) == 0 && key.size() >= 8 && key[7] >= '0' && key[7] <= '5')
         {

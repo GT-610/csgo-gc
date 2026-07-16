@@ -2,8 +2,8 @@
 
 csgo_gc can open legacy CS:GO souvenir packages and generate the tournament
 metadata and stickers expected for their Major era. The package definition
-selects the map collection and tournament, while attributes on that particular
-package describe the match.
+and its GC loot list select the available collection or collections, while
+attributes on that particular package describe the tournament and match.
 
 The package does not need a `loot list` attribute. Loot lists are GC-side data:
 `gc_loot_lists.txt` decides which weapons can be produced, and the package's
@@ -132,6 +132,9 @@ chooses only where the historical format has multiple valid event designs.
   server-only package contents belong in `gc_loot_lists.txt`; sticker selection
   should remain schema-driven rather than be duplicated in an external rules
   file.
+- `gc_loot_lists.txt` is supplemental: definitions should use names absent
+  from the client schema. Duplicate loot-list names are ignored rather than
+  silently merged with client data.
 
 Research references:
 

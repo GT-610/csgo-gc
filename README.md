@@ -65,9 +65,9 @@ how package loot lists differ from souvenir sticker metadata.
 ## Configuration
 See [csgo_gc/config.txt](examples/config.txt) for available options.
 
-Server-only loot lists that are missing from the client item schema are stored
-in [csgo_gc/gc_loot_lists.txt](examples/gc_loot_lists.txt). An external loot
-list can include an `item_sets` block to reuse collections from
+Supplemental server-only loot lists that are missing from the client schema are
+stored in [csgo_gc/gc_loot_lists.txt](examples/gc_loot_lists.txt). An external
+loot list can include an `item_sets` block to reuse collections from
 `items_game.txt` without duplicating every item in the collection.
 
 ## RCON

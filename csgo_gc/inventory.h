@@ -16,6 +16,15 @@ public:
 
     struct ParameterizedItemOptions
     {
+        struct TournamentOptions
+        {
+            std::optional<uint32_t> eventId;
+            std::optional<uint32_t> stageId;
+            std::optional<uint32_t> team0Id;
+            std::optional<uint32_t> team1Id;
+            std::optional<uint32_t> mvpAccountId;
+        };
+
         std::optional<uint32_t> level;
         std::optional<uint32_t> quality;
         std::optional<uint32_t> rarity;
@@ -28,11 +37,7 @@ public:
         std::optional<uint32_t> music;
         std::optional<uint32_t> sprayColor;
         std::optional<uint32_t> sprayRemaining;
-        std::optional<uint32_t> tournamentEvent;
-        std::optional<uint32_t> tournamentStage;
-        std::optional<uint32_t> tournamentTeam0;
-        std::optional<uint32_t> tournamentTeam1;
-        std::optional<uint32_t> tournamentMvp;
+        TournamentOptions tournament;
 
         std::array<std::optional<uint32_t>, 6> sticker;
         std::array<std::optional<float>, 6> stickerWear;

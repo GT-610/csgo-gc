@@ -2074,11 +2074,11 @@ uint64_t Inventory::CreateParameterizedItem(uint32_t defIndex,
         m_itemSchema.SetAttributeUint32(attribute, *value);
     };
 
-    setTournamentAttribute(options.tournamentEvent, ItemSchema::AttributeTournamentEventId);
-    setTournamentAttribute(options.tournamentStage, ItemSchema::AttributeTournamentEventStageId);
-    setTournamentAttribute(options.tournamentTeam0, ItemSchema::AttributeTournamentTeam0Id);
-    setTournamentAttribute(options.tournamentTeam1, ItemSchema::AttributeTournamentTeam1Id);
-    setTournamentAttribute(options.tournamentMvp, ItemSchema::AttributeTournamentMvpAccountId);
+    setTournamentAttribute(options.tournament.eventId, ItemSchema::AttributeTournamentEventId);
+    setTournamentAttribute(options.tournament.stageId, ItemSchema::AttributeTournamentEventStageId);
+    setTournamentAttribute(options.tournament.team0Id, ItemSchema::AttributeTournamentTeam0Id);
+    setTournamentAttribute(options.tournament.team1Id, ItemSchema::AttributeTournamentTeam1Id);
+    setTournamentAttribute(options.tournament.mvpAccountId, ItemSchema::AttributeTournamentMvpAccountId);
 
     for (size_t i = 0; i < options.sticker.size(); i++)
     {
