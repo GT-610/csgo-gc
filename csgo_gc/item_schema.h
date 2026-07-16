@@ -20,6 +20,15 @@ public:
     AttributeType m_type;
 };
 
+struct TournamentMetadata
+{
+    uint32_t eventId{};
+    uint32_t stageId{};
+    uint32_t team0Id{};
+    uint32_t team1Id{};
+    uint32_t mvpAccountId{};
+};
+
 class ItemInfo
 {
 public:
@@ -31,6 +40,7 @@ public:
     uint32_t m_quality;
     uint32_t m_level;
     uint32_t m_supplyCrateSeries; // cases only
+    TournamentMetadata m_tournament;
     std::string m_itemType;
     std::vector<std::string> m_prefabs;
     std::string m_toolRestriction;
@@ -62,10 +72,18 @@ public:
     explicit StickerKitInfo(const KeyValue &key);
 
     uint32_t m_defIndex;
+    std::string m_name;
     uint32_t m_rarity;
     uint32_t m_tournamentEventId;
     uint32_t m_tournamentTeamId;
     uint32_t m_tournamentPlayerId;
+};
+
+enum class TournamentStickerRole
+{
+    Event,
+    Team,
+    Player,
 };
 
 class MusicDefinitionInfo
@@ -153,8 +171,9 @@ public:
     const PaintKitInfo *PaintKitInfoByDefIndex(uint32_t defIndex) const;
     const StickerKitInfo *StickerKitInfoByDefIndex(uint32_t defIndex) const;
     const MusicDefinitionInfo *MusicDefinitionInfoByDefIndex(uint32_t defIndex) const;
-    const StickerKitInfo *StickerKitByTournamentEventId(uint32_t eventId) const;
-    const StickerKitInfo *StickerKitByTournamentTeamId(uint32_t eventId, uint32_t teamId) const;
+    const StickerKitInfo *FindStickerKitInfoByName(std::string_view name) const;
+    std::vector<const StickerKitInfo *> TournamentStickerKits(
+        TournamentStickerRole role, uint32_t eventId, uint32_t subjectId = 0) const;
     bool GetCollectionsForPaintedItem(uint32_t defIndex, uint32_t paintKitDefIndex,
         std::vector<std::string> &outCollections) const;
     bool GetCollectionsForPaintKit(uint32_t paintKitDefIndex,
@@ -273,10 +292,11 @@ public:
         AttributeCasketIdLow = 272,
         AttributeCasketIdHigh = 273,
 
-        // these are on souvenir package items, mikkotodo parse from schema
-        AttributeTournamentEventId = 267,
-        AttributeTournamentTeamId1 = 268,
-        AttributeTournamentTeamId2 = 269,
+        AttributeTournamentEventId = 137,
+        AttributeTournamentEventStageId = 138,
+        AttributeTournamentTeam0Id = 139,
+        AttributeTournamentTeam1Id = 140,
+        AttributeTournamentMvpAccountId = 223,
     };
 
 private:
@@ -295,7 +315,7 @@ private:
 
     // internal slop
     ItemInfo *ItemInfoByName(std::string_view name);
-    StickerKitInfo *StickerKitInfoByName(std::string_view name);
+    StickerKitInfo *MutableStickerKitInfoByName(std::string_view name);
     PaintKitInfo *PaintKitInfoByName(std::string_view name);
     MusicDefinitionInfo *MusicDefinitionInfoByName(std::string_view name);
 

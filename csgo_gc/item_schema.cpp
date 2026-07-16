@@ -88,6 +88,7 @@ PaintKitInfo::PaintKitInfo(const KeyValue &key)
 
 StickerKitInfo::StickerKitInfo(const KeyValue &key)
     : m_defIndex{ FromString<uint32_t>(key.Name()) }
+    , m_name{ key.GetString("name") }
     , m_rarity{ ItemSchema::RarityDefault }
     , m_tournamentEventId{ 0 }
     , m_tournamentTeamId{ 0 }
@@ -198,6 +199,22 @@ ItemSchema::ItemSchema()
     if (lootListsKey)
     {
         ParseLootLists(lootListsKey, false);
+    }
+
+    // Some loot lists are only present in Valve's GC schema and are not
+    // included in the client items_game.txt. Load supplemental definitions
+    // from a data file so they can be updated without rebuilding the library.
+    {
+        KeyValue gcLootLists{ "gc_loot_lists" };
+
+        if (gcLootLists.ParseFromFile("csgo_gc/gc_loot_lists.txt"))
+        {
+            ParseLootLists(&gcLootLists, false);
+        }
+        else
+        {
+            Platform::Print("csgo_gc/gc_loot_lists.txt not found, server-only loot lists will be unavailable\n");
+        }
     }
 
     const KeyValue *revolvingLootListsKey = itemsGame->GetSubkey("revolving_loot_lists");
@@ -786,6 +803,21 @@ void ItemSchema::ParseItemRecursive(ItemInfo &info, const KeyValue &itemKey, con
         {
             info.m_supplyCrateSeries = supplyCrateSeries->GetNumber<uint32_t>("value");
         }
+
+        auto parseTournamentAttribute = [&](std::string_view name, uint32_t &value)
+        {
+            const KeyValue *attribute = attributes->GetSubkey(name);
+            if (attribute)
+            {
+                value = attribute->GetNumber<uint32_t>("value");
+            }
+        };
+
+        parseTournamentAttribute("tournament event id", info.m_tournament.eventId);
+        parseTournamentAttribute("tournament event stage id", info.m_tournament.stageId);
+        parseTournamentAttribute("tournament event team0 id", info.m_tournament.team0Id);
+        parseTournamentAttribute("tournament event team1 id", info.m_tournament.team1Id);
+        parseTournamentAttribute("tournament mvp account id", info.m_tournament.mvpAccountId);
     }
 }
 
@@ -937,7 +969,7 @@ static LootListItemType LootListItemTypeFromName(std::string_view name, std::str
 
 void ItemSchema::ParseLootLists(const KeyValue *lootListsKey, bool unusual)
 {
-    m_lootLists.reserve(lootListsKey->SubkeyCount());
+    m_lootLists.reserve(m_lootLists.size() + lootListsKey->SubkeyCount());
 
     for (const KeyValue &lootListKey : *lootListsKey)
     {
@@ -945,12 +977,47 @@ void ItemSchema::ParseLootLists(const KeyValue *lootListsKey, bool unusual)
             std::forward_as_tuple(lootListKey.Name()),
             std::forward_as_tuple());
 
+        if (!emplace.second)
+        {
+            Platform::Print("Duplicate loot list %s ignored\n", std::string{ lootListKey.Name() }.c_str());
+            continue;
+        }
+
         LootList &lootList = emplace.first->second;
         lootList.isUnusual = unusual;
 
         for (const KeyValue &entryKey : lootListKey)
         {
             std::string_view entryName = entryKey.Name();
+
+            // Supplemental GC loot lists can reuse collections from
+            // items_game.txt instead of duplicating every painted item.
+            if (entryName == "item_sets")
+            {
+                for (const KeyValue &itemSetKey : entryKey)
+                {
+                    auto itemSetSearch = m_itemSets.find(std::string{ itemSetKey.Name() });
+                    if (itemSetSearch == m_itemSets.end())
+                    {
+                        Platform::Print("Loot list %s references missing item set %s\n",
+                            std::string{ lootListKey.Name() }.c_str(),
+                            std::string{ itemSetKey.Name() }.c_str());
+                        continue;
+                    }
+
+                    for (LootListItem item : itemSetSearch->second.items)
+                    {
+                        if (unusual)
+                        {
+                            item.quality = QualityUnusual;
+                        }
+
+                        lootList.items.push_back(item);
+                    }
+                }
+
+                continue;
+            }
 
             // check for options that we ignore
             if (entryName == "will_produce_stattrak")
@@ -1050,7 +1117,7 @@ bool ItemSchema::ParseLootListItem(LootListItem &item, std::string_view name)
     else if (item.type == LootListItemSticker || item.type == LootListItemSpray || item.type == LootListItemPatch)
     {
         // the attribute is the sticker name
-        item.stickerKitInfo = StickerKitInfoByName(attributeName);
+        item.stickerKitInfo = MutableStickerKitInfoByName(attributeName);
         if (!item.stickerKitInfo)
         {
             Platform::Print("WARNING: No such sticker kit %s\n", std::string{ attributeName }.c_str());
@@ -1142,7 +1209,7 @@ const ItemInfo *ItemSchema::ItemInfoByDefIndex(uint32_t defIndex) const
     return &it->second;
 }
 
-StickerKitInfo *ItemSchema::StickerKitInfoByName(std::string_view name)
+StickerKitInfo *ItemSchema::MutableStickerKitInfoByName(std::string_view name)
 {
     auto it = m_stickerKitInfo.find(std::string{ name });
     if (it == m_stickerKitInfo.end())
@@ -1154,32 +1221,52 @@ StickerKitInfo *ItemSchema::StickerKitInfoByName(std::string_view name)
     return &it->second;
 }
 
-const StickerKitInfo *ItemSchema::StickerKitByTournamentEventId(uint32_t eventId) const
+const StickerKitInfo *ItemSchema::FindStickerKitInfoByName(std::string_view name) const
 {
-    for (const auto &pair : m_stickerKitInfo)
+    auto it = m_stickerKitInfo.find(std::string{ name });
+    if (it == m_stickerKitInfo.end())
     {
-        const StickerKitInfo &info = pair.second;
-        if (info.m_tournamentEventId == eventId && info.m_tournamentTeamId == 0 && info.m_tournamentPlayerId == 0)
-        {
-            return &info;
-        }
+        return nullptr;
     }
 
-    return nullptr;
+    return &it->second;
 }
 
-const StickerKitInfo *ItemSchema::StickerKitByTournamentTeamId(uint32_t eventId, uint32_t teamId) const
+std::vector<const StickerKitInfo *> ItemSchema::TournamentStickerKits(
+    TournamentStickerRole role, uint32_t eventId, uint32_t subjectId) const
 {
+    std::vector<const StickerKitInfo *> result;
     for (const auto &pair : m_stickerKitInfo)
     {
         const StickerKitInfo &info = pair.second;
-        if (info.m_tournamentEventId == eventId && info.m_tournamentTeamId == teamId && info.m_tournamentPlayerId == 0)
+        if (info.m_tournamentEventId != eventId)
         {
-            return &info;
+            continue;
+        }
+
+        bool matchesRole = false;
+        switch (role)
+        {
+        case TournamentStickerRole::Event:
+            matchesRole = info.m_tournamentTeamId == 0 && info.m_tournamentPlayerId == 0;
+            break;
+
+        case TournamentStickerRole::Team:
+            matchesRole = info.m_tournamentTeamId == subjectId && info.m_tournamentPlayerId == 0;
+            break;
+
+        case TournamentStickerRole::Player:
+            matchesRole = info.m_tournamentPlayerId == subjectId;
+            break;
+        }
+
+        if (matchesRole)
+        {
+            result.push_back(&info);
         }
     }
 
-    return nullptr;
+    return result;
 }
 
 const StickerKitInfo *ItemSchema::StickerKitInfoByDefIndex(uint32_t defIndex) const
