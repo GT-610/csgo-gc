@@ -1226,8 +1226,8 @@ static bool PrepareCasketForNaming(ItemSchema &schema, CSOEconItem &casket)
 
     if (!FindAttribute(casket, ItemSchema::AttributeCasketItemsCount))
     {
-        CSOEconItemAttribute *countAttribute =
-            FindOrAddAttribute(casket, ItemSchema::AttributeCasketItemsCount);
+        CSOEconItemAttribute *countAttribute = casket.add_attribute();
+        countAttribute->set_def_index(ItemSchema::AttributeCasketItemsCount);
         if (!schema.SetAttributeUint32(countAttribute, 0))
         {
             return false;
