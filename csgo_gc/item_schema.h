@@ -66,6 +66,7 @@ public:
     explicit StickerKitInfo(const KeyValue &key);
 
     uint32_t m_defIndex;
+    std::string m_name;
     uint32_t m_rarity;
     uint32_t m_tournamentEventId;
     uint32_t m_tournamentTeamId;
@@ -157,8 +158,10 @@ public:
     const PaintKitInfo *PaintKitInfoByDefIndex(uint32_t defIndex) const;
     const StickerKitInfo *StickerKitInfoByDefIndex(uint32_t defIndex) const;
     const MusicDefinitionInfo *MusicDefinitionInfoByDefIndex(uint32_t defIndex) const;
-    const StickerKitInfo *StickerKitByTournamentEventId(uint32_t eventId) const;
-    const StickerKitInfo *StickerKitByTournamentTeamId(uint32_t eventId, uint32_t teamId) const;
+    const StickerKitInfo *StickerKitInfoByName(std::string_view name) const;
+    void GetStickerKitsByTournamentEventId(uint32_t eventId, std::vector<const StickerKitInfo *> &out) const;
+    void GetStickerKitsByTournamentTeamId(uint32_t eventId, uint32_t teamId, std::vector<const StickerKitInfo *> &out) const;
+    void GetStickerKitsByTournamentPlayerId(uint32_t eventId, uint32_t playerId, std::vector<const StickerKitInfo *> &out) const;
     bool GetCollectionsForPaintedItem(uint32_t defIndex, uint32_t paintKitDefIndex,
         std::vector<std::string> &outCollections) const;
     bool GetCollectionsForPaintKit(uint32_t paintKitDefIndex,
@@ -281,6 +284,7 @@ public:
         AttributeTournamentEventStageId = 138,
         AttributeTournamentTeam0Id = 139,
         AttributeTournamentTeam1Id = 140,
+        AttributeTournamentMvpAccountId = 223,
     };
 
 private:

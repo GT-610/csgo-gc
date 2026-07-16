@@ -2078,6 +2078,7 @@ uint64_t Inventory::CreateParameterizedItem(uint32_t defIndex,
     setTournamentAttribute(options.tournamentStage, ItemSchema::AttributeTournamentEventStageId);
     setTournamentAttribute(options.tournamentTeam0, ItemSchema::AttributeTournamentTeam0Id);
     setTournamentAttribute(options.tournamentTeam1, ItemSchema::AttributeTournamentTeam1Id);
+    setTournamentAttribute(options.tournamentMvp, ItemSchema::AttributeTournamentMvpAccountId);
 
     for (size_t i = 0; i < options.sticker.size(); i++)
     {

@@ -92,6 +92,7 @@ PaintKitInfo::PaintKitInfo(const KeyValue &key)
 
 StickerKitInfo::StickerKitInfo(const KeyValue &key)
     : m_defIndex{ FromString<uint32_t>(key.Name()) }
+    , m_name{ key.GetString("name") }
     , m_rarity{ ItemSchema::RarityDefault }
     , m_tournamentEventId{ 0 }
     , m_tournamentTeamId{ 0 }
@@ -1217,32 +1218,51 @@ StickerKitInfo *ItemSchema::StickerKitInfoByName(std::string_view name)
     return &it->second;
 }
 
-const StickerKitInfo *ItemSchema::StickerKitByTournamentEventId(uint32_t eventId) const
+const StickerKitInfo *ItemSchema::StickerKitInfoByName(std::string_view name) const
+{
+    auto it = m_stickerKitInfo.find(std::string{ name });
+    if (it == m_stickerKitInfo.end())
+    {
+        return nullptr;
+    }
+
+    return &it->second;
+}
+
+void ItemSchema::GetStickerKitsByTournamentEventId(uint32_t eventId, std::vector<const StickerKitInfo *> &out) const
 {
     for (const auto &pair : m_stickerKitInfo)
     {
         const StickerKitInfo &info = pair.second;
         if (info.m_tournamentEventId == eventId && info.m_tournamentTeamId == 0 && info.m_tournamentPlayerId == 0)
         {
-            return &info;
+            out.push_back(&info);
         }
     }
-
-    return nullptr;
 }
 
-const StickerKitInfo *ItemSchema::StickerKitByTournamentTeamId(uint32_t eventId, uint32_t teamId) const
+void ItemSchema::GetStickerKitsByTournamentTeamId(uint32_t eventId, uint32_t teamId, std::vector<const StickerKitInfo *> &out) const
 {
     for (const auto &pair : m_stickerKitInfo)
     {
         const StickerKitInfo &info = pair.second;
         if (info.m_tournamentEventId == eventId && info.m_tournamentTeamId == teamId && info.m_tournamentPlayerId == 0)
         {
-            return &info;
+            out.push_back(&info);
         }
     }
+}
 
-    return nullptr;
+void ItemSchema::GetStickerKitsByTournamentPlayerId(uint32_t eventId, uint32_t playerId, std::vector<const StickerKitInfo *> &out) const
+{
+    for (const auto &pair : m_stickerKitInfo)
+    {
+        const StickerKitInfo &info = pair.second;
+        if (info.m_tournamentEventId == eventId && info.m_tournamentPlayerId == playerId)
+        {
+            out.push_back(&info);
+        }
+    }
 }
 
 const StickerKitInfo *ItemSchema::StickerKitInfoByDefIndex(uint32_t defIndex) const

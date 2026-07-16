@@ -32,6 +32,7 @@ public:
         std::optional<uint32_t> tournamentStage;
         std::optional<uint32_t> tournamentTeam0;
         std::optional<uint32_t> tournamentTeam1;
+        std::optional<uint32_t> tournamentMvp;
 
         std::array<std::optional<uint32_t>, 6> sticker;
         std::array<std::optional<float>, 6> stickerWear;

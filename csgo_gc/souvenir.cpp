@@ -27,6 +27,124 @@ static bool CompareRarity(const LootListItem *a, const LootListItem *b) { return
 static bool RarityLower(const LootListItem *a, uint32_t b) { return a->CaseRarity() < b; }
 static bool RarityUpper(uint32_t a, const LootListItem *b) { return a < b->CaseRarity(); }
 
+static bool EndsWith(std::string_view value, std::string_view suffix)
+{
+    return value.size() >= suffix.size() && value.compare(value.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
+
+template<typename Predicate>
+static const StickerKitInfo *SelectStickerKit(const std::vector<const StickerKitInfo *> &candidates, Predicate predicate, Random &random)
+{
+    std::vector<const StickerKitInfo *> matches;
+    for (const StickerKitInfo *candidate : candidates)
+    {
+        if (predicate(*candidate))
+        {
+            matches.push_back(candidate);
+        }
+    }
+
+    if (matches.empty())
+    {
+        return nullptr;
+    }
+
+    std::sort(matches.begin(), matches.end(), [](const StickerKitInfo *a, const StickerKitInfo *b) {
+        return a->m_defIndex < b->m_defIndex;
+    });
+
+    return matches[random.Integer<size_t>(0, matches.size() - 1)];
+}
+
+static const StickerKitInfo *SelectHighestDefIndex(const std::vector<const StickerKitInfo *> &candidates)
+{
+    if (candidates.empty())
+    {
+        return nullptr;
+    }
+
+    return *std::max_element(candidates.begin(), candidates.end(), [](const StickerKitInfo *a, const StickerKitInfo *b) {
+        return a->m_defIndex < b->m_defIndex;
+    });
+}
+
+static const StickerKitInfo *SelectEventStickerKit(const ItemSchema &schema, uint32_t eventId, Random &random)
+{
+    std::vector<const StickerKitInfo *> candidates;
+    schema.GetStickerKitsByTournamentEventId(eventId, candidates);
+
+    // The first four Majors predate the later all-gold souvenir format.
+    // Their dedicated souvenir variants are still identifiable from the
+    // schema, but use different finishes.
+    if (eventId == 1)
+    {
+        return SelectStickerKit(candidates, [](const StickerKitInfo &) { return true; }, random);
+    }
+
+    if (eventId == 3)
+    {
+        return SelectStickerKit(candidates, [](const StickerKitInfo &kit) {
+            return kit.m_name.find("_gold_") != std::string::npos;
+        }, random);
+    }
+
+    if (eventId == 4)
+    {
+        // Cologne 2014 has one additional event-only sticker after the two
+        // capsule variants. Its definition index is the highest of the three.
+        return SelectHighestDefIndex(candidates);
+    }
+
+    if (eventId == 5)
+    {
+        return SelectStickerKit(candidates, [](const StickerKitInfo &kit) {
+            return !EndsWith(kit.m_name, "_foil");
+        }, random);
+    }
+
+    return SelectStickerKit(candidates, [](const StickerKitInfo &kit) {
+        return EndsWith(kit.m_name, "_gold");
+    }, random);
+}
+
+static const StickerKitInfo *SelectTeamStickerKit(const ItemSchema &schema, uint32_t eventId, uint32_t teamId, Random &random)
+{
+    std::vector<const StickerKitInfo *> candidates;
+    schema.GetStickerKitsByTournamentTeamId(eventId, teamId, candidates);
+
+    const char *suffix = eventId <= 4 ? "_foil" : "_gold";
+    return SelectStickerKit(candidates, [suffix](const StickerKitInfo &kit) {
+        return EndsWith(kit.m_name, suffix);
+    }, random);
+}
+
+static const StickerKitInfo *SelectPlayerStickerKit(const ItemSchema &schema, uint32_t eventId, uint32_t playerId, Random &random)
+{
+    std::vector<const StickerKitInfo *> candidates;
+    schema.GetStickerKitsByTournamentPlayerId(eventId, playerId, candidates);
+    return SelectStickerKit(candidates, [](const StickerKitInfo &kit) {
+        return EndsWith(kit.m_name, "_gold");
+    }, random);
+}
+
+static const StickerKitInfo *MapStickerKit(const ItemSchema &schema, const ItemInfo *packageInfo)
+{
+    if (!packageInfo)
+    {
+        return nullptr;
+    }
+
+    size_t mapPosition = packageInfo->m_name.rfind("_de_");
+    if (mapPosition == std::string::npos)
+    {
+        return nullptr;
+    }
+
+    std::string stickerName = packageInfo->m_name.substr(mapPosition + 1);
+    stickerName += "_gold";
+    return schema.StickerKitInfoByName(stickerName);
+}
+
 bool SouvenirOpening::OpenPackage(const CSOEconItem &package, CSOEconItem &item)
 {
     const LootList *lootList = m_itemSchema.GetCrateLootList(package.def_index());
@@ -74,6 +192,7 @@ bool SouvenirOpening::OpenPackage(const CSOEconItem &package, CSOEconItem &item)
     uint32_t stageId = packageInfo ? packageInfo->m_tournamentEventStageId : 0;
     uint32_t team0Id = packageInfo ? packageInfo->m_tournamentTeam0Id : 0;
     uint32_t team1Id = packageInfo ? packageInfo->m_tournamentTeam1Id : 0;
+    uint32_t mvpAccountId = 0;
 
     for (const CSOEconItemAttribute &attribute : package.attribute())
     {
@@ -96,6 +215,10 @@ bool SouvenirOpening::OpenPackage(const CSOEconItem &package, CSOEconItem &item)
         case ItemSchema::AttributeTournamentTeam1Id:
             team1Id = value;
             break;
+
+        case ItemSchema::AttributeTournamentMvpAccountId:
+            mvpAccountId = value;
+            break;
         }
     }
 
@@ -115,19 +238,32 @@ bool SouvenirOpening::OpenPackage(const CSOEconItem &package, CSOEconItem &item)
     addTournamentAttribute(ItemSchema::AttributeTournamentEventStageId, stageId);
     addTournamentAttribute(ItemSchema::AttributeTournamentTeam0Id, team0Id);
     addTournamentAttribute(ItemSchema::AttributeTournamentTeam1Id, team1Id);
+    addTournamentAttribute(ItemSchema::AttributeTournamentMvpAccountId, mvpAccountId);
 
-    const StickerKitInfo *eventKit = eventId ? m_itemSchema.StickerKitByTournamentEventId(eventId) : nullptr;
-    const StickerKitInfo *team0Kit = eventId && team0Id ? m_itemSchema.StickerKitByTournamentTeamId(eventId, team0Id) : nullptr;
-    const StickerKitInfo *team1Kit = eventId && team1Id ? m_itemSchema.StickerKitByTournamentTeamId(eventId, team1Id) : nullptr;
+    const StickerKitInfo *eventKit = eventId ? SelectEventStickerKit(m_itemSchema, eventId, m_random) : nullptr;
+    const StickerKitInfo *team0Kit = eventId && team0Id ? SelectTeamStickerKit(m_itemSchema, eventId, team0Id, m_random) : nullptr;
+    const StickerKitInfo *team1Kit = eventId && team1Id ? SelectTeamStickerKit(m_itemSchema, eventId, team1Id, m_random) : nullptr;
+    const StickerKitInfo *fourthKit = nullptr;
+
+    if (eventId >= 18)
+    {
+        fourthKit = MapStickerKit(m_itemSchema, packageInfo);
+    }
+    else if (eventId >= 7 && mvpAccountId)
+    {
+        fourthKit = SelectPlayerStickerKit(m_itemSchema, eventId, mvpAccountId, m_random);
+    }
 
     uint32_t eventStickerKit = eventKit ? eventKit->m_defIndex : 0;
     uint32_t team0StickerKit = team0Kit ? team0Kit->m_defIndex : 0;
     uint32_t team1StickerKit = team1Kit ? team1Kit->m_defIndex : 0;
+    uint32_t fourthStickerKit = fourthKit ? fourthKit->m_defIndex : 0;
 
-    Platform::Print("SouvenirOpening: event %u stage %u teams %u/%u stickers %u/%u/%u\n",
-        eventId, stageId, team0Id, team1Id, eventStickerKit, team0StickerKit, team1StickerKit);
+    Platform::Print("SouvenirOpening: event %u stage %u teams %u/%u mvp %u stickers %u/%u/%u/%u\n",
+        eventId, stageId, team0Id, team1Id, mvpAccountId,
+        eventStickerKit, team0StickerKit, team1StickerKit, fourthStickerKit);
 
-    ApplyTournamentAttributes(item, eventStickerKit, team0StickerKit, team1StickerKit, 0);
+    ApplyTournamentAttributes(item, eventStickerKit, team0StickerKit, team1StickerKit, fourthStickerKit);
 
     return true;
 }
@@ -189,9 +325,9 @@ const LootListItem *SouvenirOpening::SelectItem(const std::vector<const LootList
     return nullptr;
 }
 
-void SouvenirOpening::ApplyTournamentAttributes(CSOEconItem &item, uint32_t eventStickerKit, uint32_t team1StickerKit, uint32_t team2StickerKit, uint32_t mvpStickerKit)
+void SouvenirOpening::ApplyTournamentAttributes(CSOEconItem &item, uint32_t eventStickerKit, uint32_t team1StickerKit, uint32_t team2StickerKit, uint32_t fourthStickerKit)
 {
-    // souvenir stickers are always gold, mint condition, default scale, no rotation
+    // Souvenir stickers are mint condition with default scale and rotation.
     auto addSticker = [&](uint32_t stickerIdAttr, uint32_t wearAttr, uint32_t scaleAttr, uint32_t rotationAttr, uint32_t stickerKitDefIndex)
     {
         if (stickerKitDefIndex == 0)
@@ -228,10 +364,10 @@ void SouvenirOpening::ApplyTournamentAttributes(CSOEconItem &item, uint32_t even
     addSticker(ItemSchema::AttributeStickerId2, ItemSchema::AttributeStickerWear2,
         ItemSchema::AttributeStickerScale2, ItemSchema::AttributeStickerRotation2, team2StickerKit);
 
-    // MVP autograph sticker (slot 3) if available
-    if (mvpStickerKit != 0)
+    // MVP autograph (2015-2019) or map gold sticker (2021+) in slot 3.
+    if (fourthStickerKit != 0)
     {
         addSticker(ItemSchema::AttributeStickerId3, ItemSchema::AttributeStickerWear3,
-            ItemSchema::AttributeStickerScale3, ItemSchema::AttributeStickerRotation3, mvpStickerKit);
+            ItemSchema::AttributeStickerScale3, ItemSchema::AttributeStickerRotation3, fourthStickerKit);
     }
 }

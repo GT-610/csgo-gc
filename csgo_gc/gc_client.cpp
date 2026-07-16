@@ -836,6 +836,10 @@ std::string ClientGC::RconGiveItem(const RconRequest &request)
         {
             error = parseUint32(options.tournamentTeam1);
         }
+        else if (key == "tournament_mvp")
+        {
+            error = parseUint32(options.tournamentMvp);
+        }
         else if (key.rfind("sticker", 0) == 0 && key.size() >= 8 && key[7] >= '0' && key[7] <= '5')
         {
             size_t stickerSlot = static_cast<size_t>(key[7] - '0');
