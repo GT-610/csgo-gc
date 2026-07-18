@@ -82,6 +82,7 @@ enum SOTypeId : uint32_t
 enum ItemOrigin
 {
     ItemOriginPurchased = 2,
+    ItemOriginTraded = 3,
     ItemOriginCrate = 8,
     ItemOriginBaseItem = 22
 };
