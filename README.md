@@ -1,7 +1,10 @@
 # csgo_gc
 
 > [!CAUTION]
-> This project is incomplete and not ready for general use.
+> This project is under active development and is approaching stability, but issues may still exist. Back up your game files before installation.
+
+> [!NOTE]
+> Docs are at https://csgo-gc.gt610.dpdns.org/.
 
 ## What is this?
 In Valve games, the Game Coordinator (GC) is a backend service most notably responsible for matchmaking and inventory management (like loadouts and skins). This project redirects the GC traffic to a custom, in-process implementation.
@@ -41,29 +44,23 @@ While it's still possible to connect CS:GO to CS2's GC by spoofing the version n
 
 I'm still looking for the **full** CS:GO Item Schema. If you have a relatively recent copy of it and are willing to share it, let me know!
 
-## Not planned
-- Matchmaking (can't be implemented without a centralized server)
+## Currently not planned
+- Matchmaking (can't be implemented without a centralized server, possibly will be considered in the future)
 
 ## Installation
-- Download [CS:GO from Steam](steam://install/4465480)
-- Download the latest release for your platform from the [releases page](https://github.com/GT-610/csgo_gc/releases/latest)
-- Navigate to the game's installation directory
-- Back up your existing launcher executables as they'll be overwritten (i.e. csgo.exe, srcds.exe, csgo_linux64, etc.)
-- Extract the contents of the downloaded archive to your game directory, replace the executables when prompted
-- Launch the game. If you get the annoying VAC message box, launch the game with the -steam argument
-- macOS users: The release binaries are not notarized, so if you're using them, you'll have to deal with that somehow
+See [User Guide](https://csgo-gc.gt610.dpdns.org/user/).
 
 ## Inventory editing
-Inventory can still be edited offline through `inventory.txt`. For manual editing, there is a guide made by someone else [here](https://gist.github.com/dricotec/1ae3deb06c42012970c00df914348e76).
+Inventory can still be edited offline through `inventory.txt`. For manual editing, there is a guide made by someone else [here](https://gist.github.com/dricotec/1ae3deb06c42012970c00df914348e76). For GUI editors, see [this issue](https://github.com/mikkokko/csgo_gc/issues/82).
 
 The local RCON interface can also create and remove items while the game is running. This is intended for scripts and GUI editors that want to avoid the old edit-file-and-restart workflow.
 
-See [Souvenir Packages](docs/souvenirs.md) for tournament attributes, examples
+See [Souvenir Packages](https://csgo-gc.gt610.dpdns.org/user/souvenirs) for tournament attributes, examples
 for different Major eras, manual `inventory.txt` editing, and an explanation of
 how package loot lists differ from souvenir sticker metadata.
 
 ## Configuration
-See [csgo_gc/config.txt](examples/config.txt) for available options.
+See [Configuration](https://csgo-gc.gt610.dpdns.org/user/configuration) for available options.
 
 Supplemental server-only loot lists that are missing from the client schema are
 stored in [csgo_gc/gc_loot_lists.txt](examples/gc_loot_lists.txt). An external
@@ -73,44 +70,10 @@ loot list can include an `item_sets` block to reuse collections from
 ## RCON
 RCON is disabled by default and binds to localhost with the default configuration; the actual listen address is controlled by `bind_address`. It uses the Source RCON binary protocol, so existing Source RCON clients can be used.
 
-See [rcon.md](docs/rcon.md) for protocol details, configuration, supported parameters and error formats.
+See [RCON user guide](https://csgo-gc.gt610.dpdns.org/user/rcon) for protocol details, configuration, supported parameters and error formats.
 
 ## Building
-Requirements:
-- Git
-- CMake 3.20 or newer
-- C++ compiler with C++17 support (VS 2017 or later, Clang 5 or later, GCC 7 or later)
-
-The top-level CMake project downloads protobuf, cryptopp-cmake and funchook through `FetchContent` during configure.
-
-The game is 32-bit on Windows so you need to build as 32-bit:
-
-```bat
-cmake -A Win32 -B build
-cmake --build build --config Release --target csgo_gc
-```
-
-Linux dedicated servers are also 32-bit:
-
-```sh
-cmake -DCMAKE_C_FLAGS=-m32 -DCMAKE_CXX_FLAGS=-m32 -DCMAKE_ASM_FLAGS=-m32 -B build
-cmake --build build --target csgo_gc
-```
-
-On macOS, you need to build for x86_64 instead of arm64:
-
-```sh
-cmake -DCMAKE_OSX_ARCHITECTURES=x86_64 -DFUNCHOOK_CPU=x86 -B build
-cmake --build build --target csgo_gc
-```
-
-For Linux clients you don't have to specify any additional options.
-
-For a full launcher package build, also build the launcher targets:
-
-```sh
-cmake --build build --config Release --target csgo srcds csgo_gc
-```
+See [Building](https://csgo-gc.gt610.dpdns.org/developer/building) for building instructions.
 
 ## License
 This project is licensed under the 2-Clause BSD License. See [LICENSE.md](LICENSE.md) for details.
