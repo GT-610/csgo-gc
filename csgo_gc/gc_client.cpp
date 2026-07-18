@@ -723,8 +723,6 @@ std::string ClientGC::RconGiveItem(const RconRequest &request)
     }
 
     Inventory::ParameterizedItemOptions options;
-    bool hasParameters = parameterStart < request.args.size();
-
     for (size_t i = parameterStart; i < request.args.size(); i++)
     {
         std::string_view parameter{ request.args[i] };
@@ -883,30 +881,13 @@ std::string ClientGC::RconGiveItem(const RconRequest &request)
 
     for (uint32_t i = 0; i < count; i++)
     {
-        uint64_t itemId = 0;
-        if (hasParameters)
-        {
-            CMsgSOSingleObject &update = updates.emplace_back();
-            std::string error;
-            itemId = m_inventory.CreateParameterizedItem(defIndex, options, update, error);
-            if (!itemId)
-            {
-                updates.pop_back();
-                if (error == "unknown defindex")
-                {
-                    return "ERR unknown defindex";
-                }
-                return std::string{ "ERR " }.append(error);
-            }
-        }
-        else
-        {
-            itemId = m_inventory.PurchaseItem(defIndex, updates);
-        }
-
+        CMsgSOSingleObject &update = updates.emplace_back();
+        std::string error;
+        uint64_t itemId = m_inventory.CreateRconItem(defIndex, options, update, error);
         if (!itemId)
         {
-            return "ERR unknown defindex";
+            updates.pop_back();
+            return std::string{ "ERR " }.append(error);
         }
 
         itemIds.push_back(itemId);

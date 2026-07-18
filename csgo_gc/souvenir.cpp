@@ -208,8 +208,15 @@ bool SouvenirOpening::OpenPackage(const CSOEconItem &package, CSOEconItem &item)
         return false;
     }
 
-    // create the item with souvenir quality
-    if (!m_itemSchema.CreateItemFromLootListItem(m_random, *selectedItem, false, ItemOriginCrate, UnacknowledgedTournamentDrop, item))
+    // Opening a souvenir package is a crate acquisition. TournamentDrop is
+    // reserved for packages awarded directly for watching tournament matches.
+    if (!m_itemSchema.CreateItemFromLootListItem(
+            m_random,
+            *selectedItem,
+            false,
+            ItemOriginCrate,
+            UnacknowledgedFoundInCrate,
+            item))
     {
         Platform::Print("SouvenirOpening: failed to create item\n");
         return false;

@@ -1969,7 +1969,7 @@ uint64_t Inventory::PurchaseItem(uint32_t defIndex, std::vector<CMsgSOSingleObje
     return item.id();
 }
 
-uint64_t Inventory::CreateParameterizedItem(uint32_t defIndex,
+uint64_t Inventory::CreateRconItem(uint32_t defIndex,
     const ParameterizedItemOptions &options,
     CMsgSOSingleObject &update,
     std::string &error)
@@ -2014,7 +2014,9 @@ uint64_t Inventory::CreateParameterizedItem(uint32_t defIndex,
         }
     }
 
-    CSOEconItem &item = CreateItem(defIndex, ItemOriginPurchased, UnacknowledgedPurchased);
+    // RCON grants mimic an incoming trade so the game can use its native
+    // server-wide item-found announcement.
+    CSOEconItem &item = CreateItem(defIndex, ItemOriginTraded, UnacknowledgedTraded);
 
     if (options.level)
     {

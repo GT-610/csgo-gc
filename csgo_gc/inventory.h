@@ -169,7 +169,10 @@ public:
     // returns the item id and adds the item to the provided CMsgSOMultipleObjects
     // on failure returns 0 and does nothing
     uint64_t PurchaseItem(uint32_t defIndex, std::vector<CMsgSOSingleObject> &update);
-    uint64_t CreateParameterizedItem(uint32_t defIndex,
+
+    // Creates an item granted through RCON with the traded acquisition reason.
+    // Returns the item id on success, or 0 and an error string on failure.
+    uint64_t CreateRconItem(uint32_t defIndex,
         const ParameterizedItemOptions &options,
         CMsgSOSingleObject &update,
         std::string &error);
