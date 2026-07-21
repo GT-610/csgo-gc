@@ -179,16 +179,23 @@ RconServer::~RconServer()
 
 void RconServer::Start()
 {
-    Platform::Print("RCON: config enabled=%d bind_address=%s port=%u protocol=source password=%s\n",
-        GetConfig().RconEnabled() ? 1 : 0,
-        GetConfig().RconBindAddress().c_str(),
-        GetConfig().RconPort(),
-        GetConfig().RconPassword().empty() ? "empty" : "set");
+    const GCConfig &config = GetConfig();
 
-    if (!GetConfig().RconEnabled())
+    Platform::Print("RCON: config enabled=%d bind_address=%s port=%u protocol=source password=%s\n",
+        config.RconEnabled() ? 1 : 0,
+        config.RconBindAddress().c_str(),
+        config.RconPort(),
+        config.RconPassword().empty() ? "empty" : "set");
+
+    if (!config.RconEnabled())
     {
         Platform::Print("RCON: disabled\n");
         return;
+    }
+
+    if (config.RconPassword().empty())
+    {
+        Platform::Print("WARNING: RCON is enabled with an empty password; any Source RCON password will authenticate. Keep bind_address local or set rcon.password.\n");
     }
 
     bool expected = false;
