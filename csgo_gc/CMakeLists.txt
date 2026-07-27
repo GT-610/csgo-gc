@@ -67,13 +67,27 @@ endif()
 
 if (BUILD_TESTING)
     add_executable(gc_message_tests
+        case_opening.cpp
+        config.cpp
+        gc_client.cpp
+        gc_shared.cpp
+        graffiti.cpp
         gc_message_tests.cpp
-        gc_message.cpp)
+        gc_message.cpp
+        inventory.cpp
+        item_schema.cpp
+        item_utils.cpp
+        keyvalue.cpp
+        souvenir.cpp)
 
     target_precompile_headers(gc_message_tests PRIVATE stdafx.h)
     target_include_directories(gc_message_tests PRIVATE ../protobufs)
     target_sources(gc_message_tests PRIVATE ${PROTOBUFS})
-    target_link_libraries(gc_message_tests PRIVATE libprotobuf-lite)
+    target_link_libraries(gc_message_tests PRIVATE
+        cryptopp
+        libprotobuf-lite
+        steam_api
+        Threads::Threads)
 
     if (MSVC)
         target_compile_options(gc_message_tests PRIVATE /W4 /wd4244 /wd4819)
