@@ -122,7 +122,17 @@ uint32_t LootListItem::CaseRarity() const
 }
 
 ItemSchema::ItemSchema()
+    : ItemSchema{ true }
 {
+}
+
+ItemSchema::ItemSchema(bool loadFiles)
+{
+    if (!loadFiles)
+    {
+        return;
+    }
+
     KeyValue itemSchema{ "root" };
     if (!itemSchema.ParseFromFile("csgo/scripts/items/items_game.txt"))
     {
@@ -706,6 +716,10 @@ void ItemSchema::ParseItems(const KeyValue *itemsKey, const KeyValue *prefabsKey
         if (itemInfo.m_isCoupon)
         {
             assert(itemInfo.m_lootListName.size());
+        }
+        else
+        {
+            assert(!itemInfo.m_willProduceStatTrak);
         }
     }
 }

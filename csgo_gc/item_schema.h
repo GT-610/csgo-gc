@@ -304,6 +304,8 @@ public:
     };
 
 private:
+    explicit ItemSchema(bool loadFiles);
+
     void ParseItems(const KeyValue *itemsKey, const KeyValue *prefabsKey);
     void ParseItemRecursive(ItemInfo &info, const KeyValue &itemKey, const KeyValue *prefabsKey);
     void ParseAttributes(const KeyValue *attributesKey);
@@ -334,4 +336,6 @@ private:
     std::unordered_map<std::string, ItemSet> m_itemSets;
 
     std::unordered_map<uint32_t, const LootList &> m_revolvingLootLists;
+
+    friend class ItemSchemaTestFixture;
 };

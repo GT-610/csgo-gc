@@ -64,3 +64,24 @@ if (OUTDIR)
         $<TARGET_FILE:csgo_gc>
         ${OUTDIR}/csgo_gc/${GC_LIB_DIR}/$<TARGET_FILE_NAME:csgo_gc>)
 endif()
+
+if (BUILD_TESTING)
+    add_executable(item_schema_tests
+        item_schema_tests.cpp
+        item_schema.cpp
+        keyvalue.cpp)
+
+    target_precompile_headers(item_schema_tests PRIVATE stdafx.h)
+    target_include_directories(item_schema_tests PRIVATE ../protobufs)
+    target_sources(item_schema_tests PRIVATE ${PROTOBUFS})
+    target_link_libraries(item_schema_tests PRIVATE libprotobuf-lite)
+
+    if (MSVC)
+        target_compile_options(item_schema_tests PRIVATE /W4 /wd4244 /wd4819)
+        target_compile_definitions(item_schema_tests PRIVATE _CRT_SECURE_NO_WARNINGS)
+    else()
+        target_compile_options(item_schema_tests PRIVATE -Wall -Wextra)
+    endif()
+
+    add_test(NAME item_schema_tests COMMAND item_schema_tests)
+endif()
