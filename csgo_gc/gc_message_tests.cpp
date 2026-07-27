@@ -25,11 +25,10 @@ static bool ExtendedCraftResponseSerialization()
     constexpr int16_t responseIndex = 12;
     constexpr uint64_t craftedItemId = 0x1122334455667788ull;
 
-    GCMessageWrite message{ k_EMsgGCCraftResponse, GCMessageWrite::StructHeader::Extended };
-    message.WriteUint16(static_cast<uint16_t>(responseIndex));
-    message.WriteUint32(k_EGCMsgResponseOK);
-    message.WriteUint16(1);
-    message.WriteUint64(craftedItemId);
+    GCMessageWrite message = BuildCraftResponseMessage(
+        responseIndex,
+        k_EGCMsgResponseOK,
+        craftedItemId);
 
     const auto *data = static_cast<const uint8_t *>(message.Data());
     size_t offset = 0;
@@ -58,6 +57,35 @@ static bool ExtendedCraftResponseSerialization()
     return valid && offset == message.Size();
 }
 
+static bool TruncatedCraftRequestGetsInvalidResponse()
+{
+    constexpr int16_t recipe = -3;
+
+    GCMessageWrite request{ k_EMsgGCCraft };
+    request.WriteUint16(static_cast<uint16_t>(recipe));
+
+    GCMessageRead requestRead{ k_EMsgGCCraft, request.Data(), request.Size() };
+    int16_t responseIndex = static_cast<int16_t>(requestRead.ReadUint16());
+    requestRead.ReadUint16();
+    if (requestRead.IsValid())
+    {
+        return false;
+    }
+
+    GCMessageWrite response = BuildCraftResponseMessage(
+        responseIndex,
+        k_EGCMsgResponseInvalid);
+    const auto *data = static_cast<const uint8_t *>(response.Data());
+    constexpr size_t responseBodyOffset = sizeof(uint32_t) + sizeof(uint32_t)
+        + sizeof(uint64_t) + sizeof(uint16_t) + sizeof(uint64_t) + sizeof(uint64_t);
+
+    return ValueAt(data, responseBodyOffset, recipe)
+        && ValueAt(data, responseBodyOffset + sizeof(int16_t),
+            static_cast<uint32_t>(k_EGCMsgResponseInvalid))
+        && ValueAt(data, responseBodyOffset + sizeof(int16_t) + sizeof(uint32_t), uint16_t{ 0 })
+        && response.Size() == responseBodyOffset + sizeof(int16_t) + sizeof(uint32_t) + sizeof(uint16_t);
+}
+
 static bool BasicStructHeaderSerializationIsUnchanged()
 {
     constexpr uint32_t messageType = 1;
@@ -81,5 +109,6 @@ static bool BasicStructHeaderSerializationIsUnchanged()
 int main()
 {
     return ExtendedCraftResponseSerialization()
+        && TruncatedCraftRequestGetsInvalidResponse()
         && BasicStructHeaderSerializationIsUnchanged() ? 0 : 1;
 }

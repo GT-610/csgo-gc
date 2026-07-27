@@ -177,3 +177,19 @@ void GCMessageWrite::WriteData(const void *data, uint32_t size)
     const uint8_t *bytes = reinterpret_cast<const uint8_t *>(data);
     m_buffer.insert(m_buffer.end(), bytes, bytes + size);
 }
+
+GCMessageWrite BuildCraftResponseMessage(int16_t responseIndex,
+    EGCMsgResponse response,
+    uint64_t craftedItemId)
+{
+    GCMessageWrite message{ k_EMsgGCCraftResponse, GCMessageWrite::StructHeader::Extended };
+    message.WriteUint16(static_cast<uint16_t>(responseIndex));
+    message.WriteUint32(static_cast<uint32_t>(response));
+    message.WriteUint16(craftedItemId ? 1 : 0);
+    if (craftedItemId)
+    {
+        message.WriteUint64(craftedItemId);
+    }
+
+    return message;
+}

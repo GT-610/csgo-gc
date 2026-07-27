@@ -1730,21 +1730,14 @@ void ClientGC::Craft(GCMessageRead &messageRead)
 
     auto sendResponse = [this](int16_t responseIndex, EGCMsgResponse response, uint64_t craftedItemId = 0)
     {
-        GCMessageWrite messageWrite{ k_EMsgGCCraftResponse, GCMessageWrite::StructHeader::Extended };
-        messageWrite.WriteUint16(static_cast<uint16_t>(responseIndex));
-        messageWrite.WriteUint32(static_cast<uint32_t>(response));
-        messageWrite.WriteUint16(craftedItemId ? 1 : 0);
-        if (craftedItemId)
-        {
-            messageWrite.WriteUint64(craftedItemId);
-        }
-
+        GCMessageWrite messageWrite = BuildCraftResponseMessage(responseIndex, response, craftedItemId);
         PostToHost(HostEvent::Message, messageWrite.TypeMasked(), messageWrite.Data(), messageWrite.Size());
     };
     
     if (!messageRead.IsValid())
     {
-        Platform::Print("Parsing CMsgGCCraft header failed, ignoring\n");
+        Platform::Print("Parsing CMsgGCCraft header failed\n");
+        sendResponse(recipe, k_EGCMsgResponseInvalid);
         return;
     }
     

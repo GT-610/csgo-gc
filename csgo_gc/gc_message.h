@@ -115,3 +115,7 @@ public:
 private:
     std::vector<uint8_t> m_buffer;
 };
+
+GCMessageWrite BuildCraftResponseMessage(int16_t responseIndex,
+    EGCMsgResponse response,
+    uint64_t craftedItemId = 0);
