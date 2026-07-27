@@ -122,7 +122,17 @@ uint32_t LootListItem::CaseRarity() const
 }
 
 ItemSchema::ItemSchema()
+    : ItemSchema{ true }
 {
+}
+
+ItemSchema::ItemSchema(bool loadFiles)
+{
+    if (!loadFiles)
+    {
+        return;
+    }
+
     KeyValue itemSchema{ "root" };
     if (!itemSchema.ParseFromFile("csgo/scripts/items/items_game.txt"))
     {
@@ -428,18 +438,91 @@ const LootList *ItemSchema::GetCrateLootList(uint32_t crateDefIndex) const
         return nullptr;
     }
 
-    if (!itemSearch->second.m_supplyCrateSeries)
+    const ItemInfo &itemInfo = itemSearch->second;
+
+    if (itemInfo.m_supplyCrateSeries)
     {
-        return nullptr;
+        auto lootListSearch = m_revolvingLootLists.find(itemInfo.m_supplyCrateSeries);
+        if (lootListSearch != m_revolvingLootLists.end())
+        {
+            return &lootListSearch->second;
+        }
     }
 
-    auto lootListSearch = m_revolvingLootLists.find(itemSearch->second.m_supplyCrateSeries);
-    if (lootListSearch == m_revolvingLootLists.end())
+    // Self-opening collection packages, agent containers and tournament
+    // capsules point directly at a loot list instead of a revolving series.
+    // Coupon definitions also use loot_list_name, but their list describes
+    // the purchased item rather than contents that can be opened.
+    if (!itemInfo.m_isCoupon && !itemInfo.m_lootListName.empty())
     {
-        return nullptr;
+        auto lootListSearch = m_lootLists.find(itemInfo.m_lootListName);
+        if (lootListSearch != m_lootLists.end())
+        {
+            return &lootListSearch->second;
+        }
     }
 
-    return &lootListSearch->second;
+    return nullptr;
+}
+
+static bool LootListContainsItemType(const LootList &lootList, LootListItemType type)
+{
+    for (const LootListItem &item : lootList.items)
+    {
+        if (item.type == type)
+        {
+            return true;
+        }
+    }
+
+    for (const LootList *subList : lootList.subLists)
+    {
+        if (subList && LootListContainsItemType(*subList, type))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool ItemSchema::IsSouvenirPackage(const CSOEconItem &item) const
+{
+    const ItemInfo *itemInfo = ItemInfoByDefIndex(item.def_index());
+    if (!itemInfo)
+    {
+        return false;
+    }
+
+    const LootList *lootList = GetCrateLootList(item.def_index());
+    if (!lootList || !LootListContainsItemType(*lootList, LootListItemPaintable))
+    {
+        // Tournament sticker capsules can carry event metadata too, but their
+        // loot lists contain stickers rather than painted souvenir weapons.
+        return false;
+    }
+
+    // The common souvenir package prefabs identify both legacy and modern
+    // packages without relying on a broad def_index range.
+    for (const std::string &prefab : itemInfo->m_prefabs)
+    {
+        if (prefab.find("souvenir") != std::string::npos)
+        {
+            return true;
+        }
+    }
+
+    uint32_t tournamentEventId = itemInfo->m_tournament.eventId;
+    for (const CSOEconItemAttribute &attribute : item.attribute())
+    {
+        if (attribute.def_index() == AttributeTournamentEventId)
+        {
+            tournamentEventId = AttributeUint32(&attribute);
+            break;
+        }
+    }
+
+    return tournamentEventId != 0;
 }
 
 bool ItemSchema::CreateItemFromLootListItem(Random &random,
@@ -479,10 +562,18 @@ bool ItemSchema::CreateItemFromLootListItem(Random &random,
 
     if (lootListItem.type == LootListItemSticker)
     {
-        // mikkotodo anything else?
         CSOEconItemAttribute *attribute = item.add_attribute();
         attribute->set_def_index(ItemSchema::AttributeStickerId0);
         SetAttributeUint32(attribute, lootListItem.stickerKitInfo->m_defIndex);
+
+        // Tournament capsules produce normal sticker items that retain their
+        // event metadata. This is distinct from souvenir weapon generation.
+        if (lootListItem.stickerKitInfo->m_tournamentEventId)
+        {
+            attribute = item.add_attribute();
+            attribute->set_def_index(ItemSchema::AttributeTournamentEventId);
+            SetAttributeUint32(attribute, lootListItem.stickerKitInfo->m_tournamentEventId);
+        }
     }
     else if (lootListItem.type == LootListItemSpray)
     {
@@ -622,19 +713,13 @@ void ItemSchema::ParseItems(const KeyValue *itemsKey, const KeyValue *prefabsKey
 
         // FIXME: remove, temp slop to make sure we parse correctly
         auto &itemInfo = emplace.first->second;
-        if (!itemInfo.m_isCoupon)
+        if (itemInfo.m_isCoupon)
         {
-            // FIXME: self opening purchases
-            if (itemInfo.m_lootListName.size())
-            {
-                Platform::Print("Non coupon item associated loot list in %s!!!\n", itemInfo.m_name.c_str());
-            }
-
-            assert(!itemInfo.m_willProduceStatTrak);
+            assert(itemInfo.m_lootListName.size());
         }
         else
         {
-            assert(itemInfo.m_lootListName.size());
+            assert(!itemInfo.m_willProduceStatTrak);
         }
     }
 }
