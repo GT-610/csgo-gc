@@ -155,6 +155,10 @@ public:
     // for case opening
     const LootList *GetCrateLootList(uint32_t crateDefIndex) const;
 
+    // Legacy souvenir packages are opened through UnlockCrate with no key.
+    // Distinguish them from other self-opening containers using schema data.
+    bool IsSouvenirPackage(const CSOEconItem &item) const;
+
     // for case opening
     bool CreateItemFromLootListItem(Random &random,
         const LootListItem &lootListItem,

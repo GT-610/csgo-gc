@@ -1607,8 +1607,7 @@ void ClientGC::UnlockCrate(GCMessageRead &messageRead)
     const CSOEconItem *crate = m_inventory.GetItem(crateId);
     if (keyId == 0
         && crate
-        && crate->def_index() >= SouvenirDefIndexMin
-        && crate->def_index() <= SouvenirDefIndexMax
+        && m_inventory.GetItemSchema().IsSouvenirPackage(*crate)
         && m_inventory.OpenSouvenirPackage(crateId, destroyCrate, newItem, notification))
     {
         Platform::Print("SOUVENIR PACKAGE OPENING %llu\n", crateId);
