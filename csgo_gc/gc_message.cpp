@@ -145,14 +145,24 @@ GCMessageWrite::GCMessageWrite(uint32_t type, const google::protobuf::MessageLit
 }
 
 GCMessageWrite::GCMessageWrite(uint32_t type)
+    : GCMessageWrite{ type, StructHeader::Basic }
 {
-    // write the non protobuf messge hader
-    // mikkotoodo using GameStructMsgHeader is wrong here!!! we should be using the fat one
-    // however we're not sending these to the game (yet) so it doesn't matter
+}
+
+GCMessageWrite::GCMessageWrite(uint32_t type, StructHeader header)
+{
+    // The basic header is used by the project's internal network messages. Game-bound
+    // struct messages use GCMsgHdrEx_t, which appends the header version and job ids.
     WriteUint32(type);
     WriteUint32(0);
     WriteUint64(0);
-    WriteUint16(0);
+    WriteUint16(header == StructHeader::Extended ? 1 : 0);
+
+    if (header == StructHeader::Extended)
+    {
+        WriteUint64(JobIdInvalid);
+        WriteUint64(JobIdInvalid);
+    }
 }
 
 GCMessageWrite::GCMessageWrite(const void *data, uint32_t size)

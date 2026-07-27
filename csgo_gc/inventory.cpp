@@ -2264,7 +2264,7 @@ void Inventory::DestroyItem(ItemMap::iterator iterator, CMsgSOSingleObject &mess
 bool Inventory::TradeUp(const std::vector<uint64_t> &inputItemIds,
     std::vector<CMsgSOSingleObject> &destroyItems,
     CMsgSOSingleObject &newItem,
-    CMsgGCItemCustomizationNotification &notification,
+    int16_t &responseRecipeIndex,
     CSOEconItem **outCraftedItem)
 {
     if (inputItemIds.size() != 10)
@@ -2579,9 +2579,8 @@ bool Inventory::TradeUp(const std::vector<uint64_t> &inputItemIds,
     }
 
     ToSingleObject(newItem, outputItem);
-
-    notification.add_item_id(outputItem.id());
-    notification.set_request(k_EGCItemCustomizationNotification_UnlockCrate);
+    responseRecipeIndex = static_cast<int16_t>(inputRarity - ItemSchema::RarityCommon
+        + (hasStatTrak ? 10 : 0));
 
     if (outCraftedItem)
     {
