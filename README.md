@@ -72,6 +72,15 @@ RCON is disabled by default and binds to localhost with the default configuratio
 
 See [RCON user guide](https://csgo-gc.gt610.dpdns.org/user/rcon) for protocol details, configuration, supported parameters and error formats.
 
+## Bug reports and support
+
+**Got a crash or found a bug?**
+* **Broken csgo_gc feature?** Open an issue and follow the instructions.
+* **Game crashing or broken non-GC features?** If you are unsure if csgo_gc caused it, test the game without it installed first. If the bug still happens on a clean build, it's an issue with the game itself. **Do not report base game bugs here.** If you confirm csgo_gc is definitely causing the crash, open an issue.
+
+**Need help, want to share ideas, or self-promote?**
+Use [Discussions](https://github.com/GT-610/csgo-gc/discussions). Do not open issues for support.
+
 ## Building
 See [Building](https://csgo-gc.gt610.dpdns.org/developer/building) for building instructions.
 
@@ -81,11 +90,11 @@ This project is licensed under the 2-Clause BSD License. See [LICENSE.md](LICENS
 ## Credits
 * **Mikko Kokko** - Original author
 * **Theeto** - Code reused from the predecessor project, unusual loot lists
-* **GT610** (`GT-610`) - Fork deveopment
+* **GT610** (`GT-610`) - Fork development
 * Contributors who continued inventory, networking, diagnostics and RCON work after the original upstream changes
 
 ## Third party dependencies
-- [Crypto++](https://github.com/weidai11/cryptopp) ([Boost Software License](https://github.com/weidai11/cryptopp/blob/master/License.txt))
+- [Mbed TLS](https://github.com/Mbed-TLS/mbedtls) ([Apache License 2.0](https://github.com/Mbed-TLS/mbedtls/blob/development/LICENSE))
 - [funchook](https://github.com/kubo/funchook) ([GPL v2 with Classpath Exception](https://github.com/kubo/funchook/blob/master/LICENSE))
 - [diStorm3](https://github.com/gdabah/distorm) ([3-Clause BSD License](https://github.com/gdabah/distorm/blob/master/COPYING))
 - [protobuf](https://github.com/protocolbuffers/protobuf) ([3-Clause BSD License](https://github.com/protocolbuffers/protobuf/blob/main/LICENSE))

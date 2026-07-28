@@ -1,5 +1,25 @@
 project(csgo_gc)
 
+find_package(MbedTLS CONFIG REQUIRED)
+find_package(Protobuf CONFIG REQUIRED)
+
+# funchook and its deps get pulled in via FetchContent
+# FIXME: consider alternatives!!! funchook is no longer
+# maintained, and our hooks won't work reliably on x86_64
+# macOS when using it
+include(FetchContent)
+set(FETCHCONTENT_QUIET FALSE)
+
+option(FUNCHOOK_BUILD_SHARED "build shared library" OFF)
+option(FUNCHOOK_BUILD_TESTS "Build tests" OFF)
+option(FUNCHOOK_INSTALL "Install Funchook" OFF)
+
+FetchContent_Declare(funchook
+	GIT_REPOSITORY https://github.com/kubo/funchook
+	GIT_SHALLOW TRUE)
+
+FetchContent_MakeAvailable(funchook)
+
 add_library(csgo_gc SHARED
     appid.cpp
     case_opening.cpp
@@ -37,15 +57,30 @@ else()
     target_compile_options(csgo_gc PRIVATE -Wall -Wextra)
 endif()
 
-file(GLOB PROTOBUFS ../protobufs/*.cc)
-target_include_directories(csgo_gc PRIVATE ../protobufs)
-target_sources(csgo_gc PRIVATE ${PROTOBUFS})
-source_group("Protobufs" FILES ${PROTOBUFS})
+set(PROTO_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../protobufs)
+file(GLOB PROTOS ${PROTO_DIR}/*.proto)
+set(PROTOC_OUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
+
+file(MAKE_DIRECTORY ${PROTOC_OUT_DIR})
+
+add_library(csgo_gc_protobufs STATIC)
+set_target_properties(csgo_gc_protobufs PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+protobuf_generate(
+    TARGET csgo_gc_protobufs
+    PROTOS ${PROTOS}
+    IMPORT_DIRS ${PROTO_DIR}
+    PROTOC_OUT_DIR ${PROTOC_OUT_DIR})
+
+source_group("Protobufs" REGULAR_EXPRESSION "\\.pb\\.(cc|h)$")
+
+target_include_directories(csgo_gc_protobufs PUBLIC ${PROTOC_OUT_DIR})
+target_link_libraries(csgo_gc_protobufs PUBLIC protobuf::libprotobuf-lite)
 
 target_link_libraries(csgo_gc PRIVATE
-    cryptopp
+    MbedTLS::mbedcrypto
+    csgo_gc_protobufs
     funchook-static
-    libprotobuf-lite
     steam_api
     Threads::Threads)
 
@@ -81,11 +116,9 @@ if (BUILD_TESTING)
         souvenir.cpp)
 
     target_precompile_headers(gc_message_tests PRIVATE stdafx.h)
-    target_include_directories(gc_message_tests PRIVATE ../protobufs)
-    target_sources(gc_message_tests PRIVATE ${PROTOBUFS})
     target_link_libraries(gc_message_tests PRIVATE
-        cryptopp
-        libprotobuf-lite
+        MbedTLS::mbedcrypto
+        csgo_gc_protobufs
         steam_api
         Threads::Threads)
 
@@ -104,9 +137,7 @@ if (BUILD_TESTING)
         keyvalue.cpp)
 
     target_precompile_headers(item_schema_tests PRIVATE stdafx.h)
-    target_include_directories(item_schema_tests PRIVATE ../protobufs)
-    target_sources(item_schema_tests PRIVATE ${PROTOBUFS})
-    target_link_libraries(item_schema_tests PRIVATE libprotobuf-lite)
+    target_link_libraries(item_schema_tests PRIVATE csgo_gc_protobufs)
 
     if (MSVC)
         target_compile_options(item_schema_tests PRIVATE /W4 /wd4244 /wd4819)

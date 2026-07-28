@@ -1,10 +1,13 @@
 cmake_minimum_required(VERSION 3.20)
 
+set(CMAKE_OSX_DEPLOYMENT_TARGET "10.13" CACHE STRING "macOS deployment target")
+
 project(csgo_gc)
 
 include(CTest)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(Threads REQUIRED)
 
@@ -54,51 +57,3 @@ endif()
 add_subdirectory(csgo_gc)
 add_subdirectory(launcher)
 add_subdirectory(steamworks)
-
-include(FetchContent)
-set(FETCHCONTENT_QUIET FALSE)
-
-#-------------------------------------------------
-# protobuf
-#-------------------------------------------------
-
-option(protobuf_INSTALL "Install protobuf binaries and files" OFF)
-option(protobuf_BUILD_TESTS "Build tests" OFF)
-option(protobuf_BUILD_PROTOC_BINARIES "Build libprotoc and protoc compiler" OFF)
-option(protobuf_BUILD_SHARED_LIBS "Build Shared Libraries" OFF)
-option(protobuf_WITH_ZLIB "Build with zlib support" OFF)
-
-FetchContent_Declare(protobuf
-	GIT_REPOSITORY https://github.com/protocolbuffers/protobuf
-	GIT_TAG 2798a968c330de223b711e4fe504800280f333fb
-	GIT_SHALLOW TRUE)
-
-FetchContent_MakeAvailable(protobuf)
-
-#-------------------------------------------------
-# cryptopp-cmake
-#-------------------------------------------------
-
-option(CRYPTOPP_BUILD_TESTING "Build library tests" OFF)
-option(CRYPTOPP_INSTALL "Generate the install target for this project." OFF)
-option(CRYPTOPP_USE_MASTER_BRANCH "Get crypto++ from the master branch, not from a release tag" ON)
-
-FetchContent_Declare(cryptopp-cmake
-	GIT_REPOSITORY https://github.com/abdes/cryptopp-cmake
-	GIT_SHALLOW TRUE)
-
-FetchContent_MakeAvailable(cryptopp-cmake)
-
-#-------------------------------------------------
-# funchook
-#-------------------------------------------------
-
-option(FUNCHOOK_BUILD_SHARED "build shared library" OFF)
-option(FUNCHOOK_BUILD_TESTS "Build tests" OFF)
-option(FUNCHOOK_INSTALL "Install Funchook" OFF)
-
-FetchContent_Declare(funchook
-	GIT_REPOSITORY https://github.com/kubo/funchook
-	GIT_SHALLOW TRUE)
-
-FetchContent_MakeAvailable(funchook)

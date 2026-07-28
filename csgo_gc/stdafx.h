@@ -11,6 +11,7 @@
 #include <condition_variable>
 #include <chrono>
 #include <future>
+#include <list>
 #include <memory>
 #include <optional>
 #include <queue>

@@ -232,15 +232,14 @@ bool SteamClientPath(void *buffer, size_t bufferSize)
     return true;
 }
 
-void *SteamClientFactory(const void *pathBuffer)
+void *LoadDynamicLibrary(const void *pathBuffer)
 {
-    void *steamclient = dlopen(reinterpret_cast<const char *>(pathBuffer), RTLD_NOW);
-    if (!steamclient)
-    {
-        return nullptr;
-    }
+    return dlopen(reinterpret_cast<const char *>(pathBuffer), RTLD_NOW);
+}
 
-    return dlsym(steamclient, "CreateInterface");
+void *GetSymbol(void *handle, const char *symbol)
+{
+    return dlsym(handle, symbol);
 }
 
 void *ModuleFactory(std::string_view moduleName)
