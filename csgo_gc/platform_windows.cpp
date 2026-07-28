@@ -71,8 +71,14 @@ void Error(const char *format, ...)
 bool SteamClientPath(void *buffer, size_t bufferSize)
 {
     HMODULE steamclient = GetModuleHandleW(L"steamclient.dll");
-    DWORD result = GetModuleFileNameW(steamclient, reinterpret_cast<wchar_t *>(buffer), bufferSize / sizeof(wchar_t));
-    return (result > 0 && result < bufferSize);
+    if (!steamclient)
+    {
+        return false;
+    }
+
+    DWORD bufferLength = static_cast<DWORD>(bufferSize / sizeof(wchar_t));
+    DWORD result = GetModuleFileNameW(steamclient, reinterpret_cast<wchar_t *>(buffer), bufferLength);
+    return result > 0 && result < bufferLength;
 }
 
 void *LoadDynamicLibrary(const void *pathBuffer)

@@ -23,9 +23,6 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
-#ifdef interface
-#undef interface
-#endif
 #ifdef SendMessage
 #undef SendMessage
 #endif
@@ -56,7 +53,7 @@ typedef void (*SteamAPI_PostAPIResultInProcess_t)(SteamAPICall_t, void *, uint32
 
 static ISteamClient *s_actualSteamClient;
 
-// FIXME: this can be factored out!!! legacy trauma for global gc insstances
+// The dedicated server pipe is shared by the version-specific interface proxies.
 static HSteamPipe s_serverSteamPipe;
 
 // UserStatsReceived_t fails with the new csgo appid, which causes gc callbacks to not run
@@ -478,50 +475,48 @@ static void UpdateGameEventListeners()
     }
 }
 
-// clunky!!! we need access to this for... some reason
-// fetched when s_serverGC is initalized, nulled when it's destroyed
+// Fetched when s_serverGC is initialized and cleared when it is destroyed.
 static ISteamGameServer *s_steamGameServer;
 
 static uint64_t GetUserSteamId(HSteamPipe pipe, HSteamUser user)
 {
-    ISteamUser *interface = s_actualSteamClient->GetISteamUser(user, pipe, STEAMUSER_INTERFACE_VERSION);
-    if (!interface)
+    ISteamUser *steamUser = s_actualSteamClient->GetISteamUser(user, pipe, STEAMUSER_INTERFACE_VERSION);
+    if (!steamUser)
     {
         Platform::Error("Could not get %s", STEAMUSER_INTERFACE_VERSION);
     }
 
-    CSteamID steamId = interface->GetSteamID();
+    CSteamID steamId = steamUser->GetSteamID();
     assert(steamId.IsValid());
     return steamId.ConvertToUint64();
 }
 
 static ISteamNetworkingMessages *GetSteamNetworkingMessages(HSteamPipe pipe, HSteamUser user)
 {
-    void *interface = s_actualSteamClient->GetISteamGenericInterface(user, pipe, STEAMNETWORKINGMESSAGES_INTERFACE_VERSION);
-    if (!interface)
+    void *networkingMessages = s_actualSteamClient->GetISteamGenericInterface(user, pipe, STEAMNETWORKINGMESSAGES_INTERFACE_VERSION);
+    if (!networkingMessages)
     {
         Platform::Error("Could not get %s", STEAMNETWORKINGMESSAGES_INTERFACE_VERSION);
     }
 
-    return static_cast<ISteamNetworkingMessages *>(interface);
+    return static_cast<ISteamNetworkingMessages *>(networkingMessages);
 }
 
 static ISteamGameServer *GetSteamGameServer(HSteamPipe pipe, HSteamUser user)
 {
-    ISteamGameServer *interface = s_actualSteamClient->GetISteamGameServer(user, pipe, STEAMGAMESERVER_INTERFACE_VERSION);
-    if (!interface)
+    ISteamGameServer *gameServer = s_actualSteamClient->GetISteamGameServer(user, pipe, STEAMGAMESERVER_INTERFACE_VERSION);
+    if (!gameServer)
     {
         Platform::Error("Could not get %s", STEAMGAMESERVER_INTERFACE_VERSION);
     }
 
-    return interface;
+    return gameServer;
 }
 
 // ============================================================================
 // Steam Interface Proxies - Intercept game calls to Steam API
 // ============================================================================
 
-// this class sucks but we need to do it this way because
 class SteamGameCoordinatorProxy final
 {
     const bool m_server;
@@ -735,26 +730,17 @@ public:
         // make sure we're up to date
         pchVersionString = "1.99.9.9";
 
-        // i recall this wasn't used for anything important, but check anyway
+        // The proxy must be initialized for the app ID selected by AppId.
         assert(nGameAppId == AppId::GetOverride());
 
-        if (original(unIP, usGamePort, usQueryPort, unFlags, nGameAppId, pchVersionString))
-        {
-            // add the csgo_gc gametag
-            // FIXME: can't do this with steamproxygen!!!
-            // why was this done? won't SetGameTags get called immediately after init anyway?
-            //m_original->SetGameTags("csgo_gc");
-            return true;
-        }
-
-        return false;
+        return original(unIP, usGamePort, usQueryPort, unFlags, nGameAppId, pchVersionString);
     }
 
     void SetGameTags(auto original, const char *pchGameTags)
     {
-        std::string tags = pchGameTags;
+        std::string tags = pchGameTags ? pchGameTags : "";
 
-        if (tags.size())
+        if (!tags.empty())
         {
             tags.append(",csgo_gc");
         }
@@ -833,7 +819,10 @@ public:
     static MatchMakingKeyValuePair_t *ModifyFilters(MatchMakingKeyValuePair_t *pchFilters, uint32 nFilters, std::vector<MatchMakingKeyValuePair_t> &buffer)
     {
         buffer.reserve(nFilters + 1);
-        buffer.assign(pchFilters, pchFilters + nFilters);
+        if (nFilters > 0)
+        {
+            buffer.assign(pchFilters, pchFilters + nFilters);
+        }
 
         if (GetConfig().ShowCsgoGCServersOnly())
         {
@@ -853,7 +842,7 @@ public:
 
         std::vector<MatchMakingKeyValuePair_t> buffer;
         MatchMakingKeyValuePair_t *filters = ModifyFilters(*ppchFilters, nFilters, buffer);
-        return original(iApp, &filters, buffer.size(), pRequestServersResponse);
+        return original(iApp, &filters, static_cast<uint32>(buffer.size()), pRequestServersResponse);
     }
 
     HServerListRequest RequestLANServerList(auto original,
@@ -875,7 +864,7 @@ public:
 
         std::vector<MatchMakingKeyValuePair_t> buffer;
         MatchMakingKeyValuePair_t *filters = ModifyFilters(*ppchFilters, nFilters, buffer);
-        return original(iApp, &filters, buffer.size(), pRequestServersResponse);
+        return original(iApp, &filters, static_cast<uint32>(buffer.size()), pRequestServersResponse);
     }
 
     HServerListRequest RequestFavoritesServerList(auto original,
@@ -888,7 +877,7 @@ public:
 
         std::vector<MatchMakingKeyValuePair_t> buffer;
         MatchMakingKeyValuePair_t *filters = ModifyFilters(*ppchFilters, nFilters, buffer);
-        return original(iApp, &filters, buffer.size(), pRequestServersResponse);
+        return original(iApp, &filters, static_cast<uint32>(buffer.size()), pRequestServersResponse);
     }
 
     HServerListRequest RequestHistoryServerList(auto original,
@@ -901,7 +890,7 @@ public:
 
         std::vector<MatchMakingKeyValuePair_t> buffer;
         MatchMakingKeyValuePair_t *filters = ModifyFilters(*ppchFilters, nFilters, buffer);
-        return original(iApp, &filters, buffer.size(), pRequestServersResponse);
+        return original(iApp, &filters, static_cast<uint32>(buffer.size()), pRequestServersResponse);
     }
 
     HServerListRequest RequestSpectatorServerList(auto original,
@@ -914,7 +903,7 @@ public:
 
         std::vector<MatchMakingKeyValuePair_t> buffer;
         MatchMakingKeyValuePair_t *filters = ModifyFilters(*ppchFilters, nFilters, buffer);
-        return original(iApp, &filters, buffer.size(), pRequestServersResponse);
+        return original(iApp, &filters, static_cast<uint32>(buffer.size()), pRequestServersResponse);
     }
 };
 
@@ -991,7 +980,7 @@ public:
         auto it = m_interfaces.find(version);
         if (it != m_interfaces.end())
         {
-            return it->second.interface;
+            return it->second.instance;
         }
 
         // create the interface thunk and shared data on-demand
@@ -999,9 +988,9 @@ public:
     if (VersionNumberIs(version, #number)) \
     { \
         auto *proxy = new base##Proxy##number{ static_cast<I##base##number *>(original), GetOrCreate(m_proxy##base, ##__VA_ARGS__) }; \
-        void *interface = static_cast<I##base##number *>(proxy); \
-        m_interfaces.emplace(version, InterfaceProxy{ interface, std::unique_ptr<void, void (*)(void *)>(proxy, [](void *p) { delete static_cast<base##Proxy##number *>(p); }) }); \
-        return interface; \
+        void *instance = static_cast<I##base##number *>(proxy); \
+        m_interfaces.emplace(version, InterfaceProxy{ instance, std::unique_ptr<void, void (*)(void *)>(proxy, [](void *p) { delete static_cast<base##Proxy##number *>(p); }) }); \
+        return instance; \
     }
 
         if (VersionNameIs(version, "SteamGameCoordinator"))
@@ -1072,7 +1061,7 @@ public:
 private:
     struct InterfaceProxy
     {
-        void *interface;
+        void *instance;
         std::unique_ptr<void, void (*)(void *)> owner;
     };
 
@@ -1112,7 +1101,6 @@ class SteamClientProxy final
 public:
     ~SteamClientProxy()
     {
-        // debug schizo
         assert(m_proxies.empty());
     }
 
@@ -1150,6 +1138,11 @@ public:
     template<typename T>
     T *ProxyInterface(T *original, HSteamUser user, HSteamPipe pipe, const char *version, bool allowNoUser = false)
     {
+        if (!original || !version)
+        {
+            return original;
+        }
+
         SteamInterfaceProxy &proxy = GetProxy(pipe, user, allowNoUser);
         T *result = static_cast<T *>(proxy.GetInterface(version, original));
         return result ? result : original;
@@ -1341,8 +1334,8 @@ public:
     // runs callbacks matching id immediately
     void RunCallback(bool server, int id, void *param)
     {
-        // ported over the schizo list even though csgo_gc doesn't hook such
-        // callbacks (ones removing/inserting callbacks during the dispatch)
+        // Determine the next entry before dispatch so a callback may unregister
+        // itself without invalidating the current iterator.
         for (auto it = m_hooks.begin(); it != m_hooks.end();)
         {
             auto next = std::next(it);
@@ -1445,7 +1438,7 @@ static void Hk_SteamAPI_RunCallbacks()
             s_callbackHooks.RunCallback(false, MicroTxnAuthorizationResponse_t::k_iCallback, &response);
         }
 
-        if (s_userStatsReceivedCallbacks.size())
+        if (!s_userStatsReceivedCallbacks.empty())
         {
             for (UserStatsReceived_t &data : s_userStatsReceivedCallbacks)
             {
@@ -1486,7 +1479,7 @@ static void Hk_SteamGameServer_RunCallbacks()
                 break;
 
             case HostEvent::NetMessage:
-                s_serverGC->m_networking.SendMessage((uint32_t)event.id, event.buffer.data(), static_cast<uint32_t>(event.buffer.size()));
+                s_serverGC->m_networking.SendMessage(static_cast<uint32_t>(event.id), event.buffer.data(), static_cast<uint32_t>(event.buffer.size()));
                 break;
 
             default:
@@ -1545,14 +1538,13 @@ static void HookCreate(const char *name, void *target, void *hook, void **bridge
 
 #define INLINE_HOOK(a) HookCreate(#a, reinterpret_cast<void *>(p##a), reinterpret_cast<void *>(Hk_##a), reinterpret_cast<void **>(&Og_##a));
 
-// this is a huge fucking mess, but such is the life of a multiversion steam hook guy
-
 static bool InitializeSteamAPI(void *steamApi, bool dedicated)
 {
     if (dedicated)
     {
         using NewInit_t = decltype(SteamInternal_GameServer_Init) *;
-        // who knows which variant this dll provides??? this should be the safest choice
+        // Older Steam API builds export SteamGameServer_Init, while newer ones
+        // expose SteamInternal_GameServer_Init.
         using OldInit_t = bool (*)(uint32, uint16, uint16, uint16, EServerMode, const char *);
 
         // try the new entry point first
@@ -1615,7 +1607,6 @@ static void ShutdownSteamAPI(void *steamApi, bool dedicated)
 
 void SteamHookInstall(bool dedicated)
 {
-    // thanks valve for ruining my life
     AppId::Init();
 
     // no need to write steam_appid.txt, the env var takes precedence
@@ -1628,11 +1619,8 @@ void SteamHookInstall(bool dedicated)
         Platform::Error("Could not load steam_api");
     }
 
-    // this is bit of a clusterfuck
     if (!InitializeSteamAPI(steamApi, dedicated))
     {
-        // people might not understand what "app 4465480" means, but they
-        // already had a hard time understanding this error in general so it's fine
         Platform::Error("Steam initialization failed. Please try the following steps:\n"
                         "- Ensure that Steam is running.\n"
                         "- Restart Steam and try again.\n"

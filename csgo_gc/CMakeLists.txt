@@ -3,10 +3,8 @@ project(csgo_gc)
 find_package(MbedTLS CONFIG REQUIRED)
 find_package(Protobuf CONFIG REQUIRED)
 
-# funchook and its deps get pulled in via FetchContent
-# FIXME: consider alternatives!!! funchook is no longer
-# maintained, and our hooks won't work reliably on x86_64
-# macOS when using it
+# Funchook and its dependencies are pulled in via FetchContent. Consider a
+# maintained alternative if reliable x86_64 macOS hooking becomes necessary.
 include(FetchContent)
 set(FETCHCONTENT_QUIET FALSE)
 
@@ -58,7 +56,7 @@ else()
 endif()
 
 set(PROTO_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../protobufs)
-file(GLOB PROTOS ${PROTO_DIR}/*.proto)
+file(GLOB PROTOS CONFIGURE_DEPENDS ${PROTO_DIR}/*.proto)
 set(PROTOC_OUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
 
 file(MAKE_DIRECTORY ${PROTOC_OUT_DIR})

@@ -12,17 +12,16 @@ elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux")
 	set(STEAM_API_LIB "\"libsteam_api.so\"")
 elseif (CMAKE_SYSTEM_NAME STREQUAL "Windows")
 	if (IS_32BIT)
-		# NOTE: this is a wide string!!!
+		# Windows library paths are passed to LoadLibraryExW.
 		set(STEAM_API_LIB "L\"steam_api.dll\"")
 	else()
-		# NOTE: this is a wide string!!!
+		# Windows library paths are passed to LoadLibraryExW.
 		set(STEAM_API_LIB "L\"steam_api64.dll\"")
 	endif()
 else()
-	message(FATAL_ERROR "Unsupported system $[CMAKE_SYSTEM_NAME}")
+	message(FATAL_ERROR "Unsupported system ${CMAKE_SYSTEM_NAME}")
 endif()
 
-# we no longer link the sdk, it causes too many footguns with multiversion support
-# for example the accessors nowadays resolve to e.g. SteamInternal_InitBullshit
-# instead of being exports, which breaks compatibility with old steam_apis if you use them
+# Load the Steam API dynamically so the proxy remains compatible with both old
+# exported accessors and newer internal accessor implementations.
 target_compile_definitions(steam_api INTERFACE STEAM_API_NODLL STEAM_API_LIB=${STEAM_API_LIB})

@@ -56,7 +56,8 @@ DLL_EXPORT int RuntimeCheck(int nType, int nFlags)
 typedef int (*OldLauncherMain_t)(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd);
 typedef int (*NewLauncherMain_t)(bool bSecure, HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd);
 
-// FIXME: is this reliable enough? necroed code from ages ago, not sure how well it was tested
+// The newer client launcher adds a leading bSecure argument. Its x86 prologue
+// reads hPrevInstance at the offset shifted by that additional argument.
 static bool UseNewLauncherMain(const void *prologue)
 {
 #if defined(DEDICATED) || !defined(_M_IX86)
@@ -146,7 +147,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     wchar_t *slash = wcsrchr(baseDir, '\\');
     if (!slash)
     {
-        slash = baseDir; // what the fuck
+        ErrorMessageBox(L"Could not determine the launcher directory");
+        return 1;
     }
 
     *slash = '\0';
@@ -195,10 +197,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     if (UseNewLauncherMain(LauncherMain))
     {
-        return static_cast<NewLauncherMain_t>(LauncherMain)(true, hInstance, hPrevInstance, lpCmdLine, nShowCmd);
+        return reinterpret_cast<NewLauncherMain_t>(LauncherMain)(true, hInstance, hPrevInstance, lpCmdLine, nShowCmd);
     }
     else
     {
-        return static_cast<OldLauncherMain_t>(LauncherMain)(hInstance, hPrevInstance, lpCmdLine, nShowCmd);
+        return reinterpret_cast<OldLauncherMain_t>(LauncherMain)(hInstance, hPrevInstance, lpCmdLine, nShowCmd);
     }
 }

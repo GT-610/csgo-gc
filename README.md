@@ -85,7 +85,7 @@ Use [Discussions](https://github.com/GT-610/csgo-gc/discussions). Do not open is
 See [Building](https://csgo-gc.gt610.dpdns.org/developer/building) for building instructions.
 
 ## License
-This project is licensed under the 2-Clause BSD License. See [LICENSE.md](LICENSE.md) for details.
+This project is licensed under the 2-Clause BSD License. See [LICENSE](LICENSE) for details.
 
 ## Credits
 * **Mikko Kokko** - Original author
