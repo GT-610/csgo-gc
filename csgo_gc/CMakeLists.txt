@@ -66,6 +66,38 @@ if (OUTDIR)
 endif()
 
 if (BUILD_TESTING)
+    add_executable(gc_message_tests
+        case_opening.cpp
+        config.cpp
+        gc_client.cpp
+        gc_shared.cpp
+        graffiti.cpp
+        gc_message_tests.cpp
+        gc_message.cpp
+        inventory.cpp
+        item_schema.cpp
+        item_utils.cpp
+        keyvalue.cpp
+        souvenir.cpp)
+
+    target_precompile_headers(gc_message_tests PRIVATE stdafx.h)
+    target_include_directories(gc_message_tests PRIVATE ../protobufs)
+    target_sources(gc_message_tests PRIVATE ${PROTOBUFS})
+    target_link_libraries(gc_message_tests PRIVATE
+        cryptopp
+        libprotobuf-lite
+        steam_api
+        Threads::Threads)
+
+    if (MSVC)
+        target_compile_options(gc_message_tests PRIVATE /W4 /wd4244 /wd4819)
+        target_compile_definitions(gc_message_tests PRIVATE _CRT_SECURE_NO_WARNINGS)
+    else()
+        target_compile_options(gc_message_tests PRIVATE -Wall -Wextra)
+    endif()
+
+    add_test(NAME gc_message_tests COMMAND gc_message_tests)
+
     add_executable(item_schema_tests
         item_schema_tests.cpp
         item_schema.cpp

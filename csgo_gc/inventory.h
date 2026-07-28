@@ -163,7 +163,7 @@ public:
     bool TradeUp(const std::vector<uint64_t> &inputItemIds,
         std::vector<CMsgSOSingleObject> &destroyItems,
         CMsgSOSingleObject &newItem,
-        CMsgGCItemCustomizationNotification &notification,
+        int16_t &responseRecipeIndex,
         CSOEconItem **outCraftedItem = nullptr);
 
     // returns the item id and adds the item to the provided CMsgSOMultipleObjects

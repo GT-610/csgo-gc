@@ -65,11 +65,18 @@ private:
 class GCMessageWrite
 {
 public:
+    enum class StructHeader
+    {
+        Basic,
+        Extended
+    };
+
     // protobuf messages
     GCMessageWrite(uint32_t type, const google::protobuf::MessageLite &message, uint64_t jobId = JobIdInvalid);
 
     // non protobuf messages, data written with the writer functions
     GCMessageWrite(uint32_t type);
+    GCMessageWrite(uint32_t type, StructHeader header);
 
     // already serialized data that just gets copied over, type parsed from the message
     GCMessageWrite(const void *data, uint32_t size);
@@ -108,3 +115,7 @@ public:
 private:
     std::vector<uint8_t> m_buffer;
 };
+
+GCMessageWrite BuildCraftResponseMessage(int16_t responseIndex,
+    EGCMsgResponse response,
+    uint64_t craftedItemId = 0);

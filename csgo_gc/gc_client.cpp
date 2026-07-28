@@ -1727,10 +1727,17 @@ void ClientGC::Craft(GCMessageRead &messageRead)
     
     int16_t recipe = static_cast<int16_t>(messageRead.ReadUint16());
     int16_t itemCount = static_cast<int16_t>(messageRead.ReadUint16());
+
+    auto sendResponse = [this](int16_t responseIndex, EGCMsgResponse response, uint64_t craftedItemId = 0)
+    {
+        GCMessageWrite messageWrite = BuildCraftResponseMessage(responseIndex, response, craftedItemId);
+        PostToHost(HostEvent::Message, messageWrite.TypeMasked(), messageWrite.Data(), messageWrite.Size());
+    };
     
     if (!messageRead.IsValid())
     {
-        Platform::Print("Parsing CMsgGCCraft header failed, ignoring\n");
+        Platform::Print("Parsing CMsgGCCraft header failed\n");
+        sendResponse(recipe, k_EGCMsgResponseInvalid);
         return;
     }
     
@@ -1743,7 +1750,15 @@ void ClientGC::Craft(GCMessageRead &messageRead)
         || (recipe >= 10 && recipe <= 15);
     if (!isTradeUpRecipe)
     {
-        Platform::Print("Unsupported craft recipe %d, ignoring\n", recipe);
+        Platform::Print("Unsupported craft recipe %d\n", recipe);
+        sendResponse(recipe, k_EGCMsgResponseInvalid);
+        return;
+    }
+
+    if (itemCount != 10)
+    {
+        Platform::Print("Trade-up requires exactly 10 items, got %d\n", itemCount);
+        sendResponse(recipe, k_EGCMsgResponseInvalid);
         return;
     }
     
@@ -1756,7 +1771,8 @@ void ClientGC::Craft(GCMessageRead &messageRead)
         uint64_t itemId = messageRead.ReadUint64();
         if (!messageRead.IsValid())
         {
-            Platform::Print("Parsing CMsgGCCraft item %d failed, ignoring\n", i);
+            Platform::Print("Parsing CMsgGCCraft item %d failed\n", i);
+            sendResponse(recipe, k_EGCMsgResponseInvalid);
             return;
 
         }
@@ -1792,10 +1808,10 @@ void ClientGC::Craft(GCMessageRead &messageRead)
 
     std::vector<CMsgSOSingleObject> destroyItems;
     CMsgSOSingleObject newItem;
-    CMsgGCItemCustomizationNotification notification;
+    int16_t responseRecipeIndex = recipe;
     CSOEconItem *craftedItem = nullptr;
     
-    if (m_inventory.TradeUp(inputItemIds, destroyItems, newItem, notification, &craftedItem))
+    if (m_inventory.TradeUp(inputItemIds, destroyItems, newItem, responseRecipeIndex, &craftedItem))
     {
         // Destroy all input items
         for (auto &destroy : destroyItems)
@@ -1805,9 +1821,9 @@ void ClientGC::Craft(GCMessageRead &messageRead)
         
         // Create the new item
         SendMessageToGame(true, k_ESOMsg_Create, newItem);
-        
-        // Send notification
-        SendMessageToGame(false, k_EMsgGCItemCustomizationNotification, notification);
+
+        assert(craftedItem);
+        sendResponse(responseRecipeIndex, k_EGCMsgResponseOK, craftedItem ? craftedItem->id() : 0);
 
         if (craftedItem)
         {
@@ -1832,6 +1848,7 @@ void ClientGC::Craft(GCMessageRead &messageRead)
     else
     {
         Platform::Print("Trade-up failed: input validation failed\n");
+        sendResponse(recipe, k_EGCMsgResponseDenied);
     }
 }
 
