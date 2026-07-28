@@ -1,4 +1,4 @@
-// jesus fucking christ
+// Orig and MakeOrig adapt interface member functions into callable proxy trampolines.
 #ifndef STEAMPROXY_H
 #define STEAMPROXY_H
 

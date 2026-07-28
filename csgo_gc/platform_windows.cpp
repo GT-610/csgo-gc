@@ -84,6 +84,14 @@ bool SteamClientPath(void *buffer, size_t bufferSize)
 void *LoadDynamicLibrary(const void *pathBuffer)
 {
     const wchar_t *path = reinterpret_cast<const wchar_t *>(pathBuffer);
+
+    // Bare Steam API names rely on the normal Windows DLL search order. The
+    // DLL-load-directory flag is only valid when the path is fully qualified.
+    if (!wcschr(path, L'\\') && !wcschr(path, L'/'))
+    {
+        return LoadLibraryW(path);
+    }
+
     return LoadLibraryExW(path, nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
 }
 

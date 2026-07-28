@@ -2,6 +2,8 @@
 #ifndef ISTEAMUSER014_H
 #define ISTEAMUSER014_H
 
+#include <steam/steam_api_common.h>
+
 class ISteamUser014
 {
 public:

@@ -987,7 +987,7 @@ public:
 #define PROXY_INTERFACE(base, number, ...) \
     if (VersionNumberIs(version, #number)) \
     { \
-        auto *proxy = new base##Proxy##number{ static_cast<I##base##number *>(original), GetOrCreate(m_proxy##base, ##__VA_ARGS__) }; \
+        auto *proxy = new base##Proxy##number{ static_cast<I##base##number *>(original), GetOrCreate(m_proxy##base __VA_OPT__(,) __VA_ARGS__) }; \
         void *instance = static_cast<I##base##number *>(proxy); \
         m_interfaces.emplace(version, InterfaceProxy{ instance, std::unique_ptr<void, void (*)(void *)>(proxy, [](void *p) { delete static_cast<base##Proxy##number *>(p); }) }); \
         return instance; \
@@ -1334,20 +1334,28 @@ public:
     // runs callbacks matching id immediately
     void RunCallback(bool server, int id, void *param)
     {
-        // Determine the next entry before dispatch so a callback may unregister
-        // itself without invalidating the current iterator.
-        for (auto it = m_hooks.begin(); it != m_hooks.end();)
+        std::vector<CCallbackBase *> callbacks;
+        for (const CallbackHook &hook : m_hooks)
         {
-            auto next = std::next(it);
-
-            const CallbackHook &hook = *it;
             bool serverCallback = static_cast<CallbackAccessor *>(hook.callback)->IsGameServer();
             if (server == serverCallback && hook.id == id)
             {
-                hook.callback->Run(param);
+                callbacks.push_back(hook.callback);
             }
+        }
 
-            it = next;
+        // Only dispatch callbacks that are still registered. New registrations
+        // are deferred until the next callback run.
+        for (CCallbackBase *callback : callbacks)
+        {
+            auto hook = std::find_if(m_hooks.begin(), m_hooks.end(), [callback, id](const CallbackHook &entry) {
+                return entry.callback == callback && entry.id == id;
+            });
+            if (hook != m_hooks.end()
+                && server == static_cast<CallbackAccessor *>(callback)->IsGameServer())
+            {
+                callback->Run(param);
+            }
         }
     }
 

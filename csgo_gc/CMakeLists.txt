@@ -14,6 +14,7 @@ option(FUNCHOOK_INSTALL "Install Funchook" OFF)
 
 FetchContent_Declare(funchook
 	GIT_REPOSITORY https://github.com/kubo/funchook
+	GIT_TAG v1.1.3
 	GIT_SHALLOW TRUE)
 
 FetchContent_MakeAvailable(funchook)
@@ -49,7 +50,7 @@ target_precompile_headers(csgo_gc PRIVATE stdafx.h)
 set_target_properties(csgo_gc PROPERTIES PREFIX "")
 
 if (MSVC)
-    target_compile_options(csgo_gc PRIVATE /W4 /wd4244 /wd4819)
+    target_compile_options(csgo_gc PRIVATE /W4 /wd4244 /wd4819 /Zc:preprocessor)
     target_compile_definitions(csgo_gc PRIVATE _CRT_SECURE_NO_WARNINGS)
 else()
     target_compile_options(csgo_gc PRIVATE -Wall -Wextra)

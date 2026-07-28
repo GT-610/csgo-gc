@@ -8,6 +8,8 @@ body:
       value: |
         Before submitting, make sure your issue isn't caused by modded game files, outdated builds, or a **base game bug** that happens even without csgo_gc installed.
 
+        This is a public form. Remove Steam identifiers, account details, local paths, credentials, tokens, and other sensitive data from all diagnostics. Do not upload raw core dumps or minidumps. If unsanitized diagnostics are necessary, submit the report without them and ask the maintainers to arrange a private transfer.
+
   - type: checkboxes
     id: prerequisites
     attributes:
@@ -23,6 +25,15 @@ body:
           required: true
         - label: "I am using an officially supported setup (csgo_legacy branch or standalone app)."
           required: true
+
+  - type: input
+    id: csgo_gc_revision
+    attributes:
+      label: "csgo_gc revision"
+      description: "Enter the exact release identifier, build ID, or commit hash of the csgo_gc binary you tested."
+      placeholder: "e.g. continuous build abc1234 or commit abc1234"
+    validations:
+      required: true
 
   - type: dropdown
     id: build_type
@@ -69,18 +80,18 @@ body:
     id: gc_log
     attributes:
       label: "Log output (gc_log.txt)"
-      description: 'If applicable: set `"log_output"  "1"` in `csgo_gc/config.txt`, reproduce the issue, and paste or drag-and-drop `gc_log.txt` here.'
-      placeholder: "Paste contents of gc_log.txt here..."
+      description: 'If applicable: set `"log_output"  "1"` in `csgo_gc/config.txt`, reproduce the issue, and paste sanitized log text here. Remove Steam identifiers, account details, local paths, credentials, tokens, and other sensitive data.'
+      placeholder: "Paste sanitized contents of gc_log.txt here..."
 
   - type: textarea
     id: crash_diagnostics
     attributes:
       label: "Core dumps / minidumps / stack traces"
-      description: "If the application crashed: paste gdb backtraces, stack traces, or drag-and-drop core dump / minidump files here."
-      placeholder: "Paste gdb backtrace or drag-and-drop dump files..."
+      description: "If the application crashed, paste a sanitized backtrace or stack trace. Do not upload raw core dumps or minidumps, and remove Steam identifiers, local paths, secrets, and other sensitive data."
+      placeholder: "Paste a sanitized backtrace or stack trace here..."
 
   - type: textarea
     id: additional_context
     attributes:
       label: "Additional context"
-      description: "Config files, screenshots, or extra details."
+      description: "Add sanitized config excerpts, screenshots, or other details. Remove Steam identifiers, account details, local paths, credentials, tokens, and other sensitive data before submitting."

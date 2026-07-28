@@ -105,18 +105,30 @@ jobs:
         cp $GITHUB_WORKSPACE/examples/gc_loot_lists.txt $GITHUB_WORKSPACE/release/csgo_gc/
         cp $GITHUB_WORKSPACE/examples/unusual_loot_lists.txt $GITHUB_WORKSPACE/release/csgo_gc/
 
-        # Collect licenses installed by vcpkg from the primary build tree.
+        # Collect licenses installed by vcpkg from each target build tree.
         case "${{ matrix.os }}" in
-          ubuntu-latest)  TRIPLET=x64-linux ;;
-          macos-15)       TRIPLET=x64-osx ;;
-          windows-latest) TRIPLET=x86-windows-static ;;
+          ubuntu-latest)
+            VCPKG_SHARES=(
+              "$GITHUB_WORKSPACE/build/vcpkg_installed/x64-linux/share"
+              "$GITHUB_WORKSPACE/build_ds/vcpkg_installed/x86-linux/share"
+            )
+            ;;
+          macos-15)
+            VCPKG_SHARES=("$GITHUB_WORKSPACE/build/vcpkg_installed/x64-osx/share")
+            ;;
+          windows-latest)
+            VCPKG_SHARES=("$GITHUB_WORKSPACE/build/vcpkg_installed/x86-windows-static/share")
+            ;;
         esac
-        VCPKG_SHARE="$GITHUB_WORKSPACE/build/vcpkg_installed/$TRIPLET/share"
-        for portdir in "$VCPKG_SHARE"/*/; do
-          port=$(basename "$portdir")
-          if [ -f "${portdir}copyright" ]; then
-            cp "${portdir}copyright" "$GITHUB_WORKSPACE/release/licenses/LICENSE-$port.txt"
-          fi
+
+        for vcpkg_share in "${VCPKG_SHARES[@]}"; do
+          [ -d "$vcpkg_share" ] || continue
+          for portdir in "$vcpkg_share"/*/; do
+            port=$(basename "$portdir")
+            if [ -f "${portdir}copyright" ]; then
+              cp "${portdir}copyright" "$GITHUB_WORKSPACE/release/licenses/LICENSE-$port.txt"
+            fi
+          done
         done
 
     - name: Zip artifacts (Windows)
