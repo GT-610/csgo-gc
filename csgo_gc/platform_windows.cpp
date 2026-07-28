@@ -71,23 +71,33 @@ void Error(const char *format, ...)
 bool SteamClientPath(void *buffer, size_t bufferSize)
 {
     HMODULE steamclient = GetModuleHandleW(L"steamclient.dll");
-    DWORD result = GetModuleFileNameW(steamclient, reinterpret_cast<wchar_t *>(buffer), bufferSize / sizeof(wchar_t));
-    return (result > 0 && result < bufferSize);
-}
-
-void *SteamClientFactory(const void *pathBuffer)
-{
-    HMODULE steamclient = LoadLibraryExW(
-        reinterpret_cast<const wchar_t *>(pathBuffer),
-        nullptr,
-        LOAD_WITH_ALTERED_SEARCH_PATH);
-
     if (!steamclient)
     {
-        return nullptr;
+        return false;
     }
 
-    return GetProcAddress(steamclient, "CreateInterface");
+    DWORD bufferLength = static_cast<DWORD>(bufferSize / sizeof(wchar_t));
+    DWORD result = GetModuleFileNameW(steamclient, reinterpret_cast<wchar_t *>(buffer), bufferLength);
+    return result > 0 && result < bufferLength;
+}
+
+void *LoadDynamicLibrary(const void *pathBuffer)
+{
+    const wchar_t *path = reinterpret_cast<const wchar_t *>(pathBuffer);
+
+    // Bare Steam API names rely on the normal Windows DLL search order. The
+    // DLL-load-directory flag is only valid when the path is fully qualified.
+    if (!wcschr(path, L'\\') && !wcschr(path, L'/'))
+    {
+        return LoadLibraryW(path);
+    }
+
+    return LoadLibraryExW(path, nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+}
+
+void *GetSymbol(void *handle, const char *symbol)
+{
+    return GetProcAddress(static_cast<HMODULE>(handle), symbol);
 }
 
 void *ModuleFactory(std::string_view moduleName)

@@ -48,12 +48,32 @@ DLL_EXPORT int RuntimeCheck(int nType, int nFlags)
 #if defined(DEDICATED)
 #define LAUNCHER_LIB "dedicated"
 #define SYMBOL_NAME "DedicatedMain"
-typedef int (*LauncherMain_t)(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd);
 #else
 #define LAUNCHER_LIB "launcher"
 #define SYMBOL_NAME "LauncherMain"
-typedef int (*LauncherMain_t)(bool bSecure, HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd);
 #endif
+
+typedef int (*OldLauncherMain_t)(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd);
+typedef int (*NewLauncherMain_t)(bool bSecure, HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd);
+
+// Signature verified against LauncherMain in the final supported CS:GO client.
+// Unknown client launchers fail closed instead of guessing their ABI.
+static bool HasSupportedLauncherMainSignature(const void *entryPoint)
+{
+#if defined(DEDICATED) || !defined(_M_IX86)
+    return false;
+#else
+    static constexpr uint8_t Signature[] = {
+        0x55, // push ebp
+        0x8B, 0xEC, // mov ebp, esp
+        0x83, 0xE4, 0xF8, // and esp, -8
+        0x8B, 0x45, 0x0C, // mov eax, [ebp+0x0C]
+        0x81, 0xEC, 0x1C, 0x02, 0x00, 0x00 // sub esp, 0x21C
+    };
+
+    return memcmp(entryPoint, Signature, sizeof(Signature)) == 0;
+#endif
+}
 
 typedef void (*InstallGC_t)(bool dedicated);
 
@@ -131,7 +151,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     wchar_t *slash = wcsrchr(baseDir, '\\');
     if (!slash)
     {
-        slash = baseDir; // what the fuck
+        ErrorMessageBox(L"Could not determine the launcher directory");
+        return 1;
     }
 
     *slash = '\0';
@@ -155,7 +176,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     }
 
     _snwprintf_s(modulePath, std::size(modulePath), L"%ls\\bin\\" GC_LIB_DIR "\\" LAUNCHER_LIB GC_LIB_SUFFIX GC_LIB_EXTENSION, baseDir);
-    LauncherMain_t LauncherMain = (LauncherMain_t)LoadModuleAndFindSymbol(modulePath, SYMBOL_NAME);
+    void *LauncherMain = LoadModuleAndFindSymbol(modulePath, SYMBOL_NAME);
     if (!LauncherMain)
     {
         // LoadModuleAndFindSymbol told us why
@@ -179,8 +200,14 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 #endif
 
 #if defined(DEDICATED)
-    return LauncherMain(hInstance, hPrevInstance, lpCmdLine, nShowCmd);
+    return reinterpret_cast<OldLauncherMain_t>(LauncherMain)(hInstance, hPrevInstance, lpCmdLine, nShowCmd);
 #else
-    return LauncherMain(true, hInstance, hPrevInstance, lpCmdLine, nShowCmd);
+    if (!HasSupportedLauncherMainSignature(LauncherMain))
+    {
+        ErrorMessageBox(L"Unsupported LauncherMain ABI");
+        return 1;
+    }
+
+    return reinterpret_cast<NewLauncherMain_t>(LauncherMain)(true, hInstance, hPrevInstance, lpCmdLine, nShowCmd);
 #endif
 }

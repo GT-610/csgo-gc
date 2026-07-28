@@ -4,11 +4,21 @@ This repository is developed from `main`. Keep `master` as the branch that track
 
 For Windows builds, prefer the Visual Studio bundled CMake and initialize the MSVC developer environment first. CS:GO Windows builds are 32-bit, so use the x86 developer environment.
 
-Set `VS_BUILDTOOLS` to the local Visual Studio BuildTools installation path before running the commands below. Run commands from the repository root.
+Set `VS_BUILDTOOLS` to the local Visual Studio BuildTools installation path and
+`VCPKG_ROOT` to a vcpkg checkout before running the commands below. The vcpkg
+checkout must contain the baseline recorded in `vcpkg.json`. Run commands from
+the repository root.
 
 ## Recommended Agent Build
 
 Use `build` as the agent build directory. If it was created by a different CMake, compiler, or Visual Studio installation, remove it and configure again because CMake caches absolute tool paths.
+
+Ensure the Visual Studio bundled CMake and Ninja directories appear before
+MSYS2 or other toolchains in the child process `PATH`. vcpkg builds a host
+`protoc` executable as well as the x86 target library, and mixing MSYS2 CMake
+with MSVC can break Windows resource compilation. If compiler discovery is
+ambiguous, pass the x86 `cl.exe`, Windows SDK `rc.exe`, and `mt.exe` paths to
+CMake explicitly.
 
 ```bat
 cd /d <repo>
@@ -19,7 +29,9 @@ cd /d <repo>
   -S . ^
   -B build ^
   -G Ninja ^
-  -DCMAKE_BUILD_TYPE=Release
+  -DCMAKE_BUILD_TYPE=Release ^
+  -DCMAKE_TOOLCHAIN_FILE="%VCPKG_ROOT%\scripts\buildsystems\vcpkg.cmake" ^
+  -DVCPKG_TARGET_TRIPLET=x86-windows-static
 
 "%VS_BUILDTOOLS%\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" ^
   --build build ^
@@ -36,17 +48,22 @@ If a full package-style build is needed, build the launcher targets too:
   --target csgo srcds csgo_gc
 ```
 
-## FetchContent Notes
+## Dependency Notes
 
-The top-level CMake project downloads dependencies with `FetchContent`:
+The project uses vcpkg manifest mode for:
 
 - protobuf
-- cryptopp-cmake
-- funchook
+- mbedTLS
 
-The first configure can be slow because these dependencies are cloned. If configure appears stuck, check whether it is still downloading before interrupting it.
+Funchook and its diStorm dependency are still downloaded with `FetchContent`.
 
-If a configure run is interrupted, Ninja may later fail inside `_deps/*-subbuild` with errors like:
+The first configure can be slow because vcpkg builds both the host `protoc`
+tool and the 32-bit target libraries. Avoid interrupting an active dependency
+build. If a configure is interrupted, check whether repository-specific
+`cmake`, `ninja`, `vcpkg`, or `git` processes are still running before removing
+the agent build directory and configuring again.
+
+Interrupted FetchContent subbuilds may later fail with errors like:
 
 ```text
 ninja: error: failed recompaction: Permission denied
@@ -73,7 +90,9 @@ cd /d <repo>
   -S . ^
   -B build ^
   -G "<installed Visual Studio generator>" ^
-  -A Win32
+  -A Win32 ^
+  -DCMAKE_TOOLCHAIN_FILE="%VCPKG_ROOT%\scripts\buildsystems\vcpkg.cmake" ^
+  -DVCPKG_TARGET_TRIPLET=x86-windows-static
 
 "%VS_BUILDTOOLS%\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" ^
   --build build ^
@@ -98,7 +117,7 @@ After changing C++ code, at minimum build:
   --target csgo_gc
 ```
 
-Generated protobuf sources and vendored Steamworks SDK headers are noisy. When searching for project issues, usually scope searches to:
+Build-generated protobuf sources and vendored Steamworks SDK headers are noisy. When searching for project issues, usually scope searches to:
 
 ```bat
 rg <pattern> csgo_gc launcher CMakeLists.txt README.md AGENTS.md

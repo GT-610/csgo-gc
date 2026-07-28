@@ -7,21 +7,21 @@ set(SDK_DIR ${CMAKE_CURRENT_LIST_DIR}/sdk)
 target_include_directories(steam_api INTERFACE ${SDK_DIR}/public)
 
 if (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
-	set(STEAM_API_LIB ${SDK_DIR}/redistributable_bin/osx/libsteam_api.dylib)
+	set(STEAM_API_LIB "\"libsteam_api.dylib\"")
 elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux")
-	if (IS_32BIT)
-		set(STEAM_API_LIB ${SDK_DIR}/redistributable_bin/linux32/libsteam_api.so)
-	else()
-		set(STEAM_API_LIB ${SDK_DIR}/redistributable_bin/linux64/libsteam_api.so)
-	endif()
+	set(STEAM_API_LIB "\"libsteam_api.so\"")
 elseif (CMAKE_SYSTEM_NAME STREQUAL "Windows")
 	if (IS_32BIT)
-		set(STEAM_API_LIB ${SDK_DIR}/redistributable_bin/steam_api.lib)
+		# Windows library paths are passed to LoadLibraryExW.
+		set(STEAM_API_LIB "L\"steam_api.dll\"")
 	else()
-		set(STEAM_API_LIB ${SDK_DIR}/redistributable_bin/win64/steam_api64.lib)
+		# Windows library paths are passed to LoadLibraryExW.
+		set(STEAM_API_LIB "L\"steam_api64.dll\"")
 	endif()
 else()
-	message(FATAL_ERROR "Unsupported system $[CMAKE_SYSTEM_NAME}")
+	message(FATAL_ERROR "Unsupported system ${CMAKE_SYSTEM_NAME}")
 endif()
 
-target_link_libraries(steam_api INTERFACE ${STEAM_API_LIB})
+# Load the Steam API dynamically so the proxy remains compatible with both old
+# exported accessors and newer internal accessor implementations.
+target_compile_definitions(steam_api INTERFACE STEAM_API_NODLL STEAM_API_LIB=${STEAM_API_LIB})
