@@ -72,10 +72,25 @@ jobs:
 
     - if: matrix.os == 'windows-latest'
       name: Build Windows
+      shell: pwsh
       run: |
-        mkdir ${{ github.workspace }}/release
-        cmake -A Win32 -B ${{ github.workspace }}/build -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -S ${{ github.workspace }} -DOUTDIR=${{ github.workspace }}/release -DCMAKE_TOOLCHAIN_FILE=${{ env.VCPKG_ROOT }}/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET:STRING=x86-windows-static
-        cmake --build ${{ github.workspace }}/build --config ${{ matrix.build_type }} --target csgo srcds csgo_gc
+        New-Item -ItemType Directory -Force -Path "${{ github.workspace }}/release"
+        cmake `
+          -A Win32 `
+          -S "${{ github.workspace }}" `
+          -B "${{ github.workspace }}/build" `
+          -DOUTDIR="${{ github.workspace }}/release" `
+          -DCMAKE_TOOLCHAIN_FILE="${{ env.VCPKG_ROOT }}/scripts/buildsystems/vcpkg.cmake" `
+          -DVCPKG_TARGET_TRIPLET=x86-windows-static `
+          -DBUILD_TESTING=ON
+        cmake `
+          --build "${{ github.workspace }}/build" `
+          --config ${{ matrix.build_type }} `
+          --target csgo srcds csgo_gc gc_message_tests item_schema_tests
+        ctest `
+          --test-dir "${{ github.workspace }}/build" `
+          --build-config ${{ matrix.build_type }} `
+          --output-on-failure
 
     - name: Package
       shell: bash
