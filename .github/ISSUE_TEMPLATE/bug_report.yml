@@ -30,8 +30,8 @@ body:
     id: csgo_gc_revision
     attributes:
       label: "csgo_gc revision"
-      description: "Enter the exact release identifier, build ID, or commit hash of the csgo_gc binary you tested."
-      placeholder: "e.g. continuous build abc1234 or commit abc1234"
+      description: "Enter the exact commit hash of the csgo_gc binary you tested."
+      placeholder: "e.g. continuous build at commit ca75964"
     validations:
       required: true
 
@@ -39,10 +39,10 @@ body:
     id: build_type
     attributes:
       label: "Game version"
-      description: "Select which version you are running."
+      description: "Select which version you are running. If csgo_legacy branch, a build number (eg. v1573, v1575) is required."
       options:
         - "Standalone app (4465480)"
-        - "csgo_legacy branch (730)"
+        - "csgo_legacy branch (730) v1575"
     validations:
       required: true
 
@@ -72,16 +72,16 @@ body:
     attributes:
       label: "Environment & OS details"
       description: "Operating system, architecture, etc."
-      placeholder: "e.g. macOS 26, x86_64"
+      placeholder: "e.g. Windows 11 24H2 IoT LTSC x86_64, macOS 26 x86_64"
     validations:
       required: true
 
   - type: textarea
     id: gc_log
     attributes:
-      label: "Log output (gc_log.txt)"
+      label: "Log output"
       description: 'If applicable: set `"log_output"  "1"` in `csgo_gc/config.txt`, reproduce the issue, and paste sanitized log text here. Remove Steam identifiers, account details, local paths, credentials, tokens, and other sensitive data.'
-      placeholder: "Paste sanitized contents of gc_log.txt here..."
+      placeholder: "Paste sanitized contents of gc_log.txt and CS:GO console output..."
 
   - type: textarea
     id: crash_diagnostics
