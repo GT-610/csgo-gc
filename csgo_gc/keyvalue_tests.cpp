@@ -48,8 +48,11 @@ bool DetailedFileResultsAreReported()
         return false;
     }
 
+    key.AddNumber("preserved", 7);
     if (!WriteBytes(MalformedPath, "\"items\"\n{\n\"value\" \"42\"\n")
-        || key.ParseFromFileDetailed(MalformedPath) != KeyValueFileResult::InvalidFormat)
+        || key.ParseFromFileDetailed(MalformedPath) != KeyValueFileResult::InvalidFormat
+        || key.GetNumber<int>("preserved") != 7
+        || key.GetSubkey("items"))
     {
         return false;
     }
@@ -66,8 +69,10 @@ bool Utf8BomIsAccepted()
     }
 
     KeyValue key{ "test" };
+    key.AddNumber("old", 1);
     return key.ParseFromFileDetailed(BomPath) == KeyValueFileResult::Success
-        && key.GetNumber<int>("value") == 42;
+        && key.GetNumber<int>("value") == 42
+        && !key.GetSubkey("old");
 }
 
 bool ExistingFileIsAtomicallyReplaced()

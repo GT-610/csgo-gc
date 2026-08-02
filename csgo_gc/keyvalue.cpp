@@ -4,10 +4,15 @@
 #include <cstdio>
 
 #if defined(_WIN32)
+#include <io.h>
+#include <process.h>
 #include <windows.h>
+#else
+#include <unistd.h>
 #endif
 
 constexpr auto SubkeyReserveCount = 8;
+static std::atomic<uint64_t> s_temporaryFileCounter{};
 
 // for writing binary keyvalues
 enum class BinaryCommand : uint8_t
@@ -218,17 +223,29 @@ KeyValueFileResult KeyValue::ParseFromFileDetailed(const char *path)
         return KeyValueFileResult::Empty;
     }
 
-    m_subkeys.clear();
-    m_string.clear();
-
+    KeyValue parsed{ m_name };
     KeyValueParser parser{ dataView };
-    return Parse(parser) ? KeyValueFileResult::Success : KeyValueFileResult::InvalidFormat;
+    if (!parsed.Parse(parser))
+    {
+        return KeyValueFileResult::InvalidFormat;
+    }
+
+    *this = std::move(parsed);
+    return KeyValueFileResult::Success;
 }
 
 bool KeyValue::WriteToFile(const char *path)
 {
     std::string temporaryPath = path;
-    temporaryPath.append(".tmp");
+    temporaryPath.append(".tmp.");
+#if defined(_WIN32)
+    temporaryPath.append(std::to_string(_getpid()));
+#else
+    temporaryPath.append(std::to_string(getpid()));
+#endif
+    temporaryPath.push_back('.');
+    temporaryPath.append(std::to_string(
+        s_temporaryFileCounter.fetch_add(1, std::memory_order_relaxed)));
 
     FILE *f = fopen(temporaryPath.c_str(), "wb");
     if (!f)
@@ -239,6 +256,17 @@ bool KeyValue::WriteToFile(const char *path)
     WriteToFile(f, 0);
 
     bool writeSucceeded = !ferror(f) && fflush(f) == 0;
+#if defined(_WIN32)
+    if (writeSucceeded)
+    {
+        writeSucceeded = _commit(_fileno(f)) == 0;
+    }
+#else
+    if (writeSucceeded)
+    {
+        writeSucceeded = fsync(fileno(f)) == 0;
+    }
+#endif
     writeSucceeded &= fclose(f) == 0;
     if (!writeSucceeded)
     {
