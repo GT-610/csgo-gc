@@ -1,5 +1,11 @@
 #include "stdafx.h"
 #include "keyvalue.h"
+#include <cerrno>
+#include <cstdio>
+
+#if defined(_WIN32)
+#include <windows.h>
+#endif
 
 constexpr auto SubkeyReserveCount = 8;
 
@@ -54,27 +60,27 @@ public:
             m_ptr++;
         }
 
-        if (m_ptr[0] != '/' || m_ptr[1] != '/')
+        if (m_ptr[0] != '/' || m_end - m_ptr < 2 || m_ptr[1] != '/')
         {
             return true;
         }
 
         m_ptr += 2;
 
-        while (*m_ptr != '\n')
+        while (!IsEndOfFile() && *m_ptr != '\n')
         {
-            if (IsEndOfFile())
-            {
-                return false;
-            }
-
             m_ptr++;
+        }
+
+        if (IsEndOfFile())
+        {
+            return false;
         }
 
         goto start;
     }
 
-    std::string_view ParseString()
+    bool ParseString(std::string_view &string)
     {
         m_ptr++; // skip the start quote
 
@@ -85,11 +91,16 @@ public:
             m_ptr++;
         }
 
+        if (IsEndOfFile())
+        {
+            return false;
+        }
+
         size_t length = m_ptr - start;
-
         m_ptr++; // skip the end quote
+        string = { &start[0], length };
 
-        return { &start[0], length };
+        return true;
     }
 
     char PeekCharacter() const
@@ -140,6 +151,42 @@ std::string LoadFile(const char *path)
     return buffer;
 }
 
+static KeyValueFileResult LoadKeyValueFile(const char *path, std::string &buffer)
+{
+    errno = 0;
+    FILE *f = fopen(path, "rb");
+    if (!f)
+    {
+        return errno == ENOENT ? KeyValueFileResult::NotFound : KeyValueFileResult::ReadError;
+    }
+
+    if (fseek(f, 0, SEEK_END) != 0)
+    {
+        fclose(f);
+        return KeyValueFileResult::ReadError;
+    }
+
+    long size = ftell(f);
+    if (size < 0 || fseek(f, 0, SEEK_SET) != 0)
+    {
+        fclose(f);
+        return KeyValueFileResult::ReadError;
+    }
+
+    if (size == 0)
+    {
+        fclose(f);
+        return KeyValueFileResult::Empty;
+    }
+
+    buffer.resize(static_cast<size_t>(size));
+    size_t bytesRead = fread(buffer.data(), 1, buffer.size(), f);
+    bool readFailed = bytesRead != buffer.size() || ferror(f);
+    readFailed |= fclose(f) != 0;
+
+    return readFailed ? KeyValueFileResult::ReadError : KeyValueFileResult::Success;
+}
+
 KeyValue::KeyValue(std::string_view name)
     : m_name{ name }
 {
@@ -147,19 +194,43 @@ KeyValue::KeyValue(std::string_view name)
 
 bool KeyValue::ParseFromFile(const char *path)
 {
-    std::string data = LoadFile(path);
-    if (data.empty())
+    return ParseFromFileDetailed(path) == KeyValueFileResult::Success;
+}
+
+KeyValueFileResult KeyValue::ParseFromFileDetailed(const char *path)
+{
+    std::string data;
+    KeyValueFileResult result = LoadKeyValueFile(path, data);
+    if (result != KeyValueFileResult::Success)
     {
-        return false;
+        return result;
     }
 
-    KeyValueParser parser{ data };
-    return Parse(parser);
+    std::string_view dataView{ data };
+    constexpr std::string_view Utf8Bom{ "\xef\xbb\xbf", 3 };
+    if (dataView.starts_with(Utf8Bom))
+    {
+        dataView.remove_prefix(Utf8Bom.size());
+    }
+
+    if (dataView.empty())
+    {
+        return KeyValueFileResult::Empty;
+    }
+
+    m_subkeys.clear();
+    m_string.clear();
+
+    KeyValueParser parser{ dataView };
+    return Parse(parser) ? KeyValueFileResult::Success : KeyValueFileResult::InvalidFormat;
 }
 
 bool KeyValue::WriteToFile(const char *path)
 {
-    FILE *f = fopen(path, "wb");
+    std::string temporaryPath = path;
+    temporaryPath.append(".tmp");
+
+    FILE *f = fopen(temporaryPath.c_str(), "wb");
     if (!f)
     {
         return false;
@@ -167,8 +238,27 @@ bool KeyValue::WriteToFile(const char *path)
 
     WriteToFile(f, 0);
 
-    fclose(f);
-    return true;
+    bool writeSucceeded = !ferror(f) && fflush(f) == 0;
+    writeSucceeded &= fclose(f) == 0;
+    if (!writeSucceeded)
+    {
+        remove(temporaryPath.c_str());
+        return false;
+    }
+
+#if defined(_WIN32)
+    bool replaced = MoveFileExA(temporaryPath.c_str(), path,
+        MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != FALSE;
+#else
+    bool replaced = rename(temporaryPath.c_str(), path) == 0;
+#endif
+
+    if (!replaced)
+    {
+        remove(temporaryPath.c_str());
+    }
+
+    return replaced;
 }
 
 static void BinaryWriteCommand(std::string &buffer, BinaryCommand cmd)
@@ -208,7 +298,7 @@ void KeyValue::BinaryWriteToString(std::string &buffer)
     BinaryWriteCommand(buffer, BinaryCommand::Terminate);
 }
 
-bool KeyValue::Parse(KeyValueParser &parser)
+bool KeyValue::Parse(KeyValueParser &parser, bool expectClosingBrace)
 {
     m_subkeys.reserve(SubkeyReserveCount);
 
@@ -216,7 +306,7 @@ bool KeyValue::Parse(KeyValueParser &parser)
     {
         if (!parser.NextToken())
         {
-            return true;
+            return !expectClosingBrace;
         }
 
         KeyValue *current;
@@ -224,12 +314,19 @@ bool KeyValue::Parse(KeyValueParser &parser)
         switch (parser.PeekCharacter())
         {
         case '"':
-            current = FindOrCreateSubkey(parser.ParseString());
+            {
+                std::string_view name;
+                if (!parser.ParseString(name))
+                {
+                    return false;
+                }
+                current = FindOrCreateSubkey(name);
+            }
             break;
 
         case '}':
             parser.SkipCharacter();
-            return true;
+            return expectClosingBrace;
 
         default:
             return false;
@@ -243,12 +340,19 @@ bool KeyValue::Parse(KeyValueParser &parser)
         switch (parser.PeekCharacter())
         {
         case '"':
-            current->m_string = parser.ParseString();
+            {
+                std::string_view value;
+                if (!parser.ParseString(value))
+                {
+                    return false;
+                }
+                current->m_string = value;
+            }
             break;
 
         case '{':
             parser.SkipCharacter();
-            if (!current->Parse(parser))
+            if (!current->Parse(parser, true))
             {
                 return false;
             }

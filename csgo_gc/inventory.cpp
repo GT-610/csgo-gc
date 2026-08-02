@@ -218,8 +218,20 @@ CSOEconItem &Inventory::CreateItem(uint32_t defIndex, ItemOrigin origin, Unackno
 void Inventory::ReadFromFile()
 {
     KeyValue inventoryKey{ "inventory" };
-    if (!inventoryKey.ParseFromFile(InventoryFilePath))
+    KeyValueFileResult result = inventoryKey.ParseFromFileDetailed(InventoryFilePath);
+    if (result == KeyValueFileResult::NotFound)
     {
+        return;
+    }
+
+    if (result != KeyValueFileResult::Success)
+    {
+        m_saveEnabled = false;
+
+        const char *reason = result == KeyValueFileResult::Empty ? "file is empty"
+            : result == KeyValueFileResult::ReadError ? "file could not be read"
+            : "file has invalid KeyValues syntax";
+        Platform::Print("Inventory: refusing to overwrite %s because %s\n", InventoryFilePath, reason);
         return;
     }
 
@@ -308,7 +320,14 @@ void Inventory::ReadItem(const KeyValue &itemKey, CSOEconItem &item) const
 
 void Inventory::WriteToFile() const
 {
+    if (!m_saveEnabled)
+    {
+        Platform::Print("Inventory: save skipped to preserve unreadable %s\n", InventoryFilePath);
+        return;
+    }
+
     KeyValue inventoryKey{ "inventory" };
+    inventoryKey.AddNumber("format_version", 1);
 
     {
         KeyValue &itemsKey = inventoryKey.AddSubkey("items");
@@ -332,7 +351,10 @@ void Inventory::WriteToFile() const
         }
     }
 
-    inventoryKey.WriteToFile(InventoryFilePath);
+    if (!inventoryKey.WriteToFile(InventoryFilePath))
+    {
+        Platform::Print("Inventory: failed to save %s; original file was preserved\n", InventoryFilePath);
+    }
 }
 
 void Inventory::WriteItem(KeyValue &itemKey, const CSOEconItem &item) const

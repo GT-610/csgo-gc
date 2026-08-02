@@ -2,6 +2,15 @@
 
 class KeyValueParser;
 
+enum class KeyValueFileResult
+{
+    Success,
+    NotFound,
+    Empty,
+    ReadError,
+    InvalidFormat
+};
+
 // not really the right place for this...
 template<typename T>
 inline T FromString(std::string_view string)
@@ -39,6 +48,7 @@ public:
     explicit KeyValue(std::string_view name);
 
     bool ParseFromFile(const char *path);
+    KeyValueFileResult ParseFromFileDetailed(const char *path);
     bool WriteToFile(const char *path);
 
     void BinaryWriteToString(std::string &buffer);
@@ -88,7 +98,7 @@ public:
     }
 
 private:
-    bool Parse(KeyValueParser &parser);
+    bool Parse(KeyValueParser &parser, bool expectClosingBrace = false);
     KeyValue *FindOrCreateSubkey(std::string_view name);
     void WriteToFile(FILE *f, int indent);
 
