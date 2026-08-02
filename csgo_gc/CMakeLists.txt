@@ -146,4 +146,20 @@ if (BUILD_TESTING)
     endif()
 
     add_test(NAME item_schema_tests COMMAND item_schema_tests)
+
+    add_executable(keyvalue_tests
+        keyvalue_tests.cpp
+        keyvalue.cpp)
+
+    target_precompile_headers(keyvalue_tests PRIVATE stdafx.h)
+    target_link_libraries(keyvalue_tests PRIVATE csgo_gc_protobufs)
+
+    if (MSVC)
+        target_compile_options(keyvalue_tests PRIVATE /W4 /wd4244 /wd4819)
+        target_compile_definitions(keyvalue_tests PRIVATE _CRT_SECURE_NO_WARNINGS)
+    else()
+        target_compile_options(keyvalue_tests PRIVATE -Wall -Wextra)
+    endif()
+
+    add_test(NAME keyvalue_tests COMMAND keyvalue_tests)
 endif()

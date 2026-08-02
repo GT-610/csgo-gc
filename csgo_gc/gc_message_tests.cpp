@@ -1,8 +1,11 @@
 #include "stdafx.h"
 #include "gc_client.h"
 #include "gc_message.h"
+#include "keyvalue.h"
 
 #include <cstring>
+#include <filesystem>
+#include <cstdio>
 
 namespace Platform
 {
@@ -135,9 +138,59 @@ static bool BasicStructHeaderSerializationIsUnchanged()
     return valid && offset == message.Size();
 }
 
+static bool InventoryPersistenceProtectsFiles()
+{
+    constexpr const char *InventoryDirectory = "csgo_gc";
+    constexpr const char *InventoryPath = "csgo_gc/inventory.txt";
+    constexpr std::string_view MalformedInventory{ "\"items\"\n{\n\"2\"\n{\n" };
+
+    std::error_code error;
+    std::filesystem::create_directory(InventoryDirectory, error);
+    if (error)
+    {
+        return false;
+    }
+
+    FILE *f = fopen(InventoryPath, "wb");
+    if (!f)
+    {
+        return false;
+    }
+
+    bool wroteFile = fwrite(MalformedInventory.data(), 1, MalformedInventory.size(), f)
+        == MalformedInventory.size();
+    wroteFile &= fclose(f) == 0;
+    if (!wroteFile)
+    {
+        return false;
+    }
+
+    {
+        Inventory inventory{ 76561197960265729ull };
+    }
+
+    bool preserved = LoadFile(InventoryPath) == MalformedInventory;
+    std::filesystem::remove(InventoryPath, error);
+
+    {
+        Inventory inventory{ 76561197960265729ull };
+    }
+
+    KeyValue savedInventory{ "inventory" };
+    bool validEmptyInventory = savedInventory.ParseFromFile(InventoryPath)
+        && savedInventory.GetNumber<int>("format_version") == 1;
+
+    error.clear();
+    std::filesystem::remove(InventoryPath, error);
+    error.clear();
+    std::filesystem::remove(InventoryDirectory, error);
+    return preserved && validEmptyInventory;
+}
+
 int main()
 {
     return ExtendedCraftResponseSerialization()
         && TruncatedCraftRequestGetsInvalidResponse()
-        && BasicStructHeaderSerializationIsUnchanged() ? 0 : 1;
+        && BasicStructHeaderSerializationIsUnchanged()
+        && InventoryPersistenceProtectsFiles() ? 0 : 1;
 }

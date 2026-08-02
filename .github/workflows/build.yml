@@ -85,7 +85,7 @@ jobs:
         cmake `
           --build "${{ github.workspace }}/build" `
           --config ${{ matrix.build_type }} `
-          --target csgo srcds csgo_gc gc_message_tests item_schema_tests
+          --target csgo srcds csgo_gc gc_message_tests item_schema_tests keyvalue_tests
         ctest `
           --test-dir "${{ github.workspace }}/build" `
           --build-config ${{ matrix.build_type }} `
