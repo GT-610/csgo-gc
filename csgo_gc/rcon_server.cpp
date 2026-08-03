@@ -3,6 +3,8 @@
 #include "config.h"
 #include "gc_client.h"
 
+#include <system_error>
+
 #ifdef _WIN32
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -68,6 +70,15 @@ void ShutdownSocket(SocketType socket)
     shutdown(socket, SD_BOTH);
 #else
     shutdown(socket, SHUT_RDWR);
+#endif
+}
+
+int LastSocketError()
+{
+#ifdef _WIN32
+    return WSAGetLastError();
+#else
+    return errno;
 #endif
 }
 
@@ -179,6 +190,7 @@ RconServer::~RconServer()
 
 void RconServer::Start()
 {
+    std::lock_guard lifecycleLock{ m_lifecycleMutex };
     const GCConfig &config = GetConfig();
 
     Platform::Print("RCON: config enabled=%d bind_address=%s port=%u protocol=source password=%s\n",
@@ -198,28 +210,45 @@ void RconServer::Start()
         Platform::Print("WARNING: RCON is enabled with an empty password; any Source RCON password will authenticate. Keep bind_address local or set rcon.password.\n");
     }
 
-    bool expected = false;
-    if (!m_running.compare_exchange_strong(expected, true))
+    switch (m_listenerState.load())
     {
+    case ListenerState::Starting:
+    case ListenerState::Running:
         Platform::Print("RCON: already running\n");
         return;
+
+    case ListenerState::Failed:
+        Platform::Print("RCON: disabled for this process after listener failure\n");
+        return;
+
+    case ListenerState::Stopped:
+        Platform::Print("RCON: already stopped\n");
+        return;
+
+    case ListenerState::NotStarted:
+        break;
     }
 
+    m_listenerState.store(ListenerState::Starting);
+    m_running.store(true);
     Platform::Print("RCON: starting listener thread\n");
-    m_thread = std::thread{ &RconServer::ThreadMain, this };
+    try
+    {
+        m_thread = std::thread{ &RconServer::ThreadMain, this };
+    }
+    catch (const std::system_error &error)
+    {
+        MarkListenerFailed();
+        Platform::Print("RCON: failed to start listener thread (error %d); disabled for this process\n",
+            error.code().value());
+    }
 }
 
 void RconServer::Stop()
 {
-    bool expected = true;
-    if (!m_running.compare_exchange_strong(expected, false))
-    {
-        if (m_thread.joinable())
-        {
-            m_thread.join();
-        }
-        return;
-    }
+    std::lock_guard lifecycleLock{ m_lifecycleMutex };
+    m_listenerState.store(ListenerState::Stopped);
+    m_running.store(false);
 
     SocketType listenSocket = InvalidSocket;
     {
@@ -261,12 +290,18 @@ void RconServer::ThreadMain()
 {
 #ifdef _WIN32
     WSADATA wsaData;
-    if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0)
+    int startupError = WSAStartup(MAKEWORD(2, 2), &wsaData);
+    if (startupError != 0)
     {
-        Platform::Print("RCON: WSAStartup failed\n");
-        m_running.store(false);
+        MarkListenerFailed();
+        Platform::Print("RCON: WSAStartup failed (error %d); disabled for this process\n", startupError);
         return;
     }
+
+    struct WinsockCleanup
+    {
+        ~WinsockCleanup() { WSACleanup(); }
+    } winsockCleanup;
 #endif
 
     addrinfo hints{};
@@ -279,34 +314,46 @@ void RconServer::ThreadMain()
     int gai = getaddrinfo(GetConfig().RconBindAddress().c_str(), port.c_str(), &hints, &result);
     if (gai != 0)
     {
-        Platform::Print("RCON: getaddrinfo failed for %s:%s\n",
+        MarkListenerFailed();
+        Platform::Print("RCON: getaddrinfo failed for %s:%s (error %d); disabled for this process\n",
             GetConfig().RconBindAddress().c_str(),
-            port.c_str());
-        m_running.store(false);
-#ifdef _WIN32
-        WSACleanup();
-#endif
+            port.c_str(),
+            gai);
         return;
     }
 
     SocketType listenSocket = InvalidSocket;
+    const char *failedOperation = "socket";
+    int socketError = 0;
     for (addrinfo *it = result; it; it = it->ai_next)
     {
         listenSocket = socket(it->ai_family, it->ai_socktype, it->ai_protocol);
         if (listenSocket == InvalidSocket)
         {
+            failedOperation = "socket";
+            socketError = LastSocketError();
             continue;
         }
 
         int reuse = 1;
         setsockopt(listenSocket, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char *>(&reuse), sizeof(reuse));
 
-        if (bind(listenSocket, it->ai_addr, static_cast<int>(it->ai_addrlen)) == 0
-            && listen(listenSocket, 8) == 0)
+        if (bind(listenSocket, it->ai_addr, static_cast<int>(it->ai_addrlen)) != 0)
+        {
+            failedOperation = "bind";
+            socketError = LastSocketError();
+            CloseSocket(listenSocket);
+            listenSocket = InvalidSocket;
+            continue;
+        }
+
+        if (listen(listenSocket, 8) == 0)
         {
             break;
         }
 
+        failedOperation = "listen";
+        socketError = LastSocketError();
         CloseSocket(listenSocket);
         listenSocket = InvalidSocket;
     }
@@ -315,18 +362,29 @@ void RconServer::ThreadMain()
 
     if (listenSocket == InvalidSocket)
     {
-        Platform::Print("RCON: failed to listen on %s:%s\n",
+        MarkListenerFailed();
+        Platform::Print("RCON: %s failed on %s:%s (socket error %d); disabled for this process\n",
+            failedOperation,
             GetConfig().RconBindAddress().c_str(),
-            port.c_str());
-        m_running.store(false);
-#ifdef _WIN32
-        WSACleanup();
-#endif
+            port.c_str(),
+            socketError);
+        return;
+    }
+
+    ListenerState expected = ListenerState::Starting;
+    if (!m_listenerState.compare_exchange_strong(expected, ListenerState::Running))
+    {
+        CloseSocket(listenSocket);
         return;
     }
 
     {
         std::lock_guard lock{ m_mutex };
+        if (!m_running.load())
+        {
+            CloseSocket(listenSocket);
+            return;
+        }
         m_listenSocket = ToHandle(listenSocket);
     }
 
@@ -339,7 +397,8 @@ void RconServer::ThreadMain()
         {
             if (m_running.load())
             {
-                Platform::Print("RCON: accept failed\n");
+                Platform::Print("RCON: accept failed (socket error %d); disabled for this process\n",
+                    LastSocketError());
             }
             break;
         }
@@ -353,14 +412,25 @@ void RconServer::ThreadMain()
         m_listenSocket = ToHandle(InvalidSocket);
     }
 
-    if (m_running.load())
+    bool listenerFailed = m_running.exchange(false);
+    if (listenerFailed)
     {
         CloseSocket(listenSocket);
+        MarkListenerFailed();
     }
 
-#ifdef _WIN32
-    WSACleanup();
-#endif
+}
+
+void RconServer::MarkListenerFailed()
+{
+    m_running.store(false);
+
+    ListenerState expected = ListenerState::Starting;
+    if (!m_listenerState.compare_exchange_strong(expected, ListenerState::Failed))
+    {
+        expected = ListenerState::Running;
+        m_listenerState.compare_exchange_strong(expected, ListenerState::Failed);
+    }
 }
 
 void RconServer::HandleConnection(uintptr_t socketHandle)
