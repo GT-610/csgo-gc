@@ -162,4 +162,32 @@ if (BUILD_TESTING)
     endif()
 
     add_test(NAME keyvalue_tests COMMAND keyvalue_tests)
+
+    add_executable(rcon_server_tests
+        config.cpp
+        keyvalue.cpp
+        rcon_server.cpp
+        rcon_server_tests.cpp)
+
+    target_precompile_headers(rcon_server_tests PRIVATE stdafx.h)
+    target_link_libraries(rcon_server_tests PRIVATE
+        csgo_gc_protobufs
+        Threads::Threads)
+
+    if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
+        target_link_libraries(rcon_server_tests PRIVATE ws2_32)
+    endif()
+
+    if (MSVC)
+        target_compile_options(rcon_server_tests PRIVATE /W4 /wd4244 /wd4819)
+        target_compile_definitions(rcon_server_tests PRIVATE _CRT_SECURE_NO_WARNINGS)
+    else()
+        target_compile_options(rcon_server_tests PRIVATE -Wall -Wextra)
+    endif()
+
+    set(RCON_SERVER_TEST_WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/rcon_server_test_workdir")
+    file(MAKE_DIRECTORY "${RCON_SERVER_TEST_WORKING_DIRECTORY}")
+    add_test(NAME rcon_server_tests COMMAND rcon_server_tests)
+    set_tests_properties(rcon_server_tests PROPERTIES
+        WORKING_DIRECTORY "${RCON_SERVER_TEST_WORKING_DIRECTORY}")
 endif()
