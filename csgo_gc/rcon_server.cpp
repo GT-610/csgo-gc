@@ -297,6 +297,11 @@ void RconServer::ThreadMain()
         Platform::Print("RCON: WSAStartup failed (error %d); disabled for this process\n", startupError);
         return;
     }
+
+    struct WinsockCleanup
+    {
+        ~WinsockCleanup() { WSACleanup(); }
+    } winsockCleanup;
 #endif
 
     addrinfo hints{};
@@ -314,9 +319,6 @@ void RconServer::ThreadMain()
             GetConfig().RconBindAddress().c_str(),
             port.c_str(),
             gai);
-#ifdef _WIN32
-        WSACleanup();
-#endif
         return;
     }
 
@@ -366,9 +368,6 @@ void RconServer::ThreadMain()
             GetConfig().RconBindAddress().c_str(),
             port.c_str(),
             socketError);
-#ifdef _WIN32
-        WSACleanup();
-#endif
         return;
     }
 
@@ -376,9 +375,6 @@ void RconServer::ThreadMain()
     if (!m_listenerState.compare_exchange_strong(expected, ListenerState::Running))
     {
         CloseSocket(listenSocket);
-#ifdef _WIN32
-        WSACleanup();
-#endif
         return;
     }
 
@@ -387,9 +383,6 @@ void RconServer::ThreadMain()
         if (!m_running.load())
         {
             CloseSocket(listenSocket);
-#ifdef _WIN32
-            WSACleanup();
-#endif
             return;
         }
         m_listenSocket = ToHandle(listenSocket);
@@ -426,9 +419,6 @@ void RconServer::ThreadMain()
         MarkListenerFailed();
     }
 
-#ifdef _WIN32
-    WSACleanup();
-#endif
 }
 
 void RconServer::MarkListenerFailed()
