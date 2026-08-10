@@ -996,6 +996,7 @@ public:
 #include <proxy/steamgameserverproxy014.h>
 #include <proxy/steammatchmakingserversproxy002.h>
 #include <proxy/steamremotestorageproxy014.h>
+#include <proxy/steamremotestorageproxy016.h>
 #include <proxy/steamuserproxy014.h>
 #include <proxy/steamuserproxy015.h>
 #include <proxy/steamuserproxy016.h>
@@ -1127,6 +1128,7 @@ public:
         if (VersionNameIs(version, "STEAMREMOTESTORAGE_INTERFACE_VERSION"))
         {
             PROXY_INTERFACE(SteamRemoteStorage, 014);
+            PROXY_INTERFACE(SteamRemoteStorage, 016);
             Platform::Print("Can't hook %s\n", version);
             return nullptr;
         }
