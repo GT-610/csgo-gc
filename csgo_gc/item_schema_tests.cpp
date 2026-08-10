@@ -54,6 +54,34 @@ public:
         schema.m_revolvingLootLists.try_emplace(1, packageContents);
     }
 
+    bool ParseStickerSlotCounts()
+    {
+        KeyValue prefabs{ "prefabs" };
+
+        KeyValue &fourSlotPrefab = prefabs.AddSubkey("four_slot_weapon");
+        KeyValue &fourSlots = fourSlotPrefab.AddSubkey("stickers");
+        fourSlots.AddSubkey("0");
+        fourSlots.AddSubkey("1");
+        fourSlots.AddSubkey("2");
+        fourSlots.AddSubkey("3");
+
+        KeyValue &fiveSlotPrefab = prefabs.AddSubkey("five_slot_weapon");
+        fiveSlotPrefab.AddString("prefab", "four_slot_weapon");
+        fiveSlotPrefab.AddSubkey("stickers").AddSubkey("4");
+
+        KeyValue items{ "items" };
+        items.AddSubkey("7").AddString("prefab", "four_slot_weapon");
+        items.AddSubkey("11").AddString("prefab", "five_slot_weapon");
+
+        schema.ParseItems(&items, &prefabs);
+
+        const ItemInfo *fourSlotItem = schema.ItemInfoByDefIndex(7);
+        const ItemInfo *fiveSlotItem = schema.ItemInfoByDefIndex(11);
+        return fourSlotItem && fiveSlotItem
+            && fourSlotItem->m_stickerSlotCount == 4
+            && fiveSlotItem->m_stickerSlotCount == 5;
+    }
+
     ItemSchema schema;
 };
 
@@ -85,6 +113,12 @@ static bool NestedPaintedLootListIsSouvenir()
     return fixture.schema.IsSouvenirPackage(package);
 }
 
+static bool StickerSlotCountsFollowPrefabData()
+{
+    ItemSchemaTestFixture fixture;
+    return fixture.ParseStickerSlotCounts();
+}
+
 int main()
 {
     if (!TournamentStickerCapsuleIsNotSouvenir())
@@ -95,6 +129,11 @@ int main()
     if (!NestedPaintedLootListIsSouvenir())
     {
         return 2;
+    }
+
+    if (!StickerSlotCountsFollowPrefabData())
+    {
+        return 3;
     }
 
     return 0;

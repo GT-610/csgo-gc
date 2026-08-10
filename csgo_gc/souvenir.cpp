@@ -40,6 +40,16 @@ namespace SouvenirTournament
     constexpr uint32_t Paris2023 = 21;
 }
 
+namespace DreamHack2013Sticker
+{
+    constexpr float MinWear = 0.2f;
+    constexpr float MaxWear = 0.3f;
+    constexpr float MinScale = 1.0f;
+    constexpr float MaxScale = 1.2f;
+    constexpr float MinRotation = -10.0f;
+    constexpr float MaxRotation = 10.0f;
+}
+
 enum class SouvenirFormat
 {
     Unknown,
@@ -307,11 +317,18 @@ bool SouvenirOpening::OpenPackage(const CSOEconItem &package, CSOEconItem &item)
     uint32_t team1StickerKit = team1Kit ? team1Kit->m_defIndex : 0;
     uint32_t fourthStickerKit = fourthKit ? fourthKit->m_defIndex : 0;
 
-    Platform::Print("SouvenirOpening: event %u stage %u teams %u/%u mvp %u stickers %u/%u/%u/%u\n",
-        tournament.eventId, tournament.stageId, tournament.team0Id, tournament.team1Id, tournament.mvpAccountId,
-        eventStickerKit, team0StickerKit, team1StickerKit, fourthStickerKit);
+    const ItemInfo *itemInfo = m_itemSchema.ItemInfoByDefIndex(item.def_index());
+    uint32_t stickerSlotCount = itemInfo ? itemInfo->m_stickerSlotCount : 0;
 
-    ApplyTournamentAttributes(item, eventStickerKit, team0StickerKit, team1StickerKit, fourthStickerKit);
+    Platform::Print("SouvenirOpening: event %u stage %u teams %u/%u mvp %u stickers %u/%u/%u/%u slots %u\n",
+        tournament.eventId, tournament.stageId, tournament.team0Id, tournament.team1Id, tournament.mvpAccountId,
+        eventStickerKit, team0StickerKit, team1StickerKit, fourthStickerKit, stickerSlotCount);
+
+    if (!ApplyTournamentAttributes(item, stickerSlotCount, format == SouvenirFormat::EventOnly,
+            eventStickerKit, team0StickerKit, team1StickerKit, fourthStickerKit))
+    {
+        return false;
+    }
 
     return true;
 }
@@ -373,49 +390,96 @@ const LootListItem *SouvenirOpening::SelectItem(const std::vector<const LootList
     return nullptr;
 }
 
-void SouvenirOpening::ApplyTournamentAttributes(CSOEconItem &item, uint32_t eventStickerKit, uint32_t team1StickerKit, uint32_t team2StickerKit, uint32_t fourthStickerKit)
+bool SouvenirOpening::ApplyTournamentAttributes(CSOEconItem &item,
+    uint32_t stickerSlotCount,
+    bool dreamHack2013,
+    uint32_t eventStickerKit,
+    uint32_t team1StickerKit,
+    uint32_t team2StickerKit,
+    uint32_t fourthStickerKit)
 {
-    // Souvenir stickers are mint condition with default scale and rotation.
-    auto addSticker = [&](uint32_t stickerIdAttr, uint32_t wearAttr, uint32_t scaleAttr, uint32_t rotationAttr, uint32_t stickerKitDefIndex)
+    std::vector<uint32_t> stickerKits;
+    for (uint32_t stickerKit : { eventStickerKit, team1StickerKit, team2StickerKit, fourthStickerKit })
     {
-        if (stickerKitDefIndex == 0)
+        if (stickerKit != 0)
         {
-            return;
+            stickerKits.push_back(stickerKit);
         }
+    }
+
+    if (stickerKits.empty())
+    {
+        return true;
+    }
+
+    if (stickerSlotCount > static_cast<uint32_t>(MaxStickers)
+        || stickerKits.size() > stickerSlotCount)
+    {
+        Platform::Print("SouvenirOpening: item def %u has %u sticker slots for %zu stickers\n",
+            item.def_index(), stickerSlotCount, stickerKits.size());
+        return false;
+    }
+
+    std::array<uint32_t, MaxStickers> slots{};
+    for (uint32_t slot = 0; slot < stickerSlotCount; slot++)
+    {
+        slots[slot] = slot;
+    }
+
+    // Shuffle all valid slots, then use the first N. This produces a uniform
+    // assignment without placing two stickers in the same slot.
+    for (size_t count = stickerSlotCount; count > 1; count--)
+    {
+        size_t other = m_random.Integer<size_t>(0, count - 1);
+        std::swap(slots[count - 1], slots[other]);
+    }
+
+    for (size_t i = 0; i < stickerKits.size(); i++)
+    {
+        uint32_t slot = slots[i];
+        uint32_t stickerIdAttribute = ItemSchema::AttributeStickerId0 + slot * 4;
+        uint32_t stickerWearAttribute = ItemSchema::AttributeStickerWear0 + slot * 4;
+        uint32_t stickerScaleAttribute = ItemSchema::AttributeStickerScale0 + slot * 4;
+        uint32_t stickerRotationAttribute = ItemSchema::AttributeStickerRotation0 + slot * 4;
+
+        float wear = dreamHack2013
+            ? m_random.Float(DreamHack2013Sticker::MinWear, DreamHack2013Sticker::MaxWear)
+            : 0.0f;
+        float scale = dreamHack2013
+            ? m_random.Float(DreamHack2013Sticker::MinScale, DreamHack2013Sticker::MaxScale)
+            : 1.0f;
+        float rotation = dreamHack2013
+            ? m_random.Float(DreamHack2013Sticker::MinRotation, DreamHack2013Sticker::MaxRotation)
+            : 0.0f;
 
         CSOEconItemAttribute *attribute = item.add_attribute();
-        attribute->set_def_index(stickerIdAttr);
-        m_itemSchema.SetAttributeUint32(attribute, stickerKitDefIndex);
+        attribute->set_def_index(stickerIdAttribute);
+        if (!m_itemSchema.SetAttributeUint32(attribute, stickerKits[i]))
+        {
+            return false;
+        }
 
         attribute = item.add_attribute();
-        attribute->set_def_index(wearAttr);
-        m_itemSchema.SetAttributeFloat(attribute, 0.0f);
+        attribute->set_def_index(stickerWearAttribute);
+        if (!m_itemSchema.SetAttributeFloat(attribute, wear))
+        {
+            return false;
+        }
 
         attribute = item.add_attribute();
-        attribute->set_def_index(scaleAttr);
-        m_itemSchema.SetAttributeFloat(attribute, 1.0f);
+        attribute->set_def_index(stickerScaleAttribute);
+        if (!m_itemSchema.SetAttributeFloat(attribute, scale))
+        {
+            return false;
+        }
 
         attribute = item.add_attribute();
-        attribute->set_def_index(rotationAttr);
-        m_itemSchema.SetAttributeFloat(attribute, 0.0f);
-    };
-
-    // event sticker (slot 0)
-    addSticker(ItemSchema::AttributeStickerId0, ItemSchema::AttributeStickerWear0,
-        ItemSchema::AttributeStickerScale0, ItemSchema::AttributeStickerRotation0, eventStickerKit);
-
-    // team 1 sticker (slot 1)
-    addSticker(ItemSchema::AttributeStickerId1, ItemSchema::AttributeStickerWear1,
-        ItemSchema::AttributeStickerScale1, ItemSchema::AttributeStickerRotation1, team1StickerKit);
-
-    // team 2 sticker (slot 2)
-    addSticker(ItemSchema::AttributeStickerId2, ItemSchema::AttributeStickerWear2,
-        ItemSchema::AttributeStickerScale2, ItemSchema::AttributeStickerRotation2, team2StickerKit);
-
-    // MVP autograph (2015-2019) or map gold sticker (2021+) in slot 3.
-    if (fourthStickerKit != 0)
-    {
-        addSticker(ItemSchema::AttributeStickerId3, ItemSchema::AttributeStickerWear3,
-            ItemSchema::AttributeStickerScale3, ItemSchema::AttributeStickerRotation3, fourthStickerKit);
+        attribute->set_def_index(stickerRotationAttribute);
+        if (!m_itemSchema.SetAttributeFloat(attribute, rotation))
+        {
+            return false;
+        }
     }
+
+    return true;
 }

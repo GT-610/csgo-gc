@@ -2,9 +2,9 @@
 #include "gc_client.h"
 #include "gc_message.h"
 #include "keyvalue.h"
+#include "test_filesystem.h"
 
 #include <cstring>
-#include <filesystem>
 #include <cstdio>
 
 namespace Platform
@@ -144,9 +144,7 @@ static bool InventoryPersistenceProtectsFiles()
     constexpr const char *InventoryPath = "csgo_gc/inventory.txt";
     constexpr std::string_view MalformedInventory{ "\"items\"\n{\n\"2\"\n{\n" };
 
-    std::error_code error;
-    std::filesystem::create_directory(InventoryDirectory, error);
-    if (error)
+    if (!TestFilesystem::MakeDirectory(InventoryDirectory))
     {
         return false;
     }
@@ -170,7 +168,7 @@ static bool InventoryPersistenceProtectsFiles()
     }
 
     bool preserved = LoadFile(InventoryPath) == MalformedInventory;
-    std::filesystem::remove(InventoryPath, error);
+    TestFilesystem::RemoveFile(InventoryPath);
 
     {
         Inventory inventory{ 76561197960265729ull };
@@ -180,10 +178,8 @@ static bool InventoryPersistenceProtectsFiles()
     bool validEmptyInventory = savedInventory.ParseFromFile(InventoryPath)
         && savedInventory.GetNumber<int>("format_version") == 1;
 
-    error.clear();
-    std::filesystem::remove(InventoryPath, error);
-    error.clear();
-    std::filesystem::remove(InventoryDirectory, error);
+    TestFilesystem::RemoveFile(InventoryPath);
+    TestFilesystem::RemoveDirectory(InventoryDirectory);
     return preserved && validEmptyInventory;
 }
 

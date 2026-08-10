@@ -68,6 +68,7 @@ ItemInfo::ItemInfo(uint32_t defIndex)
     , m_quality{ ItemSchema::QualityNormal }
     , m_level{ 1 }
     , m_supplyCrateSeries{ 0 }
+    , m_stickerSlotCount{ 0 }
     , m_canSticker{ false }
     , m_canPatch{ false }
     , m_nameable{ false }
@@ -838,6 +839,22 @@ void ItemSchema::ParseItemRecursive(ItemInfo &info, const KeyValue &itemKey, con
     if (lootListName.size())
     {
         info.m_lootListName = lootListName;
+    }
+
+    const KeyValue *stickers = itemKey.GetSubkey("stickers");
+    if (stickers)
+    {
+        for (const KeyValue &sticker : *stickers)
+        {
+            uint32_t slot = FromString<uint32_t>(sticker.Name());
+            if (slot >= static_cast<uint32_t>(MaxStickers))
+            {
+                Platform::Print("Item %u has unsupported sticker slot %u\n", info.m_defIndex, slot);
+                continue;
+            }
+
+            info.m_stickerSlotCount = std::max(info.m_stickerSlotCount, slot + 1);
+        }
     }
 
     info.m_willProduceStatTrak = itemKey.GetNumber("will_produce_stattrak", false);
