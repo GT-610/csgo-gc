@@ -40,6 +40,7 @@ public:
     uint32_t m_quality;
     uint32_t m_level;
     uint32_t m_supplyCrateSeries; // cases only
+    uint32_t m_stickerSlotCount;
     TournamentMetadata m_tournament;
     std::string m_itemType;
     std::vector<std::string> m_prefabs;
@@ -338,4 +339,5 @@ private:
     std::unordered_map<uint32_t, const LootList &> m_revolvingLootLists;
 
     friend class ItemSchemaTestFixture;
+    friend class SouvenirTestFixture;
 };

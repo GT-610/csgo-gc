@@ -3,6 +3,16 @@
 class Random
 {
 public:
+    Random()
+        : m_engine{ std::random_device{}() }
+    {
+    }
+
+    explicit Random(uint32_t seed)
+        : m_engine{ seed }
+    {
+    }
+
     template<typename T>
     T Integer(T min, T max)
     {
@@ -21,5 +31,5 @@ public:
     }
 
 private:
-    std::mt19937 m_engine{ std::random_device{}() };
+    std::mt19937 m_engine;
 };

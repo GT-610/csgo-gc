@@ -147,6 +147,25 @@ if (BUILD_TESTING)
 
     add_test(NAME item_schema_tests COMMAND item_schema_tests)
 
+    add_executable(souvenir_tests
+        config.cpp
+        item_schema.cpp
+        keyvalue.cpp
+        souvenir.cpp
+        souvenir_tests.cpp)
+
+    target_precompile_headers(souvenir_tests PRIVATE stdafx.h)
+    target_link_libraries(souvenir_tests PRIVATE csgo_gc_protobufs)
+
+    if (MSVC)
+        target_compile_options(souvenir_tests PRIVATE /W4 /wd4244 /wd4819)
+        target_compile_definitions(souvenir_tests PRIVATE _CRT_SECURE_NO_WARNINGS)
+    else()
+        target_compile_options(souvenir_tests PRIVATE -Wall -Wextra)
+    endif()
+
+    add_test(NAME souvenir_tests COMMAND souvenir_tests)
+
     add_executable(keyvalue_tests
         keyvalue_tests.cpp
         keyvalue.cpp)
