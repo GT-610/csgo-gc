@@ -1,10 +1,10 @@
 #include "stdafx.h"
 #include "gc_client.h"
 #include "rcon_server.h"
+#include "test_filesystem.h"
 
 #include <cstdarg>
 #include <cstdio>
-#include <filesystem>
 
 namespace
 {
@@ -15,9 +15,7 @@ std::vector<std::string> s_logMessages;
 
 bool WriteConfig()
 {
-    std::error_code error;
-    std::filesystem::create_directories("csgo_gc", error);
-    if (error)
+    if (!TestFilesystem::MakeDirectory("csgo_gc"))
     {
         return false;
     }
@@ -118,7 +116,7 @@ int main()
 {
     bool success = ListenerFailureDisablesRconWithoutRetrying();
 
-    std::error_code error;
-    std::filesystem::remove_all("csgo_gc", error);
+    TestFilesystem::RemoveFile("csgo_gc/config.txt");
+    TestFilesystem::RemoveDirectory("csgo_gc");
     return success ? 0 : 1;
 }
