@@ -636,7 +636,8 @@ public:
             return true;
         }
 
-        if (SavedItemShuffles::IsWriteCall(hSteamAPICall))
+        if (SavedItemShuffles::IsWriteCall(hSteamAPICall)
+            || SavedItemShuffles::IsReadCall(hSteamAPICall))
         {
             if (pbFailed)
             {
@@ -652,7 +653,8 @@ public:
     ESteamAPICallFailure GetAPICallFailureReason(auto original, SteamAPICall_t hSteamAPICall)
     {
         if (hSteamAPICall == CheckSignatureCall
-            || SavedItemShuffles::IsWriteCall(hSteamAPICall))
+            || SavedItemShuffles::IsWriteCall(hSteamAPICall)
+            || SavedItemShuffles::IsReadCall(hSteamAPICall))
         {
             return k_ESteamAPICallFailureNone;
         }
@@ -680,6 +682,12 @@ public:
         if (SavedItemShuffles::IsWriteCall(hSteamAPICall))
         {
             return SavedItemShuffles::GetWriteCallResult(hSteamAPICall,
+                pCallback, cubCallback, iCallbackExpected, pbFailed);
+        }
+
+        if (SavedItemShuffles::IsReadCall(hSteamAPICall))
+        {
+            return SavedItemShuffles::GetReadCallResult(hSteamAPICall,
                 pCallback, cubCallback, iCallbackExpected, pbFailed);
         }
 
@@ -737,6 +745,46 @@ public:
             SavedItemShuffles::FileWrite(pvData, cubData));
     }
 
+    SteamAPICall_t FileReadAsync(auto original, const char *pchFile, uint32 nOffset, uint32 cubToRead)
+    {
+        if (!UseLocalStorage(pchFile))
+        {
+            return original(pchFile, nOffset, cubToRead);
+        }
+
+        return SavedItemShuffles::MakeReadCall(nOffset, cubToRead);
+    }
+
+    bool FileReadAsyncComplete(auto original, SteamAPICall_t hReadCall, void *pvBuffer, uint32 cubToRead)
+    {
+        if (!SavedItemShuffles::IsReadCall(hReadCall))
+        {
+            return original(hReadCall, pvBuffer, cubToRead);
+        }
+
+        return SavedItemShuffles::CompleteReadCall(hReadCall, pvBuffer, cubToRead);
+    }
+
+    bool FileForget(auto original, const char *pchFile)
+    {
+        if (!UseLocalStorage(pchFile))
+        {
+            return original(pchFile);
+        }
+
+        return SavedItemShuffles::FileForget();
+    }
+
+    bool FileDelete(auto original, const char *pchFile)
+    {
+        if (!UseLocalStorage(pchFile))
+        {
+            return original(pchFile);
+        }
+
+        return SavedItemShuffles::FileDelete();
+    }
+
     bool FileExists(auto original, const char *pchFile)
     {
         if (!UseLocalStorage(pchFile))
@@ -747,6 +795,16 @@ public:
         return SavedItemShuffles::FileExists();
     }
 
+    bool FilePersisted(auto original, const char *pchFile)
+    {
+        if (!UseLocalStorage(pchFile))
+        {
+            return original(pchFile);
+        }
+
+        return SavedItemShuffles::FilePersisted();
+    }
+
     int32 GetFileSize(auto original, const char *pchFile)
     {
         if (!UseLocalStorage(pchFile))
@@ -755,6 +813,16 @@ public:
         }
 
         return SavedItemShuffles::GetFileSize();
+    }
+
+    int64 GetFileTimestamp(auto original, const char *pchFile)
+    {
+        if (!UseLocalStorage(pchFile))
+        {
+            return original(pchFile);
+        }
+
+        return SavedItemShuffles::GetFileTimestamp();
     }
 };
 

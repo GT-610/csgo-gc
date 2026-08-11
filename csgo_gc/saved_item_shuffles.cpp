@@ -5,12 +5,16 @@
 #include <cstdio>
 #include <cstring>
 #include <limits>
+#include <mutex>
+#include <unordered_map>
+#include <vector>
 
 #ifdef _WIN32
 #include <io.h>
 #include <process.h>
 #include <windows.h>
 #else
+#include <sys/stat.h>
 #include <unistd.h>
 #endif
 
@@ -22,11 +26,24 @@ namespace
 
 constexpr uint32_t OriginalAppId = 730;
 constexpr uint64_t WriteCallPrefix = 0x4353474f00000000ULL;
+constexpr uint64_t ReadCallPrefix = 0x4353475200000000ULL;
 constexpr uint64_t WriteCallPrefixMask = 0xffffffff00000000ULL;
 constexpr uint64_t WriteCallSuccessMask = 1;
 
 std::atomic<uint32_t> s_temporaryFileCounter;
 std::atomic<uint32_t> s_writeCallCounter{ 1 };
+std::atomic<uint32_t> s_readCallCounter{ 1 };
+
+struct ReadCall
+{
+    EResult result{ k_EResultFail };
+    uint32 offset{};
+    uint32 requestedSize{};
+    std::vector<uint8_t> data;
+};
+
+std::mutex s_readCallsMutex;
+std::unordered_map<SteamAPICall_t, ReadCall> s_readCalls;
 
 bool PathsEqual(const char *left, const char *right)
 {
@@ -52,6 +69,49 @@ void PrintFileError(const char *operation)
 {
     Platform::Print("Saved item shuffles: %s %s failed (%d: %s)\n",
         operation, LocalPath, errno, std::strerror(errno));
+}
+
+bool EnsureDirectoryExists()
+{
+#ifdef _WIN32
+    if (CreateDirectoryA(DirectoryPath, nullptr))
+    {
+        return true;
+    }
+
+    DWORD error = GetLastError();
+    if (error == ERROR_ALREADY_EXISTS)
+    {
+        DWORD attributes = GetFileAttributesA(DirectoryPath);
+        if (attributes != INVALID_FILE_ATTRIBUTES
+            && (attributes & FILE_ATTRIBUTE_DIRECTORY))
+        {
+            return true;
+        }
+    }
+
+    Platform::Print("Saved item shuffles: creating %s failed (Windows error %lu)\n",
+        DirectoryPath, static_cast<unsigned long>(error));
+    return false;
+#else
+    if (mkdir(DirectoryPath, 0755) == 0)
+    {
+        return true;
+    }
+
+    if (errno == EEXIST)
+    {
+        struct stat status{};
+        if (stat(DirectoryPath, &status) == 0 && S_ISDIR(status.st_mode))
+        {
+            return true;
+        }
+    }
+
+    Platform::Print("Saved item shuffles: creating %s failed (%d: %s)\n",
+        DirectoryPath, errno, std::strerror(errno));
+    return false;
+#endif
 }
 
 std::string TemporaryPath()
@@ -102,6 +162,11 @@ bool ShouldUseLocalStorage(uint32_t appId, const char *remotePath)
 bool FileWrite(const void *data, uint32_t size)
 {
     if (!data || size > k_unMaxCloudFileChunkSize)
+    {
+        return false;
+    }
+
+    if (!EnsureDirectoryExists())
     {
         return false;
     }
@@ -174,6 +239,28 @@ int32 FileRead(void *data, int32 size)
     return static_cast<int32>(bytesRead);
 }
 
+bool FileForget()
+{
+    // There is no cloud copy to forget. Keep the local file, matching Steam's
+    // behavior of removing cloud persistence without deleting local data.
+    return FileExists();
+}
+
+bool FileDelete()
+{
+    errno = 0;
+    if (remove(LocalPath) == 0)
+    {
+        return true;
+    }
+
+    if (errno != ENOENT)
+    {
+        PrintFileError("deleting");
+    }
+    return false;
+}
+
 bool FileExists()
 {
     errno = 0;
@@ -194,6 +281,11 @@ bool FileExists()
     }
 
     return true;
+}
+
+bool FilePersisted()
+{
+    return FileExists();
 }
 
 int32 GetFileSize()
@@ -220,6 +312,44 @@ int32 GetFileSize()
     }
 
     return static_cast<int32>(size);
+}
+
+int64 GetFileTimestamp()
+{
+#ifdef _WIN32
+    WIN32_FILE_ATTRIBUTE_DATA attributes{};
+    if (!GetFileAttributesExA(LocalPath, GetFileExInfoStandard, &attributes))
+    {
+        DWORD error = GetLastError();
+        if (error != ERROR_FILE_NOT_FOUND && error != ERROR_PATH_NOT_FOUND)
+        {
+            Platform::Print("Saved item shuffles: getting timestamp for %s failed (Windows error %lu)\n",
+                LocalPath, static_cast<unsigned long>(error));
+        }
+        return 0;
+    }
+
+    ULARGE_INTEGER timestamp{};
+    timestamp.LowPart = attributes.ftLastWriteTime.dwLowDateTime;
+    timestamp.HighPart = attributes.ftLastWriteTime.dwHighDateTime;
+    constexpr uint64_t WindowsToUnixEpoch = 116444736000000000ULL;
+    if (timestamp.QuadPart < WindowsToUnixEpoch)
+    {
+        return 0;
+    }
+    return static_cast<int64>((timestamp.QuadPart - WindowsToUnixEpoch) / 10000000ULL);
+#else
+    struct stat status{};
+    if (stat(LocalPath, &status) != 0)
+    {
+        if (errno != ENOENT)
+        {
+            PrintFileError("getting timestamp for");
+        }
+        return 0;
+    }
+    return static_cast<int64>(status.st_mtime);
+#endif
 }
 
 SteamAPICall_t MakeWriteCall(bool success)
@@ -262,6 +392,146 @@ bool GetWriteCallResult(SteamAPICall_t call, void *callback, int callbackSize,
     RemoteStorageFileWriteAsyncComplete_t result{};
     result.m_eResult = WriteCallSucceeded(call) ? k_EResultOK : k_EResultFail;
     memcpy(callback, &result, sizeof(result));
+    return true;
+}
+
+SteamAPICall_t MakeReadCall(uint32 offset, uint32 size)
+{
+    uint64_t sequence = s_readCallCounter.fetch_add(1, std::memory_order_relaxed);
+    SteamAPICall_t call = ReadCallPrefix | sequence;
+
+    ReadCall readCall;
+    readCall.offset = offset;
+    readCall.requestedSize = size;
+    if (size > k_unMaxCloudFileChunkSize)
+    {
+        readCall.result = k_EResultInvalidParam;
+    }
+    else
+    {
+        errno = 0;
+        FILE *file = fopen(LocalPath, "rb");
+        if (!file)
+        {
+            if (errno == ENOENT)
+            {
+                readCall.result = k_EResultFileNotFound;
+            }
+            else
+            {
+                PrintFileError("opening");
+            }
+        }
+        else
+        {
+#ifdef _WIN32
+            bool failed = _fseeki64(file, offset, SEEK_SET) != 0;
+#else
+            bool failed = fseeko(file, static_cast<off_t>(offset), SEEK_SET) != 0;
+#endif
+            if (!failed)
+            {
+                readCall.data.resize(size);
+                size_t bytesRead = size
+                    ? fread(readCall.data.data(), 1, size, file)
+                    : 0;
+                failed = ferror(file) != 0;
+                readCall.data.resize(bytesRead);
+            }
+            failed |= fclose(file) != 0;
+
+            if (failed)
+            {
+                PrintFileError("reading");
+                readCall.data.clear();
+            }
+            else
+            {
+                readCall.result = k_EResultOK;
+            }
+        }
+    }
+
+    std::scoped_lock lock{ s_readCallsMutex };
+    s_readCalls.emplace(call, std::move(readCall));
+    return call;
+}
+
+bool IsReadCall(SteamAPICall_t call)
+{
+    return (call & WriteCallPrefixMask) == ReadCallPrefix;
+}
+
+bool GetReadCallResult(SteamAPICall_t call, void *callback, int callbackSize,
+    int expectedCallback, bool *failed)
+{
+    if (!IsReadCall(call)
+        || !callback
+        || callbackSize != sizeof(RemoteStorageFileReadAsyncComplete_t)
+        || expectedCallback != RemoteStorageFileReadAsyncComplete_t::k_iCallback)
+    {
+        if (failed)
+        {
+            *failed = true;
+        }
+        return false;
+    }
+
+    std::scoped_lock lock{ s_readCallsMutex };
+    auto it = s_readCalls.find(call);
+    if (it == s_readCalls.end())
+    {
+        if (failed)
+        {
+            *failed = true;
+        }
+        return false;
+    }
+
+    if (failed)
+    {
+        *failed = false;
+    }
+
+    RemoteStorageFileReadAsyncComplete_t result{};
+    result.m_hFileReadAsync = call;
+    result.m_eResult = it->second.result;
+    result.m_nOffset = it->second.offset;
+    result.m_cubRead = static_cast<uint32>(it->second.data.size());
+    memcpy(callback, &result, sizeof(result));
+
+    if (it->second.result != k_EResultOK)
+    {
+        s_readCalls.erase(it);
+    }
+    return true;
+}
+
+bool CompleteReadCall(SteamAPICall_t call, void *buffer, uint32 bufferSize)
+{
+    if (!IsReadCall(call))
+    {
+        return false;
+    }
+
+    std::scoped_lock lock{ s_readCallsMutex };
+    auto it = s_readCalls.find(call);
+    if (it == s_readCalls.end() || it->second.result != k_EResultOK)
+    {
+        return false;
+    }
+
+    if (bufferSize < it->second.requestedSize
+        || (!buffer && it->second.requestedSize))
+    {
+        return false;
+    }
+
+    if (!it->second.data.empty())
+    {
+        memcpy(buffer, it->second.data.data(), it->second.data.size());
+    }
+    s_readCalls.erase(it);
     return true;
 }
 
