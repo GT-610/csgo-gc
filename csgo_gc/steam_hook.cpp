@@ -16,6 +16,7 @@
 #include "gc_server.h"
 #include "platform.h"
 #include "rcon_server.h"
+#include "saved_item_shuffles.h"
 #include <funchook.h>
 
 #ifdef _WIN32
@@ -635,21 +636,31 @@ public:
             return true;
         }
 
+        if (SavedItemShuffles::IsWriteCall(hSteamAPICall)
+            || SavedItemShuffles::IsReadCall(hSteamAPICall))
+        {
+            if (pbFailed)
+            {
+                *pbFailed = false;
+            }
+
+            return true;
+        }
+
         return original(hSteamAPICall, pbFailed);
     }
 
-    // yeah we won't get here
-    //ESteamAPICallFailure GetAPICallFailureReason(auto original, SteamAPICall_t hSteamAPICall)
-    //{
-    //    if (hSteamAPICall == CheckSignatureCall)
-    //    {
-    //        // not properly handled, shouldn't get here
-    //        assert(false);
-    //        return k_ESteamAPICallFailureNone;
-    //    }
-    //
-    //    return original(hSteamAPICall);
-    //}
+    ESteamAPICallFailure GetAPICallFailureReason(auto original, SteamAPICall_t hSteamAPICall)
+    {
+        if (hSteamAPICall == CheckSignatureCall
+            || SavedItemShuffles::IsWriteCall(hSteamAPICall)
+            || SavedItemShuffles::IsReadCall(hSteamAPICall))
+        {
+            return k_ESteamAPICallFailureNone;
+        }
+
+        return original(hSteamAPICall);
+    }
 
     bool GetAPICallResult(auto original, SteamAPICall_t hSteamAPICall, void *pCallback, int cubCallback, int iCallbackExpected, bool *pbFailed)
     {
@@ -668,6 +679,18 @@ public:
             return true;
         }
 
+        if (SavedItemShuffles::IsWriteCall(hSteamAPICall))
+        {
+            return SavedItemShuffles::GetWriteCallResult(hSteamAPICall,
+                pCallback, cubCallback, iCallbackExpected, pbFailed);
+        }
+
+        if (SavedItemShuffles::IsReadCall(hSteamAPICall))
+        {
+            return SavedItemShuffles::GetReadCallResult(hSteamAPICall,
+                pCallback, cubCallback, iCallbackExpected, pbFailed);
+        }
+
         return original(hSteamAPICall, pCallback, cubCallback, iCallbackExpected, pbFailed);
     }
 
@@ -675,6 +698,131 @@ public:
     {
         // handle this
         return CheckSignatureCall;
+    }
+};
+
+class SteamRemoteStorageProxy final
+{
+    bool UseLocalStorage(const char *path) const
+    {
+        return SavedItemShuffles::ShouldUseLocalStorage(AppId::GetOverride(), path);
+    }
+
+public:
+    bool FileWrite(auto original, const char *pchFile, const void *pvData, int32 cubData)
+    {
+        if (!UseLocalStorage(pchFile))
+        {
+            return original(pchFile, pvData, cubData);
+        }
+
+        if (cubData < 0)
+        {
+            return false;
+        }
+
+        return SavedItemShuffles::FileWrite(pvData, static_cast<uint32_t>(cubData));
+    }
+
+    int32 FileRead(auto original, const char *pchFile, void *pvData, int32 cubDataToRead)
+    {
+        if (!UseLocalStorage(pchFile))
+        {
+            return original(pchFile, pvData, cubDataToRead);
+        }
+
+        return SavedItemShuffles::FileRead(pvData, cubDataToRead);
+    }
+
+    SteamAPICall_t FileWriteAsync(auto original, const char *pchFile, const void *pvData, uint32 cubData)
+    {
+        if (!UseLocalStorage(pchFile))
+        {
+            return original(pchFile, pvData, cubData);
+        }
+
+        return SavedItemShuffles::MakeWriteCall(
+            SavedItemShuffles::FileWrite(pvData, cubData));
+    }
+
+    SteamAPICall_t FileReadAsync(auto original, const char *pchFile, uint32 nOffset, uint32 cubToRead)
+    {
+        if (!UseLocalStorage(pchFile))
+        {
+            return original(pchFile, nOffset, cubToRead);
+        }
+
+        return SavedItemShuffles::MakeReadCall(nOffset, cubToRead);
+    }
+
+    bool FileReadAsyncComplete(auto original, SteamAPICall_t hReadCall, void *pvBuffer, uint32 cubToRead)
+    {
+        if (!SavedItemShuffles::IsReadCall(hReadCall))
+        {
+            return original(hReadCall, pvBuffer, cubToRead);
+        }
+
+        return SavedItemShuffles::CompleteReadCall(hReadCall, pvBuffer, cubToRead);
+    }
+
+    bool FileForget(auto original, const char *pchFile)
+    {
+        if (!UseLocalStorage(pchFile))
+        {
+            return original(pchFile);
+        }
+
+        return SavedItemShuffles::FileForget();
+    }
+
+    bool FileDelete(auto original, const char *pchFile)
+    {
+        if (!UseLocalStorage(pchFile))
+        {
+            return original(pchFile);
+        }
+
+        return SavedItemShuffles::FileDelete();
+    }
+
+    bool FileExists(auto original, const char *pchFile)
+    {
+        if (!UseLocalStorage(pchFile))
+        {
+            return original(pchFile);
+        }
+
+        return SavedItemShuffles::FileExists();
+    }
+
+    bool FilePersisted(auto original, const char *pchFile)
+    {
+        if (!UseLocalStorage(pchFile))
+        {
+            return original(pchFile);
+        }
+
+        return SavedItemShuffles::FilePersisted();
+    }
+
+    int32 GetFileSize(auto original, const char *pchFile)
+    {
+        if (!UseLocalStorage(pchFile))
+        {
+            return original(pchFile);
+        }
+
+        return SavedItemShuffles::GetFileSize();
+    }
+
+    int64 GetFileTimestamp(auto original, const char *pchFile)
+    {
+        if (!UseLocalStorage(pchFile))
+        {
+            return original(pchFile);
+        }
+
+        return SavedItemShuffles::GetFileTimestamp();
     }
 };
 
@@ -915,6 +1063,8 @@ public:
 #include <proxy/steamgameserverproxy013.h>
 #include <proxy/steamgameserverproxy014.h>
 #include <proxy/steammatchmakingserversproxy002.h>
+#include <proxy/steamremotestorageproxy014.h>
+#include <proxy/steamremotestorageproxy016.h>
 #include <proxy/steamuserproxy014.h>
 #include <proxy/steamuserproxy015.h>
 #include <proxy/steamuserproxy016.h>
@@ -1043,6 +1193,14 @@ public:
             return nullptr;
         }
 
+        if (VersionNameIs(version, "STEAMREMOTESTORAGE_INTERFACE_VERSION"))
+        {
+            PROXY_INTERFACE(SteamRemoteStorage, 014);
+            PROXY_INTERFACE(SteamRemoteStorage, 016);
+            Platform::Print("Can't hook %s\n", version);
+            return nullptr;
+        }
+
         if (VersionNameIs(version, "SteamUtils"))
         {
             // old csgo builds fetch SteamUtils with a stale version...
@@ -1084,6 +1242,7 @@ private:
     std::unique_ptr<SteamGameServerProxy> m_proxySteamGameServer;
     std::unique_ptr<SteamUserProxy> m_proxySteamUser;
     std::unique_ptr<SteamMatchmakingServersProxy> m_proxySteamMatchmakingServers;
+    std::unique_ptr<SteamRemoteStorageProxy> m_proxySteamRemoteStorage;
 };
 
 class SteamClientProxy final
@@ -1177,6 +1336,11 @@ public:
     void *GetISteamGenericInterface(auto original, HSteamUser hSteamUser, HSteamPipe hSteamPipe, const char *pchVersion)
     {
         return ProxyInterface(original(hSteamUser, hSteamPipe, pchVersion), hSteamUser, hSteamPipe, pchVersion, true);
+    }
+
+    ISteamRemoteStorage *GetISteamRemoteStorage(auto original, HSteamUser hSteamUser, HSteamPipe hSteamPipe, const char *pchVersion)
+    {
+        return ProxyInterface(original(hSteamUser, hSteamPipe, pchVersion), hSteamUser, hSteamPipe, pchVersion);
     }
 
     ISteamUserStats *GetISteamUserStats(auto original, HSteamUser hSteamUser, HSteamPipe hSteamPipe, const char *pchVersion)

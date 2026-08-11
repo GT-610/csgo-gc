@@ -36,6 +36,7 @@ add_library(csgo_gc SHARED
     networking_client.cpp
     networking_server.cpp
     rcon_server.cpp
+    saved_item_shuffles.cpp
     souvenir.cpp
     steam_hook.cpp)
 
@@ -209,4 +210,28 @@ if (BUILD_TESTING)
     add_test(NAME rcon_server_tests COMMAND rcon_server_tests)
     set_tests_properties(rcon_server_tests PROPERTIES
         WORKING_DIRECTORY "${RCON_SERVER_TEST_WORKING_DIRECTORY}")
+
+    add_executable(saved_item_shuffles_tests
+        saved_item_shuffles.cpp
+        saved_item_shuffles_tests.cpp)
+
+    target_precompile_headers(saved_item_shuffles_tests PRIVATE stdafx.h)
+    target_link_libraries(saved_item_shuffles_tests PRIVATE
+        csgo_gc_protobufs
+        steam_api)
+
+    if (MSVC)
+        target_compile_options(saved_item_shuffles_tests PRIVATE /W4 /wd4244 /wd4819)
+        target_compile_definitions(saved_item_shuffles_tests PRIVATE _CRT_SECURE_NO_WARNINGS)
+    else()
+        target_compile_options(saved_item_shuffles_tests PRIVATE -Wall -Wextra)
+    endif()
+
+    set(SAVED_ITEM_SHUFFLES_TEST_WORKING_DIRECTORY
+        "${CMAKE_CURRENT_BINARY_DIR}/saved_item_shuffles_test_workdir")
+    file(MAKE_DIRECTORY
+        "${SAVED_ITEM_SHUFFLES_TEST_WORKING_DIRECTORY}/csgo_gc")
+    add_test(NAME saved_item_shuffles_tests COMMAND saved_item_shuffles_tests)
+    set_tests_properties(saved_item_shuffles_tests PROPERTIES
+        WORKING_DIRECTORY "${SAVED_ITEM_SHUFFLES_TEST_WORKING_DIRECTORY}")
 endif()
