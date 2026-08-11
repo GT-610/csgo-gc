@@ -1,9 +1,11 @@
 #include "stdafx.h"
 #include "saved_item_shuffles.h"
 
+#include <algorithm>
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
+#include <deque>
 #include <limits>
 #include <mutex>
 #include <unordered_map>
@@ -29,6 +31,8 @@ constexpr uint64_t WriteCallPrefix = 0x4353474f00000000ULL;
 constexpr uint64_t ReadCallPrefix = 0x4353475200000000ULL;
 constexpr uint64_t WriteCallPrefixMask = 0xffffffff00000000ULL;
 constexpr uint64_t WriteCallSuccessMask = 1;
+constexpr size_t MaxPendingReadCalls = 16;
+constexpr size_t MaxPendingReadBytes = k_unMaxCloudFileChunkSize;
 
 std::atomic<uint32_t> s_temporaryFileCounter;
 std::atomic<uint32_t> s_writeCallCounter{ 1 };
@@ -44,6 +48,64 @@ struct ReadCall
 
 std::mutex s_readCallsMutex;
 std::unordered_map<SteamAPICall_t, ReadCall> s_readCalls;
+std::deque<SteamAPICall_t> s_readCallOrder;
+size_t s_pendingReadBytes;
+
+bool SeekFile(FILE *file, int64 offset, int origin)
+{
+#ifdef _WIN32
+    return _fseeki64(file, offset, origin) == 0;
+#else
+    return fseeko(file, static_cast<off_t>(offset), origin) == 0;
+#endif
+}
+
+int64 TellFile(FILE *file)
+{
+#ifdef _WIN32
+    return _ftelli64(file);
+#else
+    return static_cast<int64>(ftello(file));
+#endif
+}
+
+void EraseReadCallLocked(SteamAPICall_t call)
+{
+    auto it = s_readCalls.find(call);
+    if (it == s_readCalls.end())
+    {
+        return;
+    }
+
+    s_pendingReadBytes -= it->second.data.size();
+    s_readCalls.erase(it);
+    auto orderIt = std::find(s_readCallOrder.begin(), s_readCallOrder.end(), call);
+    if (orderIt != s_readCallOrder.end())
+    {
+        s_readCallOrder.erase(orderIt);
+    }
+}
+
+void StoreReadCallLocked(SteamAPICall_t call, ReadCall readCall)
+{
+    while (!s_readCallOrder.empty()
+        && (s_readCalls.size() >= MaxPendingReadCalls
+            || s_pendingReadBytes + readCall.data.size() > MaxPendingReadBytes))
+    {
+        SteamAPICall_t oldest = s_readCallOrder.front();
+        s_readCallOrder.pop_front();
+        auto it = s_readCalls.find(oldest);
+        if (it != s_readCalls.end())
+        {
+            s_pendingReadBytes -= it->second.data.size();
+            s_readCalls.erase(it);
+        }
+    }
+
+    s_pendingReadBytes += readCall.data.size();
+    s_readCalls.emplace(call, std::move(readCall));
+    s_readCallOrder.push_back(call);
+}
 
 bool PathsEqual(const char *left, const char *right)
 {
@@ -424,16 +486,25 @@ SteamAPICall_t MakeReadCall(uint32 offset, uint32 size)
         }
         else
         {
-#ifdef _WIN32
-            bool failed = _fseeki64(file, offset, SEEK_SET) != 0;
-#else
-            bool failed = fseeko(file, static_cast<off_t>(offset), SEEK_SET) != 0;
-#endif
+            bool failed = !SeekFile(file, 0, SEEK_END);
+            int64 fileSize = failed ? -1 : TellFile(file);
+            failed |= fileSize < 0;
+            uint32 bytesToRead = 0;
             if (!failed)
             {
-                readCall.data.resize(size);
-                size_t bytesRead = size
-                    ? fread(readCall.data.data(), 1, size, file)
+                if (static_cast<uint64_t>(offset) < static_cast<uint64_t>(fileSize))
+                {
+                    uint64_t remaining = static_cast<uint64_t>(fileSize) - offset;
+                    bytesToRead = static_cast<uint32>(
+                        (std::min)(static_cast<uint64_t>(size), remaining));
+                }
+                failed = bytesToRead && !SeekFile(file, offset, SEEK_SET);
+            }
+            if (!failed)
+            {
+                readCall.data.resize(bytesToRead);
+                size_t bytesRead = bytesToRead
+                    ? fread(readCall.data.data(), 1, bytesToRead, file)
                     : 0;
                 failed = ferror(file) != 0;
                 readCall.data.resize(bytesRead);
@@ -453,7 +524,7 @@ SteamAPICall_t MakeReadCall(uint32 offset, uint32 size)
     }
 
     std::scoped_lock lock{ s_readCallsMutex };
-    s_readCalls.emplace(call, std::move(readCall));
+    StoreReadCallLocked(call, std::move(readCall));
     return call;
 }
 
@@ -502,7 +573,7 @@ bool GetReadCallResult(SteamAPICall_t call, void *callback, int callbackSize,
 
     if (it->second.result != k_EResultOK)
     {
-        s_readCalls.erase(it);
+        EraseReadCallLocked(call);
     }
     return true;
 }
@@ -531,7 +602,7 @@ bool CompleteReadCall(SteamAPICall_t call, void *buffer, uint32 bufferSize)
     {
         memcpy(buffer, it->second.data.data(), it->second.data.size());
     }
-    s_readCalls.erase(it);
+    EraseReadCallLocked(call);
     return true;
 }
 

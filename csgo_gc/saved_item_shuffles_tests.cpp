@@ -27,6 +27,7 @@ namespace
 {
 
 constexpr const char *TemporaryFilePrefix = "saved_item_shuffles.txt.tmp.";
+constexpr const char *LocalFileName = "saved_item_shuffles.txt";
 
 bool Check(bool condition, const char *expression, int line)
 {
@@ -39,7 +40,13 @@ bool Check(bool condition, const char *expression, int line)
 
 #define CHECK(expression) Check((expression), #expression, __LINE__)
 
-bool RemoveStoragePath()
+bool IsStorageFile(const char *name)
+{
+    return !strcmp(name, LocalFileName)
+        || !strncmp(name, TemporaryFilePrefix, strlen(TemporaryFilePrefix));
+}
+
+bool RemoveStoragePath(bool removeDirectory)
 {
 #ifdef _WIN32
     DWORD attributes = GetFileAttributesA(SavedItemShuffles::DirectoryPath);
@@ -58,9 +65,9 @@ bool RemoveStoragePath()
     pattern.append("\\*");
     WIN32_FIND_DATAA entry{};
     HANDLE search = FindFirstFileA(pattern.c_str(), &entry);
+    bool succeeded = true;
     if (search != INVALID_HANDLE_VALUE)
     {
-        bool succeeded = true;
         do
         {
             if (!strcmp(entry.cFileName, ".") || !strcmp(entry.cFileName, ".."))
@@ -68,13 +75,16 @@ bool RemoveStoragePath()
                 continue;
             }
 
-            std::string path = SavedItemShuffles::DirectoryPath;
-            path.push_back('\\');
-            path.append(entry.cFileName);
-            if ((entry.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
-                || !DeleteFileA(path.c_str()))
+            if (IsStorageFile(entry.cFileName))
             {
-                succeeded = false;
+                std::string path = SavedItemShuffles::DirectoryPath;
+                path.push_back('\\');
+                path.append(entry.cFileName);
+                if ((entry.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+                    || !DeleteFileA(path.c_str()))
+                {
+                    succeeded = false;
+                }
             }
         } while (FindNextFileA(search, &entry));
         FindClose(search);
@@ -88,7 +98,8 @@ bool RemoveStoragePath()
         return false;
     }
 
-    return RemoveDirectoryA(SavedItemShuffles::DirectoryPath) != 0;
+    return succeeded && (!removeDirectory
+        || RemoveDirectoryA(SavedItemShuffles::DirectoryPath) != 0);
 #else
     struct stat status{};
     if (lstat(SavedItemShuffles::DirectoryPath, &status) != 0)
@@ -115,31 +126,101 @@ bool RemoveStoragePath()
             continue;
         }
 
-        std::string path = SavedItemShuffles::DirectoryPath;
-        path.push_back('/');
-        path.append(entry->d_name);
-        if (unlink(path.c_str()) != 0)
+        if (IsStorageFile(entry->d_name))
         {
-            succeeded = false;
+            std::string path = SavedItemShuffles::DirectoryPath;
+            path.push_back('/');
+            path.append(entry->d_name);
+            if (unlink(path.c_str()) != 0)
+            {
+                succeeded = false;
+            }
         }
     }
     succeeded &= closedir(directory) == 0;
-    return succeeded && rmdir(SavedItemShuffles::DirectoryPath) == 0;
+    return succeeded && (!removeDirectory
+        || rmdir(SavedItemShuffles::DirectoryPath) == 0);
 #endif
 }
 
-bool CreateStorageDirectory()
+bool EnsureStorageDirectory()
 {
 #ifdef _WIN32
-    return CreateDirectoryA(SavedItemShuffles::DirectoryPath, nullptr) != 0;
+    if (CreateDirectoryA(SavedItemShuffles::DirectoryPath, nullptr))
+    {
+        return true;
+    }
+    DWORD error = GetLastError();
+    DWORD attributes = GetFileAttributesA(SavedItemShuffles::DirectoryPath);
+    return error == ERROR_ALREADY_EXISTS
+        && attributes != INVALID_FILE_ATTRIBUTES
+        && (attributes & FILE_ATTRIBUTE_DIRECTORY);
 #else
-    return mkdir(SavedItemShuffles::DirectoryPath, 0755) == 0;
+    if (mkdir(SavedItemShuffles::DirectoryPath, 0755) == 0)
+    {
+        return true;
+    }
+    int error = errno;
+    struct stat status{};
+    return error == EEXIST
+        && stat(SavedItemShuffles::DirectoryPath, &status) == 0
+        && S_ISDIR(status.st_mode);
 #endif
 }
 
 bool ResetStorage()
 {
-    return RemoveStoragePath() && CreateStorageDirectory();
+    return RemoveStoragePath(false) && EnsureStorageDirectory();
+}
+
+std::string StoragePath(const char *name)
+{
+    std::string path = SavedItemShuffles::DirectoryPath;
+#ifdef _WIN32
+    path.push_back('\\');
+#else
+    path.push_back('/');
+#endif
+    path.append(name);
+    return path;
+}
+
+bool ResetStoragePreservesUnrelatedFiles()
+{
+    if (!CHECK(ResetStorage()))
+    {
+        return false;
+    }
+
+    const uint8_t data = 42;
+    if (!CHECK(SavedItemShuffles::FileWrite(&data, 1)))
+    {
+        return false;
+    }
+
+    std::string unrelatedPath = StoragePath("saved_item_shuffles_test_unrelated.txt");
+    FILE *unrelatedFile = fopen(unrelatedPath.c_str(), "wb");
+    if (!CHECK(unrelatedFile != nullptr))
+    {
+        return false;
+    }
+    bool created = fwrite(&data, 1, 1, unrelatedFile) == 1;
+    created &= fclose(unrelatedFile) == 0;
+
+    bool reset = created && ResetStorage();
+    FILE *preservedFile = reset ? fopen(unrelatedPath.c_str(), "rb") : nullptr;
+    bool preserved = preservedFile != nullptr;
+    if (preservedFile)
+    {
+        preserved &= fclose(preservedFile) == 0;
+    }
+    bool removed = remove(unrelatedPath.c_str()) == 0;
+
+    return CHECK(created)
+        && CHECK(reset)
+        && CHECK(!SavedItemShuffles::FileExists())
+        && CHECK(preserved)
+        && CHECK(removed);
 }
 
 bool RoutingIsConservative()
@@ -215,7 +296,7 @@ bool InvalidBuffersAndSizesFail()
 
 bool MissingDirectoryIsCreatedOnWrite()
 {
-    if (!CHECK(ResetStorage()) || !CHECK(RemoveStoragePath()))
+    if (!CHECK(ResetStorage()) || !CHECK(RemoveStoragePath(true)))
     {
         return false;
     }
@@ -230,7 +311,7 @@ bool MissingDirectoryIsCreatedOnWrite()
 
 bool DirectoryCreationFailureStopsWrite()
 {
-    if (!CHECK(ResetStorage()) || !CHECK(RemoveStoragePath()))
+    if (!CHECK(ResetStorage()) || !CHECK(RemoveStoragePath(true)))
     {
         return false;
     }
@@ -581,12 +662,54 @@ bool SyntheticReadCallsRejectInvalidResultRequests()
         && CHECK(buffer == data);
 }
 
+bool SyntheticReadCallsEvictOldestPendingCall()
+{
+    if (!CHECK(ResetStorage()))
+    {
+        return false;
+    }
+
+    const uint8_t data = 42;
+    if (!CHECK(SavedItemShuffles::FileWrite(&data, 1)))
+    {
+        return false;
+    }
+
+    std::array<SteamAPICall_t, 17> calls{};
+    for (SteamAPICall_t &call : calls)
+    {
+        call = SavedItemShuffles::MakeReadCall(0, 0);
+    }
+
+    RemoteStorageFileReadAsyncComplete_t result{};
+    bool failed = false;
+    bool success = CHECK(!SavedItemShuffles::GetReadCallResult(calls.front(),
+        &result, sizeof(result), result.k_iCallback, &failed))
+        && CHECK(failed);
+
+    for (size_t index = 1; index < calls.size(); ++index)
+    {
+        result = {};
+        failed = true;
+        success &= CHECK(SavedItemShuffles::GetReadCallResult(calls[index],
+            &result, sizeof(result), result.k_iCallback, &failed));
+        success &= CHECK(!failed);
+        success &= CHECK(result.m_hFileReadAsync == calls[index]);
+        success &= CHECK(result.m_eResult == k_EResultOK);
+        success &= CHECK(result.m_cubRead == 0);
+        success &= CHECK(SavedItemShuffles::CompleteReadCall(
+            calls[index], nullptr, 0));
+    }
+    return success;
+}
+
 } // namespace
 
 int main()
 {
     bool success = true;
     success &= RoutingIsConservative();
+    success &= ResetStoragePreservesUnrelatedFiles();
     success &= MissingFileUsesSteamSemantics();
     success &= BinaryDataCanBeWrittenReadAndOverwritten();
     success &= InvalidBuffersAndSizesFail();
@@ -602,6 +725,7 @@ int main()
     success &= SyntheticReadCallsReturnLocalData();
     success &= SyntheticReadCallsReportFailures();
     success &= SyntheticReadCallsRejectInvalidResultRequests();
+    success &= SyntheticReadCallsEvictOldestPendingCall();
 
     success &= ResetStorage();
     return success ? 0 : 1;

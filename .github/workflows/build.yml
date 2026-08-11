@@ -50,7 +50,6 @@ jobs:
         key: vcpkg-${{ matrix.os }}-${{ steps.runner-image.outputs.version }}-${{ steps.vcpkg-commit.outputs.sha }}-${{ hashFiles('vcpkg.json') }}
         restore-keys: |
           vcpkg-${{ matrix.os }}-${{ steps.runner-image.outputs.version }}-${{ steps.vcpkg-commit.outputs.sha }}-
-          vcpkg-${{ matrix.os }}-
 
     - if: matrix.os == 'ubuntu-latest'
       name: Dependencies
