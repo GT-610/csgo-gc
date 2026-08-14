@@ -1561,6 +1561,8 @@ void ClientGC::StorePurchaseInit(GCMessageRead &messageRead)
     CMsgGCStorePurchaseInitResponse response;
     if (m_transactionId || message.line_items_size() == 0)
     {
+        Platform::Print("StorePurchaseInit rejected: pending transaction %llu, line items %d\n",
+            m_transactionId, message.line_items_size());
         response.set_result(StoreResultInvalid);
         SendMessageToGame(false, k_EMsgGCStorePurchaseInitResponse, response, messageRead.JobId());
         return;
@@ -1576,6 +1578,8 @@ void ClientGC::StorePurchaseInit(GCMessageRead &messageRead)
             || itemCount > MaxStorePurchaseItems
             || !m_inventory.GetItemSchema().ItemInfoByDefIndex(item.item_def_id()))
         {
+            Platform::Print("StorePurchaseInit rejected line item: def %u, quantity %u, total %llu\n",
+                item.item_def_id(), item.quantity(), itemCount);
             response.set_result(StoreResultInvalid);
             SendMessageToGame(false, k_EMsgGCStorePurchaseInitResponse, response, messageRead.JobId());
             return;
@@ -1598,10 +1602,13 @@ void ClientGC::StorePurchaseInit(GCMessageRead &messageRead)
     response.set_txn_id(m_transactionId);
     response.set_url(url);
 
+    Platform::Print("StorePurchaseInit accepted transaction %llu with %llu items (job %llu)\n",
+        m_transactionId, itemCount, messageRead.JobId());
     SendMessageToGame(false, k_EMsgGCStorePurchaseInitResponse, response, messageRead.JobId());
 
-    // this will run the steam callback
-    PostToHost(HostEvent::MicroTransactionResponse, 0, nullptr, 0);
+    // The host delays this callback until the client has consumed the Init
+    // response and stored the transaction id used by its Finalize job.
+    PostToHost(HostEvent::MicroTransactionResponse, m_transactionId, nullptr, 0);
 }
 
 void ClientGC::StorePurchaseFinalize(GCMessageRead &messageRead)
@@ -1614,8 +1621,11 @@ void ClientGC::StorePurchaseFinalize(GCMessageRead &messageRead)
     }
 
     CMsgGCStorePurchaseFinalizeResponse response;
+    Platform::Print("StorePurchaseFinalize requested transaction %llu, pending %llu (job %llu)\n",
+        message.has_txn_id() ? message.txn_id() : 0, m_transactionId, messageRead.JobId());
     if (!m_transactionId || !message.has_txn_id() || message.txn_id() != m_transactionId)
     {
+        Platform::Print("StorePurchaseFinalize rejected transaction id\n");
         response.set_result(StoreResultInvalid);
         SendMessageToGame(false, k_EMsgGCStorePurchaseFinalizeResponse, response, messageRead.JobId());
         return;
@@ -1630,6 +1640,8 @@ void ClientGC::StorePurchaseFinalize(GCMessageRead &messageRead)
             uint64_t itemId = m_inventory.PurchaseItem(lineItem.defIndex, inventoryUpdate);
             if (!itemId)
             {
+                Platform::Print("StorePurchaseFinalize failed to create def %u for transaction %llu\n",
+                    lineItem.defIndex, m_transactionId);
                 response.set_result(StoreResultInvalid);
                 SendMessageToGame(false, k_EMsgGCStorePurchaseFinalizeResponse, response,
                     messageRead.JobId());
@@ -1648,6 +1660,8 @@ void ClientGC::StorePurchaseFinalize(GCMessageRead &messageRead)
 
     response.set_result(StoreResultOK);
     response.mutable_item_ids()->Assign(itemIds.begin(), itemIds.end());
+    Platform::Print("StorePurchaseFinalize completed transaction %llu with %llu items\n",
+        m_transactionId, static_cast<uint64_t>(itemIds.size()));
     SendMessageToGame(false, k_EMsgGCStorePurchaseFinalizeResponse, response, messageRead.JobId());
 
     // done with this one

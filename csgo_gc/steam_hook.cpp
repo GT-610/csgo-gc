@@ -177,6 +177,15 @@ static GCWrapper<ClientGC, NetworkingClient> *s_clientGC;
 static GCWrapper<ServerGC, NetworkingServer> *s_serverGC;
 static RconServer s_rconServer;
 
+struct PendingMicroTransactionAuthorization
+{
+    uint64_t transactionId;
+    std::chrono::steady_clock::time_point notBefore;
+};
+
+static std::optional<PendingMicroTransactionAuthorization> s_pendingMicroTransactionAuthorization;
+constexpr auto MicroTransactionAuthorizationDelay = std::chrono::milliseconds{ 150 };
+
 struct PlayerInfo
 {
     uint64_t version;
@@ -566,6 +575,7 @@ public:
             s_rconServer.UnregisterClient(&s_clientGC->m_gc);
             delete s_clientGC;
             s_clientGC = nullptr;
+            s_pendingMicroTransactionAuthorization.reset();
         }
     }
 
@@ -1576,8 +1586,18 @@ static void Hk_SteamAPI_UnregisterCallback(class CCallbackBase *pCallback)
 
 static void Hk_SteamAPI_RunCallbacks()
 {
+    const auto callbackPassStarted = std::chrono::steady_clock::now();
+    std::optional<uint64_t> transactionToAuthorize;
+
     if (s_clientGC)
     {
+        if (s_pendingMicroTransactionAuthorization
+            && s_pendingMicroTransactionAuthorization->notBefore <= callbackPassStarted)
+        {
+            transactionToAuthorize = s_pendingMicroTransactionAuthorization->transactionId;
+            s_pendingMicroTransactionAuthorization.reset();
+        }
+
         s_clientGC->m_networking.SetNetworkingMessages(GetSteamNetworkingMessages(
             s_clientGC->m_steamPipe, s_clientGC->m_steamUser));
     }
@@ -1597,8 +1617,6 @@ static void Hk_SteamAPI_RunCallbacks()
         s_clientGC->m_gc.GetHostEvents(events);
 
         // poll events
-        bool runMicroTransactionResponse = false;
-
         for (EventData &event : events)
         {
             switch (static_cast<HostEvent>(event.type))
@@ -1612,7 +1630,16 @@ static void Hk_SteamAPI_RunCallbacks()
                 break;
 
             case HostEvent::MicroTransactionResponse:
-                runMicroTransactionResponse = true;
+                if (!event.id)
+                {
+                    Platform::Print("Ignoring MicroTxnAuthorizationResponse_t with order id 0\n");
+                    break;
+                }
+                s_pendingMicroTransactionAuthorization = PendingMicroTransactionAuthorization{
+                    event.id, callbackPassStarted + MicroTransactionAuthorizationDelay
+                };
+                Platform::Print("Scheduled MicroTxnAuthorizationResponse_t for transaction %llu\n",
+                    event.id);
                 break;
 
             default:
@@ -1633,11 +1660,14 @@ static void Hk_SteamAPI_RunCallbacks()
             GetCallbackHooks().RunCallback(false, GCMessageAvailable_t::k_iCallback, &param);
         }
 
-        if (runMicroTransactionResponse)
+        if (transactionToAuthorize)
         {
-            Platform::Print("Running MicroTxnAuthorizationResponse_t\n");
+            Platform::Print("Running MicroTxnAuthorizationResponse_t for transaction %llu\n",
+                *transactionToAuthorize);
             MicroTxnAuthorizationResponse_t response{};
-            response.m_bAuthorized = 1; // only field the game cares about
+            response.m_unAppID = AppId::GetOverride();
+            response.m_ulOrderID = *transactionToAuthorize;
+            response.m_bAuthorized = 1;
             GetCallbackHooks().RunCallback(false, MicroTxnAuthorizationResponse_t::k_iCallback, &response);
         }
 

@@ -206,21 +206,36 @@ static bool NetworkingClientRefreshesInterfacesAndSkipsIdlePolling()
     return first.receiveCalls == 1 && second.receiveCalls == 1;
 }
 
-static bool WaitForHostMessage(ClientGC &gc, uint32_t type, EventData &result)
+static bool WaitForHostMessage(ClientGC &gc, uint32_t type, EventData &result,
+    uint64_t *microTransactionId = nullptr)
 {
     std::vector<EventData> events;
+    bool foundMessage = false;
+    bool foundMicroTransaction = microTransactionId == nullptr;
     auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{ 1 };
     while (std::chrono::steady_clock::now() < deadline)
     {
         gc.GetHostEvents(events);
         for (EventData &event : events)
         {
-            if (event.type == static_cast<int>(HostEvent::Message)
+            if (!foundMessage
+                && event.type == static_cast<int>(HostEvent::Message)
                 && (event.id & ~ProtobufMask) == type)
             {
                 result = std::move(event);
-                return true;
+                foundMessage = true;
             }
+            else if (microTransactionId
+                && event.type == static_cast<int>(HostEvent::MicroTransactionResponse))
+            {
+                *microTransactionId = event.id;
+                foundMicroTransaction = true;
+            }
+        }
+
+        if (foundMessage && foundMicroTransaction)
+        {
+            return true;
         }
 
         events.clear();
@@ -604,11 +619,14 @@ static bool StorePurchasesFinalizeTransactionally()
         lineItem->set_quantity(2);
         SendGCProtobuf(gc, k_EMsgGCStorePurchaseInit, purchaseInit);
         event = {};
+        uint64_t authorizationTransactionId = 0;
         CMsgGCStorePurchaseInitResponse initResponse;
-        valid &= WaitForHostMessage(gc, k_EMsgGCStorePurchaseInitResponse, event)
+        valid &= WaitForHostMessage(gc, k_EMsgGCStorePurchaseInitResponse, event,
+                &authorizationTransactionId)
             && ParseHostProtobuf(event, initResponse)
             && initResponse.result() == 1
             && initResponse.txn_id() != 0
+            && authorizationTransactionId == initResponse.txn_id()
             && initResponse.item_ids_size() == 0;
 
         CMsgClientHello currentHello;
