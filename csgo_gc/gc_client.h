@@ -27,6 +27,12 @@ private:
         std::string (ClientGC::*handler)(const RconRequest &request);
     };
 
+    struct PendingStoreLineItem
+    {
+        uint32_t defIndex;
+        uint32_t quantity;
+    };
+
     void HandleEvent(GCEvent type, uint64_t id, const std::vector<uint8_t> &buffer) override;
 
     // event handlers
@@ -100,5 +106,5 @@ private:
 
     // microtransactions, we only have one going at a time
     uint64_t m_transactionId{};
-    std::vector<uint64_t> m_transactionItemIds;
+    std::vector<PendingStoreLineItem> m_transactionLineItems;
 };

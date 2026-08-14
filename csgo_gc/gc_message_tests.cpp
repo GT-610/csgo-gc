@@ -169,6 +169,13 @@ static bool ParseHostProtobuf(const EventData &event, T &message)
     return messageRead.IsValid() && messageRead.IsProtobuf() && messageRead.ReadProtobuf(message);
 }
 
+template<typename T>
+static void SendGCProtobuf(ClientGC &gc, uint32_t type, const T &message)
+{
+    GCMessageWrite messageWrite{ type, message };
+    gc.PostToGC(GCEvent::Message, messageWrite.TypeMasked(), messageWrite.Data(), messageWrite.Size());
+}
+
 static bool InventoryPersistenceProtectsFiles()
 {
     constexpr const char *InventoryDirectory = "csgo_gc";
@@ -409,6 +416,176 @@ static bool SOCacheVersionNegotiationAndRefresh()
     return valid;
 }
 
+static bool WriteStoreFixtures()
+{
+    if (!TestFilesystem::MakeDirectory("csgo")
+        || !TestFilesystem::MakeDirectory("csgo/scripts")
+        || !TestFilesystem::MakeDirectory("csgo/scripts/items")
+        || !TestFilesystem::MakeDirectory("csgo_gc"))
+    {
+        return false;
+    }
+
+    KeyValue schema{ "root" };
+    KeyValue &itemsGame = schema.AddSubkey("items_game");
+    KeyValue &items = itemsGame.AddSubkey("items");
+    items.AddSubkey("7").AddString("name", "weapon_ak47");
+
+    KeyValue unusualLootLists{ "unusual_loot_lists" };
+    unusualLootLists.AddSubkey("empty");
+
+    KeyValue priceSheet{ "price_sheet" };
+    KeyValue &store = priceSheet.AddSubkey("store");
+    store.AddNumber("featured_item_index", 7);
+
+    return schema.WriteToFile("csgo/scripts/items/items_game.txt")
+        && unusualLootLists.WriteToFile("csgo_gc/unusual_loot_lists.txt")
+        && priceSheet.WriteToFile("csgo_gc/price_sheet.txt");
+}
+
+static void RemoveStoreFixtures()
+{
+    TestFilesystem::RemoveFile("csgo_gc/inventory.txt");
+    TestFilesystem::RemoveFile("csgo_gc/unusual_loot_lists.txt");
+    TestFilesystem::RemoveFile("csgo_gc/price_sheet.txt");
+    TestFilesystem::RemoveFile("csgo/scripts/items/items_game.txt");
+    TestFilesystem::RemoveDirectory("csgo/scripts/items");
+    TestFilesystem::RemoveDirectory("csgo/scripts");
+    TestFilesystem::RemoveDirectory("csgo");
+    TestFilesystem::RemoveDirectory("csgo_gc");
+}
+
+static bool StorePurchasesFinalizeTransactionally()
+{
+    constexpr uint64_t SteamId = 76561197960265729ull;
+    RemoveStoreFixtures();
+    if (!WriteStoreFixtures())
+    {
+        RemoveStoreFixtures();
+        return false;
+    }
+
+    bool valid = true;
+    {
+        ClientGC gc{ SteamId };
+
+        CMsgClientHello hello;
+        SendGCProtobuf(gc, k_EMsgGCClientHello, hello);
+        EventData event;
+        CMsgClientWelcome welcome;
+        valid &= WaitForHostMessage(gc, k_EMsgGCClientWelcome, event)
+            && ParseHostProtobuf(event, welcome)
+            && welcome.outofdate_subscribed_caches_size() == 1;
+
+        uint64_t initialCacheVersion = welcome.outofdate_subscribed_caches_size() == 1
+            ? welcome.outofdate_subscribed_caches(0).version() : 0;
+        CMsgGCCStrike15_v2_MatchmakingGC2ClientHello matchmakingHello;
+        valid &= matchmakingHello.ParseFromString(welcome.game_data2());
+        uint32_t priceSheetVersion = matchmakingHello.global_stats().pricesheet_version();
+
+        CMsgStoreGetUserData storeData;
+        storeData.set_price_sheet_version(0);
+        SendGCProtobuf(gc, k_EMsgGCStoreGetUserData, storeData);
+        event = {};
+        CMsgStoreGetUserDataResponse storeDataResponse;
+        valid &= WaitForHostMessage(gc, k_EMsgGCStoreGetUserDataResponse, event)
+            && ParseHostProtobuf(event, storeDataResponse)
+            && storeDataResponse.result() == 1
+            && storeDataResponse.price_sheet_version() == priceSheetVersion
+            && !storeDataResponse.price_sheet().empty();
+
+        CMsgGCStorePurchaseInit purchaseInit;
+        CGCStorePurchaseInit_LineItem *lineItem = purchaseInit.add_line_items();
+        lineItem->set_item_def_id(7);
+        lineItem->set_quantity(2);
+        SendGCProtobuf(gc, k_EMsgGCStorePurchaseInit, purchaseInit);
+        event = {};
+        CMsgGCStorePurchaseInitResponse initResponse;
+        valid &= WaitForHostMessage(gc, k_EMsgGCStorePurchaseInitResponse, event)
+            && ParseHostProtobuf(event, initResponse)
+            && initResponse.result() == 1
+            && initResponse.txn_id() != 0
+            && initResponse.item_ids_size() == 0;
+
+        CMsgClientHello currentHello;
+        CMsgSOCacheHaveVersion *haveVersion = currentHello.add_socache_have_versions();
+        haveVersion->mutable_soid()->set_type(SoIdTypeSteamId);
+        haveVersion->mutable_soid()->set_id(SteamId);
+        haveVersion->set_version(initialCacheVersion);
+        SendGCProtobuf(gc, k_EMsgGCClientHello, currentHello);
+        event = {};
+        welcome.Clear();
+        valid &= WaitForHostMessage(gc, k_EMsgGCClientWelcome, event)
+            && ParseHostProtobuf(event, welcome)
+            && welcome.uptodate_subscribed_caches_size() == 1;
+
+        CMsgGCStorePurchaseFinalize wrongFinalize;
+        wrongFinalize.set_txn_id(initResponse.txn_id() + 1);
+        SendGCProtobuf(gc, k_EMsgGCStorePurchaseFinalize, wrongFinalize);
+        event = {};
+        CMsgGCStorePurchaseFinalizeResponse finalizeResponse;
+        valid &= WaitForHostMessage(gc, k_EMsgGCStorePurchaseFinalizeResponse, event)
+            && ParseHostProtobuf(event, finalizeResponse)
+            && finalizeResponse.result() != 1
+            && finalizeResponse.item_ids_size() == 0;
+
+        CMsgGCStorePurchaseFinalize finalize;
+        finalize.set_txn_id(initResponse.txn_id());
+        SendGCProtobuf(gc, k_EMsgGCStorePurchaseFinalize, finalize);
+        event = {};
+        finalizeResponse.Clear();
+        valid &= WaitForHostMessage(gc, k_EMsgGCStorePurchaseFinalizeResponse, event)
+            && ParseHostProtobuf(event, finalizeResponse)
+            && finalizeResponse.result() == 1
+            && finalizeResponse.item_ids_size() == 2;
+
+        SendGCProtobuf(gc, k_EMsgGCClientHello, currentHello);
+        event = {};
+        welcome.Clear();
+        valid &= WaitForHostMessage(gc, k_EMsgGCClientWelcome, event)
+            && ParseHostProtobuf(event, welcome)
+            && welcome.outofdate_subscribed_caches_size() == 1;
+        if (welcome.outofdate_subscribed_caches_size() == 1)
+        {
+            const CMsgSOCacheSubscribed &subscription = welcome.outofdate_subscribed_caches(0);
+            valid &= subscription.version() != initialCacheVersion;
+
+            std::unordered_set<uint64_t> snapshotItemIds;
+            for (const CMsgSOCacheSubscribed_SubscribedType &type : subscription.objects())
+            {
+                if (type.type_id() != SOTypeItem)
+                {
+                    continue;
+                }
+                for (const std::string &objectData : type.object_data())
+                {
+                    CSOEconItem item;
+                    if (item.ParseFromString(objectData))
+                    {
+                        snapshotItemIds.insert(item.id());
+                    }
+                }
+            }
+
+            valid &= snapshotItemIds.size() == 2;
+            for (uint64_t itemId : finalizeResponse.item_ids())
+            {
+                valid &= snapshotItemIds.contains(itemId);
+            }
+        }
+
+        SendGCProtobuf(gc, k_EMsgGCStorePurchaseFinalize, finalize);
+        event = {};
+        finalizeResponse.Clear();
+        valid &= WaitForHostMessage(gc, k_EMsgGCStorePurchaseFinalizeResponse, event)
+            && ParseHostProtobuf(event, finalizeResponse)
+            && finalizeResponse.result() != 1;
+    }
+
+    RemoveStoreFixtures();
+    return valid;
+}
+
 int main()
 {
     return ExtendedCraftResponseSerialization()
@@ -416,5 +593,6 @@ int main()
         && BasicStructHeaderSerializationIsUnchanged()
         && InventoryPersistenceProtectsFiles()
         && LoadoutStateTransitionsPreserveClassesAndSwapSlots()
-        && SOCacheVersionNegotiationAndRefresh() ? 0 : 1;
+        && SOCacheVersionNegotiationAndRefresh()
+        && StorePurchasesFinalizeTransactionally() ? 0 : 1;
 }
