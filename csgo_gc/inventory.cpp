@@ -627,55 +627,11 @@ bool Inventory::EquipItem(uint64_t itemId, uint32_t classId, uint32_t slotId, bo
         }
 
         CSOEconItem &item = it->second;
-        std::optional<uint32_t> previousSlot = EquippedSlotForClass(item, classId);
 
-        if (swap && previousSlot && *previousSlot != slotId)
-        {
-            bool movedDisplacedItem = false;
-            for (auto &pair : m_items)
-            {
-                if (pair.first == itemId)
-                {
-                    continue;
-                }
-
-                CSOEconItem &displacedItem = pair.second;
-                if (EquippedSlotForClass(displacedItem, classId) == slotId)
-                {
-                    SetEquippedStateForClass(displacedItem, classId, *previousSlot);
-                    AddToMultipleObjects(update, displacedItem);
-                    movedDisplacedItem = true;
-                    break;
-                }
-            }
-
-            if (!movedDisplacedItem)
-            {
-                for (CSOEconDefaultEquippedDefinitionInstanceClient &defaultEquip : m_defaultEquips)
-                {
-                    if (defaultEquip.class_id() == classId && defaultEquip.slot_id() == slotId)
-                    {
-                        CSOEconDefaultEquippedDefinitionInstanceClient cleared = defaultEquip;
-                        cleared.set_item_definition(0);
-                        AddToMultipleObjects(update, cleared);
-                        defaultEquip.set_slot_id(*previousSlot);
-                        AddToMultipleObjects(update, defaultEquip);
-                        movedDisplacedItem = true;
-                        break;
-                    }
-                }
-            }
-
-            if (!movedDisplacedItem)
-            {
-                UnequipItem(classId, slotId, update);
-            }
-        }
-        else
-        {
-            // if an item is equipped in this slot, unequip it first
-            UnequipItem(classId, slotId, update);
-        }
+        // The final client only performs a displaced-item swap for explicit
+        // base/default items. Equipping a unique item clears the destination
+        // slot even when the request carries swap=true.
+        UnequipItem(classId, slotId, update);
 
         Platform::Print("EquipItem %llu class %d slot %d\n", itemId, classId,
             slotId);

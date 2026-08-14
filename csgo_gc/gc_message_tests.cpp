@@ -238,6 +238,29 @@ static int EquippedSlotForClass(const CSOEconItem &item, uint32_t classId)
     return slot;
 }
 
+static bool UpdateContainsDefaultEquip(const CMsgSOMultipleObjects &update,
+    uint32_t defIndex, uint32_t classId, uint32_t slotId)
+{
+    for (const CMsgSOMultipleObjects_SingleObject &object : update.objects_modified())
+    {
+        if (object.type_id() != SOTypeDefaultEquippedDefinitionInstanceClient)
+        {
+            continue;
+        }
+
+        CSOEconDefaultEquippedDefinitionInstanceClient defaultEquip;
+        if (defaultEquip.ParseFromString(object.object_data())
+            && defaultEquip.item_definition() == defIndex
+            && defaultEquip.class_id() == classId
+            && defaultEquip.slot_id() == slotId)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 static bool WriteLoadoutFixture()
 {
     if (!TestFilesystem::MakeDirectory("csgo_gc"))
@@ -264,7 +287,12 @@ static bool WriteLoadoutFixture()
 
     addItem("1", 7, 1, true);
     addItem("2", 8, 2, false);
-    inventory.AddSubkey("default_equips");
+    addItem("3", 10, 3, false);
+
+    KeyValue &defaultEquips = inventory.AddSubkey("default_equips");
+    KeyValue &defaultEquip = defaultEquips.AddSubkey("9");
+    defaultEquip.AddNumber("class_id", 2);
+    defaultEquip.AddNumber("slot_id", 4);
     return inventory.WriteToFile("csgo_gc/inventory.txt");
 }
 
@@ -273,6 +301,8 @@ static bool LoadoutStateTransitionsPreserveClassesAndSwapSlots()
     constexpr uint64_t SteamId = 76561197960265729ull;
     constexpr uint64_t Item1 = (uint64_t{ 1 } << 32) | (SteamId & UINT32_MAX);
     constexpr uint64_t Item2 = (uint64_t{ 2 } << 32) | (SteamId & UINT32_MAX);
+    constexpr uint64_t Item3 = (uint64_t{ 3 } << 32) | (SteamId & UINT32_MAX);
+    constexpr uint64_t DefaultItem = ItemIdDefaultItemMask | 9;
 
     TestFilesystem::RemoveFile("csgo_gc/inventory.txt");
     if (!WriteLoadoutFixture())
@@ -294,29 +324,35 @@ static bool LoadoutStateTransitionsPreserveClassesAndSwapSlots()
         valid &= item1 && EquippedSlotForClass(*item1, 2) == -1
             && EquippedSlotForClass(*item1, 3) == 1;
 
-        CMsgSOMultipleObjects reequip;
-        valid &= inventory.EquipItem(Item1, 2, 1, false, reequip);
-        valid &= reequip.version() == version + 1 && inventory.Version() == reequip.version();
-        version = inventory.Version();
-
-        CMsgSOMultipleObjects swap;
-        valid &= inventory.EquipItem(Item1, 2, 2, true, swap);
-        valid &= swap.version() == version + 1 && inventory.Version() == swap.version()
-            && swap.objects_modified_size() >= 2;
-        version = inventory.Version();
-        item1 = inventory.GetItem(Item1);
-        const CSOEconItem *item2 = inventory.GetItem(Item2);
-        valid &= item1 && item2
-            && EquippedSlotForClass(*item1, 2) == 2
-            && EquippedSlotForClass(*item1, 3) == 1
-            && EquippedSlotForClass(*item2, 2) == 1;
-
         CMsgSOMultipleObjects move;
-        valid &= inventory.EquipItem(Item1, 2, 3, false, move);
+        valid &= inventory.EquipItem(Item2, 2, 5, false, move);
         valid &= move.version() == version + 1 && inventory.Version() == move.version();
+        version = inventory.Version();
+        const CSOEconItem *item2 = inventory.GetItem(Item2);
+        valid &= item2 && EquippedSlotForClass(*item2, 2) == 5;
+
+        CMsgSOMultipleObjects uniqueSwap;
+        valid &= inventory.EquipItem(Item2, 2, 3, true, uniqueSwap);
+        valid &= uniqueSwap.version() == version + 1
+            && inventory.Version() == uniqueSwap.version()
+            && uniqueSwap.objects_modified_size() >= 2;
+        version = inventory.Version();
+        item2 = inventory.GetItem(Item2);
+        const CSOEconItem *item3 = inventory.GetItem(Item3);
+        valid &= item2 && item3
+            && EquippedSlotForClass(*item2, 2) == 3
+            && EquippedSlotForClass(*item3, 2) == -1;
+
+        CMsgSOMultipleObjects defaultSwap;
+        valid &= inventory.EquipItem(DefaultItem, 2, 3, true, defaultSwap);
+        valid &= defaultSwap.version() == version + 1
+            && inventory.Version() == defaultSwap.version()
+            && UpdateContainsDefaultEquip(defaultSwap, 9, 2, 3);
         item1 = inventory.GetItem(Item1);
-        valid &= item1 && EquippedSlotForClass(*item1, 2) == 3
-            && EquippedSlotForClass(*item1, 3) == 1;
+        item2 = inventory.GetItem(Item2);
+        valid &= item1 && item2
+            && EquippedSlotForClass(*item1, 3) == 1
+            && EquippedSlotForClass(*item2, 2) == 4;
     }
 
     TestFilesystem::RemoveFile("csgo_gc/inventory.txt");
