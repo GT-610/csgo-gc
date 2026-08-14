@@ -17,6 +17,7 @@ class NetworkingClient
 public:
     NetworkingClient(ISteamNetworkingMessages *networkingMessages);
 
+    void SetNetworkingMessages(ISteamNetworkingMessages *networkingMessages);
     void Update(ClientGC *gc);
 
     void SendMessage(const void *data, uint32_t size);
@@ -29,7 +30,7 @@ private:
     // return false if it wasn't handled, in which case we pass it to m_clientGC
     bool HandleMessage(ClientGC *gc, uint64_t steamId, GCMessageRead &message);
 
-    ISteamNetworkingMessages *const m_networkingMessages;
+    ISteamNetworkingMessages *m_networkingMessages;
     uint64_t m_serverSteamId{};
 
     std::unordered_map<uint32_t, AuthTicket> m_tickets;

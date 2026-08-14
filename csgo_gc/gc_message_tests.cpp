@@ -2,6 +2,7 @@
 #include "gc_client.h"
 #include "gc_message.h"
 #include "keyvalue.h"
+#include "networking_client.h"
 #include "test_filesystem.h"
 
 #include <cstring>
@@ -19,6 +20,14 @@ bool UpdateGraffitiKey(std::string_view, const void *, const void *, size_t)
     return true;
 }
 
+}
+
+S_API void S_CALLTYPE SteamAPI_RegisterCallback(CCallbackBase *, int)
+{
+}
+
+S_API void S_CALLTYPE SteamAPI_UnregisterCallback(CCallbackBase *)
+{
 }
 
 template<typename T>
@@ -136,6 +145,65 @@ static bool BasicStructHeaderSerializationIsUnchanged()
     offset += sizeof(uint16_t);
 
     return valid && offset == message.Size();
+}
+
+class TestSteamNetworkingMessages final : public ISteamNetworkingMessages
+{
+public:
+    EResult SendMessageToUser(const SteamNetworkingIdentity &, const void *, uint32,
+        int, int) override
+    {
+        return k_EResultOK;
+    }
+
+    int ReceiveMessagesOnChannel(int, SteamNetworkingMessage_t **, int) override
+    {
+        ++receiveCalls;
+        return 0;
+    }
+
+    bool AcceptSessionWithUser(const SteamNetworkingIdentity &) override
+    {
+        return true;
+    }
+
+    bool CloseSessionWithUser(const SteamNetworkingIdentity &) override
+    {
+        return true;
+    }
+
+    bool CloseChannelWithUser(const SteamNetworkingIdentity &, int) override
+    {
+        return true;
+    }
+
+    ESteamNetworkingConnectionState GetSessionConnectionInfo(
+        const SteamNetworkingIdentity &, SteamNetConnectionInfo_t *,
+        SteamNetworkingQuickConnectionStatus *) override
+    {
+        return k_ESteamNetworkingConnectionState_None;
+    }
+
+    int receiveCalls{};
+};
+
+static bool NetworkingClientRefreshesInterfacesAndSkipsIdlePolling()
+{
+    TestSteamNetworkingMessages first;
+    TestSteamNetworkingMessages second;
+
+    NetworkingClient networking{ &first };
+    networking.Update(nullptr);
+
+    const uint8_t ticket = 1;
+    networking.SetAuthTicket(1, &ticket, sizeof(ticket));
+    networking.Update(nullptr);
+    networking.SetNetworkingMessages(&second);
+    networking.Update(nullptr);
+    networking.ClearAuthTicket(1);
+    networking.Update(nullptr);
+
+    return first.receiveCalls == 1 && second.receiveCalls == 1;
 }
 
 static bool WaitForHostMessage(ClientGC &gc, uint32_t type, EventData &result)
@@ -627,6 +695,7 @@ int main()
     return ExtendedCraftResponseSerialization()
         && TruncatedCraftRequestGetsInvalidResponse()
         && BasicStructHeaderSerializationIsUnchanged()
+        && NetworkingClientRefreshesInterfacesAndSkipsIdlePolling()
         && InventoryPersistenceProtectsFiles()
         && LoadoutStateTransitionsPreserveClassesAndSwapSlots()
         && SOCacheVersionNegotiationAndRefresh()

@@ -9,8 +9,19 @@ NetworkingClient::NetworkingClient(ISteamNetworkingMessages *networkingMessages)
 {
 }
 
+void NetworkingClient::SetNetworkingMessages(ISteamNetworkingMessages *networkingMessages)
+{
+    assert(networkingMessages);
+    m_networkingMessages = networkingMessages;
+}
+
 void NetworkingClient::Update(ClientGC *gc)
 {
+    if (m_tickets.empty() && !m_serverSteamId)
+    {
+        return;
+    }
+
     SteamNetworkingMessage_t *message;
     while (m_networkingMessages->ReceiveMessagesOnChannel(NetMessageChannel, &message, 1))
     {
