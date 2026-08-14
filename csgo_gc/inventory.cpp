@@ -531,6 +531,7 @@ bool Inventory::EquipItem(uint64_t itemId, uint32_t classId, uint32_t slotId, bo
     if (IsDefaultItemId(itemId, defIndex, paintKitIndex))
     {
         std::optional<uint32_t> previousSlot;
+        std::optional<CSOEconDefaultEquippedDefinitionInstanceClient> displacedDefaultEquip;
         for (const CSOEconDefaultEquippedDefinitionInstanceClient &defaultEquip : m_defaultEquips)
         {
             if (defaultEquip.item_definition() == defIndex && defaultEquip.class_id() == classId)
@@ -566,7 +567,7 @@ bool Inventory::EquipItem(uint64_t itemId, uint32_t classId, uint32_t slotId, bo
                         cleared.set_item_definition(0);
                         AddToMultipleObjects(update, cleared);
                         defaultEquip.set_slot_id(*previousSlot);
-                        AddToMultipleObjects(update, defaultEquip);
+                        displacedDefaultEquip = defaultEquip;
                         movedDisplacedItem = true;
                         break;
                     }
@@ -601,6 +602,14 @@ bool Inventory::EquipItem(uint64_t itemId, uint32_t classId, uint32_t slotId, bo
             {
                 ++it;
             }
+        }
+
+        // Clear the target's old keyed SO before publishing a displaced default
+        // item into that slot. Reversing these updates makes the later clear
+        // remove the displaced item from the client's SOCache.
+        if (displacedDefaultEquip)
+        {
+            AddToMultipleObjects(update, *displacedDefaultEquip);
         }
 
         if (!defaultEquip)

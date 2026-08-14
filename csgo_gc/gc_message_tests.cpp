@@ -321,8 +321,13 @@ static int EquippedSlotForClass(const CSOEconItem &item, uint32_t classId)
     return slot;
 }
 
-static bool UpdateContainsDefaultEquip(const CMsgSOMultipleObjects &update,
-    uint32_t defIndex, uint32_t classId, uint32_t slotId)
+static uint64_t DefaultEquipKey(uint32_t classId, uint32_t slotId)
+{
+    return (static_cast<uint64_t>(classId) << 32) | slotId;
+}
+
+static bool ApplyDefaultEquipUpdates(const CMsgSOMultipleObjects &update,
+    std::unordered_map<uint64_t, uint32_t> &defaultEquips)
 {
     for (const CMsgSOMultipleObjects_SingleObject &object : update.objects_modified())
     {
@@ -332,16 +337,58 @@ static bool UpdateContainsDefaultEquip(const CMsgSOMultipleObjects &update,
         }
 
         CSOEconDefaultEquippedDefinitionInstanceClient defaultEquip;
-        if (defaultEquip.ParseFromString(object.object_data())
-            && defaultEquip.item_definition() == defIndex
-            && defaultEquip.class_id() == classId
-            && defaultEquip.slot_id() == slotId)
+        if (!defaultEquip.ParseFromString(object.object_data())
+            || !defaultEquip.has_class_id() || !defaultEquip.has_slot_id())
         {
-            return true;
+            return false;
+        }
+
+        uint64_t key = DefaultEquipKey(defaultEquip.class_id(), defaultEquip.slot_id());
+        if (defaultEquip.item_definition())
+        {
+            defaultEquips[key] = defaultEquip.item_definition();
+        }
+        else
+        {
+            defaultEquips.erase(key);
         }
     }
 
-    return false;
+    return true;
+}
+
+static bool DefaultEquipMatches(const std::unordered_map<uint64_t, uint32_t> &defaultEquips,
+    uint32_t defIndex, uint32_t classId, uint32_t slotId)
+{
+    auto it = defaultEquips.find(DefaultEquipKey(classId, slotId));
+    return it != defaultEquips.end() && it->second == defIndex;
+}
+
+static std::unordered_map<uint64_t, uint32_t> SnapshotDefaultEquips(Inventory &inventory)
+{
+    CMsgSOCacheSubscribed subscription;
+    inventory.BuildCacheSubscription(subscription, 1, false);
+
+    std::unordered_map<uint64_t, uint32_t> defaultEquips;
+    for (const CMsgSOCacheSubscribed_SubscribedType &type : subscription.objects())
+    {
+        if (type.type_id() != SOTypeDefaultEquippedDefinitionInstanceClient)
+        {
+            continue;
+        }
+
+        for (const std::string &data : type.object_data())
+        {
+            CSOEconDefaultEquippedDefinitionInstanceClient defaultEquip;
+            if (defaultEquip.ParseFromString(data) && defaultEquip.item_definition())
+            {
+                defaultEquips[DefaultEquipKey(defaultEquip.class_id(), defaultEquip.slot_id())]
+                    = defaultEquip.item_definition();
+            }
+        }
+    }
+
+    return defaultEquips;
 }
 
 static bool WriteLoadoutFixture()
@@ -376,6 +423,9 @@ static bool WriteLoadoutFixture()
     KeyValue &defaultEquip = defaultEquips.AddSubkey("9");
     defaultEquip.AddNumber("class_id", 2);
     defaultEquip.AddNumber("slot_id", 4);
+    KeyValue &otherDefaultEquip = defaultEquips.AddSubkey("11");
+    otherDefaultEquip.AddNumber("class_id", 2);
+    otherDefaultEquip.AddNumber("slot_id", 6);
     return inventory.WriteToFile("csgo_gc/inventory.txt");
 }
 
@@ -398,6 +448,10 @@ static bool LoadoutStateTransitionsPreserveClassesAndSwapSlots()
         Inventory inventory{ SteamId };
         uint64_t version = inventory.Version();
         valid &= version != 0;
+        std::unordered_map<uint64_t, uint32_t> clientDefaultEquips{
+            { DefaultEquipKey(2, 4), 9 },
+            { DefaultEquipKey(2, 6), 11 },
+        };
 
         CMsgSOMultipleObjects unequip;
         valid &= inventory.EquipItem(Item1, 2, 0xffff, false, unequip);
@@ -430,12 +484,25 @@ static bool LoadoutStateTransitionsPreserveClassesAndSwapSlots()
         valid &= inventory.EquipItem(DefaultItem, 2, 3, true, defaultSwap);
         valid &= defaultSwap.version() == version + 1
             && inventory.Version() == defaultSwap.version()
-            && UpdateContainsDefaultEquip(defaultSwap, 9, 2, 3);
+            && ApplyDefaultEquipUpdates(defaultSwap, clientDefaultEquips)
+            && DefaultEquipMatches(clientDefaultEquips, 9, 2, 3)
+            && DefaultEquipMatches(clientDefaultEquips, 11, 2, 6)
+            && !clientDefaultEquips.contains(DefaultEquipKey(2, 4));
+        version = inventory.Version();
         item1 = inventory.GetItem(Item1);
         item2 = inventory.GetItem(Item2);
         valid &= item1 && item2
             && EquippedSlotForClass(*item1, 3) == 1
             && EquippedSlotForClass(*item2, 2) == 4;
+
+        CMsgSOMultipleObjects defaultToDefaultSwap;
+        valid &= inventory.EquipItem(DefaultItem, 2, 6, true, defaultToDefaultSwap);
+        valid &= defaultToDefaultSwap.version() == version + 1
+            && inventory.Version() == defaultToDefaultSwap.version()
+            && ApplyDefaultEquipUpdates(defaultToDefaultSwap, clientDefaultEquips)
+            && DefaultEquipMatches(clientDefaultEquips, 11, 2, 3)
+            && DefaultEquipMatches(clientDefaultEquips, 9, 2, 6)
+            && clientDefaultEquips == SnapshotDefaultEquips(inventory);
     }
 
     TestFilesystem::RemoveFile("csgo_gc/inventory.txt");
