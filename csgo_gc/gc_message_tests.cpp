@@ -138,6 +138,37 @@ static bool BasicStructHeaderSerializationIsUnchanged()
     return valid && offset == message.Size();
 }
 
+static bool WaitForHostMessage(ClientGC &gc, uint32_t type, EventData &result)
+{
+    std::vector<EventData> events;
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{ 1 };
+    while (std::chrono::steady_clock::now() < deadline)
+    {
+        gc.GetHostEvents(events);
+        for (EventData &event : events)
+        {
+            if (event.type == static_cast<int>(HostEvent::Message)
+                && (event.id & ~ProtobufMask) == type)
+            {
+                result = std::move(event);
+                return true;
+            }
+        }
+
+        events.clear();
+        std::this_thread::yield();
+    }
+
+    return false;
+}
+
+template<typename T>
+static bool ParseHostProtobuf(const EventData &event, T &message)
+{
+    GCMessageRead messageRead{ 0, event.buffer.data(), static_cast<uint32_t>(event.buffer.size()) };
+    return messageRead.IsValid() && messageRead.IsProtobuf() && messageRead.ReadProtobuf(message);
+}
+
 static bool InventoryPersistenceProtectsFiles()
 {
     constexpr const char *InventoryDirectory = "csgo_gc";
@@ -245,18 +276,27 @@ static bool LoadoutStateTransitionsPreserveClassesAndSwapSlots()
     bool valid = true;
     {
         Inventory inventory{ SteamId };
+        uint64_t version = inventory.Version();
+        valid &= version != 0;
 
         CMsgSOMultipleObjects unequip;
         valid &= inventory.EquipItem(Item1, 2, 0xffff, false, unequip);
+        valid &= unequip.version() == version + 1 && inventory.Version() == unequip.version();
+        version = inventory.Version();
         const CSOEconItem *item1 = inventory.GetItem(Item1);
         valid &= item1 && EquippedSlotForClass(*item1, 2) == -1
             && EquippedSlotForClass(*item1, 3) == 1;
 
         CMsgSOMultipleObjects reequip;
         valid &= inventory.EquipItem(Item1, 2, 1, false, reequip);
+        valid &= reequip.version() == version + 1 && inventory.Version() == reequip.version();
+        version = inventory.Version();
 
         CMsgSOMultipleObjects swap;
         valid &= inventory.EquipItem(Item1, 2, 2, true, swap);
+        valid &= swap.version() == version + 1 && inventory.Version() == swap.version()
+            && swap.objects_modified_size() >= 2;
+        version = inventory.Version();
         item1 = inventory.GetItem(Item1);
         const CSOEconItem *item2 = inventory.GetItem(Item2);
         valid &= item1 && item2
@@ -266,9 +306,102 @@ static bool LoadoutStateTransitionsPreserveClassesAndSwapSlots()
 
         CMsgSOMultipleObjects move;
         valid &= inventory.EquipItem(Item1, 2, 3, false, move);
+        valid &= move.version() == version + 1 && inventory.Version() == move.version();
         item1 = inventory.GetItem(Item1);
         valid &= item1 && EquippedSlotForClass(*item1, 2) == 3
             && EquippedSlotForClass(*item1, 3) == 1;
+    }
+
+    TestFilesystem::RemoveFile("csgo_gc/inventory.txt");
+    TestFilesystem::RemoveDirectory("csgo_gc");
+    return valid;
+}
+
+static bool SOCacheVersionNegotiationAndRefresh()
+{
+    constexpr uint64_t SteamId = 76561197960265729ull;
+    TestFilesystem::RemoveFile("csgo_gc/inventory.txt");
+    if (!TestFilesystem::MakeDirectory("csgo_gc"))
+    {
+        return false;
+    }
+
+    bool valid = true;
+    {
+        ClientGC gc{ SteamId };
+
+        CMsgClientHello hello;
+        hello.set_version(1);
+        GCMessageWrite helloMessage{ k_EMsgGCClientHello, hello };
+        gc.PostToGC(GCEvent::Message, helloMessage.TypeMasked(), helloMessage.Data(), helloMessage.Size());
+
+        EventData event;
+        CMsgClientWelcome welcome;
+        valid &= WaitForHostMessage(gc, k_EMsgGCClientWelcome, event)
+            && ParseHostProtobuf(event, welcome)
+            && welcome.outofdate_subscribed_caches_size() == 1
+            && welcome.uptodate_subscribed_caches_size() == 0;
+
+        uint64_t version = 0;
+        if (welcome.outofdate_subscribed_caches_size() == 1)
+        {
+            const CMsgSOCacheSubscribed &subscription = welcome.outofdate_subscribed_caches(0);
+            version = subscription.version();
+            valid &= version != 0
+                && subscription.has_owner_soid()
+                && subscription.owner_soid().type() == SoIdTypeSteamId
+                && subscription.owner_soid().id() == SteamId;
+
+            bool foundAccount = false;
+            for (const CMsgSOCacheSubscribed_SubscribedType &type : subscription.objects())
+            {
+                if (type.type_id() == SOTypeGameAccountClient && type.object_data_size() == 1)
+                {
+                    CSOEconGameAccountClient account;
+                    foundAccount = account.ParseFromString(type.object_data(0));
+                    valid &= foundAccount && !account.has_elevated_timestamp();
+                }
+            }
+            valid &= foundAccount;
+        }
+
+        CMsgClientHello currentHello;
+        CMsgSOCacheHaveVersion *haveVersion = currentHello.add_socache_have_versions();
+        haveVersion->mutable_soid()->set_type(SoIdTypeSteamId);
+        haveVersion->mutable_soid()->set_id(SteamId);
+        haveVersion->set_version(version);
+        GCMessageWrite currentHelloMessage{ k_EMsgGCClientHello, currentHello };
+        gc.PostToGC(GCEvent::Message, currentHelloMessage.TypeMasked(), currentHelloMessage.Data(),
+            currentHelloMessage.Size());
+
+        event = {};
+        welcome.Clear();
+        valid &= WaitForHostMessage(gc, k_EMsgGCClientWelcome, event)
+            && ParseHostProtobuf(event, welcome)
+            && welcome.outofdate_subscribed_caches_size() == 0
+            && welcome.uptodate_subscribed_caches_size() == 1;
+        if (welcome.uptodate_subscribed_caches_size() == 1)
+        {
+            const CMsgSOCacheSubscriptionCheck &check = welcome.uptodate_subscribed_caches(0);
+            valid &= check.version() == version
+                && check.has_owner_soid()
+                && check.owner_soid().type() == SoIdTypeSteamId
+                && check.owner_soid().id() == SteamId;
+        }
+
+        CMsgSOCacheSubscriptionRefresh refresh;
+        refresh.mutable_owner_soid()->set_type(SoIdTypeSteamId);
+        refresh.mutable_owner_soid()->set_id(SteamId);
+        GCMessageWrite refreshMessage{ k_ESOMsg_CacheSubscriptionRefresh, refresh };
+        gc.PostToGC(GCEvent::Message, refreshMessage.TypeMasked(), refreshMessage.Data(),
+            refreshMessage.Size());
+
+        event = {};
+        CMsgSOCacheSubscribed refreshed;
+        valid &= WaitForHostMessage(gc, k_ESOMsg_CacheSubscribed, event)
+            && ParseHostProtobuf(event, refreshed)
+            && refreshed.version() == version
+            && refreshed.owner_soid().id() == SteamId;
     }
 
     TestFilesystem::RemoveFile("csgo_gc/inventory.txt");
@@ -282,5 +415,6 @@ int main()
         && TruncatedCraftRequestGetsInvalidResponse()
         && BasicStructHeaderSerializationIsUnchanged()
         && InventoryPersistenceProtectsFiles()
-        && LoadoutStateTransitionsPreserveClassesAndSwapSlots() ? 0 : 1;
+        && LoadoutStateTransitionsPreserveClassesAndSwapSlots()
+        && SOCacheVersionNegotiationAndRefresh() ? 0 : 1;
 }

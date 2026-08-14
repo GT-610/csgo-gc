@@ -10,8 +10,19 @@
 
 constexpr const char *InventoryFilePath = "csgo_gc/inventory.txt";
 
-// mikkotodo actual versioning
-constexpr uint64_t InventoryVersion = 7523377975160828514;
+static uint64_t InitialInventoryVersion()
+{
+    static std::atomic<uint64_t> nextVersion{
+        static_cast<uint64_t>(std::chrono::system_clock::now().time_since_epoch().count())
+    };
+
+    uint64_t version = nextVersion.fetch_add(1, std::memory_order_relaxed) + 1;
+    if (!version)
+    {
+        version = nextVersion.fetch_add(1, std::memory_order_relaxed) + 1;
+    }
+    return version;
+}
 
 // mix the account id into item ids to avoid collisions in multiplayer games
 inline uint64_t ComposeItemId(uint32_t accountId, uint32_t highItemId)
@@ -87,6 +98,7 @@ uint32_t StickerRotationAttribute(size_t slot)
 
 Inventory::Inventory(uint64_t steamId)
     : m_steamId{ steamId }
+    , m_version{ InitialInventoryVersion() }
 {
     ReadFromFile();
 }
@@ -101,7 +113,7 @@ void Inventory::AddToMultipleObjects(CMsgSOMultipleObjects &message, SOTypeId ty
     if (!message.has_version())
     {
         assert(!message.has_owner_soid());
-        message.set_version(InventoryVersion);
+        message.set_version(AdvanceVersion());
         message.mutable_owner_soid()->set_type(SoIdTypeSteamId);
         message.mutable_owner_soid()->set_id(m_steamId);
     }
@@ -122,12 +134,21 @@ void Inventory::ToSingleObject(CMsgSOSingleObject &message, SOTypeId type, const
     assert(!message.has_type_id());
     assert(!message.has_object_data());
 
-    message.set_version(InventoryVersion);
+    message.set_version(AdvanceVersion());
     message.mutable_owner_soid()->set_type(SoIdTypeSteamId);
     message.mutable_owner_soid()->set_id(m_steamId);
 
     message.set_type_id(type);
     message.set_object_data(object.SerializeAsString());
+}
+
+uint64_t Inventory::AdvanceVersion()
+{
+    if (!++m_version)
+    {
+        ++m_version;
+    }
+    return m_version;
 }
 
 uint32_t Inventory::AccountId() const
@@ -388,7 +409,7 @@ void Inventory::WriteItem(KeyValue &itemKey, const CSOEconItem &item) const
 
 void Inventory::BuildCacheSubscription(CMsgSOCacheSubscribed &message, int level, bool server)
 {
-    message.set_version(InventoryVersion);
+    message.set_version(m_version);
     message.mutable_owner_soid()->set_type(SoIdTypeSteamId);
     message.mutable_owner_soid()->set_id(m_steamId);
 
@@ -424,7 +445,6 @@ void Inventory::BuildCacheSubscription(CMsgSOCacheSubscribed &message, int level
         accountClient.set_bonus_xp_timestamp_refresh(static_cast<uint32_t>(time(nullptr)));
         accountClient.set_bonus_xp_usedflags(16); // caught cheater lobbies, overwatch bonus etc
         accountClient.set_elevated_state(ElevatedStatePrime);
-        accountClient.set_elevated_timestamp(ElevatedStatePrime); // is this actually 5????
 
         CMsgSOCacheSubscribed_SubscribedType *object = message.add_objects();
         object->set_type_id(SOTypeGameAccountClient);

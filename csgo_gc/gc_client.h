@@ -55,6 +55,7 @@ private:
         const google::protobuf::MessageLite &message, uint64_t jobId = JobIdInvalid);
 
     void OnClientHello(GCMessageRead &messageRead);
+    void SOCacheSubscriptionRefresh(GCMessageRead &messageRead);
     void AdjustItemEquippedState(GCMessageRead &messageRead);
     void ClientPlayerDecalSign(GCMessageRead &messageRead);
     void UseItemRequest(GCMessageRead &messageRead);
@@ -84,7 +85,8 @@ private:
     void BroadcastSwapOutcome(const Inventory::CounterSwapResult &outcome);
 
     void BuildMatchmakingHello(CMsgGCCStrike15_v2_MatchmakingGC2ClientHello &message);
-    void BuildClientWelcome(CMsgClientWelcome &message, const CMsgCStrike15Welcome &csWelcome,
+    void BuildClientWelcome(CMsgClientWelcome &message, const CMsgClientHello &hello,
+        const CMsgCStrike15Welcome &csWelcome,
         const CMsgGCCStrike15_v2_MatchmakingGC2ClientHello &matchmakingHello);
     void SendRankUpdate();
 

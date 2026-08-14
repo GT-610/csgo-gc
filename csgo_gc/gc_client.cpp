@@ -976,6 +976,10 @@ void ClientGC::HandleMessage(uint32_t type, const void *data, uint32_t size)
             OnClientHello(messageRead);
             break;
 
+        case k_ESOMsg_CacheSubscriptionRefresh:
+            SOCacheSubscriptionRefresh(messageRead);
+            break;
+
         case k_EMsgGCAdjustItemEquippedState:
             AdjustItemEquippedState(messageRead);
             break;
@@ -1165,12 +1169,38 @@ void ClientGC::BuildMatchmakingHello(CMsgGCCStrike15_v2_MatchmakingGC2ClientHell
     message.set_player_cur_xp(GetConfig().Xp());
 }
 
-void ClientGC::BuildClientWelcome(CMsgClientWelcome &message, const CMsgCStrike15Welcome &csWelcome,
+void ClientGC::BuildClientWelcome(CMsgClientWelcome &message, const CMsgClientHello &hello,
+    const CMsgCStrike15Welcome &csWelcome,
     const CMsgGCCStrike15_v2_MatchmakingGC2ClientHello &matchmakingHello)
 {
     message.set_version(0); // this is accurate
     message.set_game_data(csWelcome.SerializeAsString());
-    m_inventory.BuildCacheSubscription(*message.add_outofdate_subscribed_caches(), GetConfig().Level(), false);
+
+    bool cacheIsCurrent = false;
+    for (const CMsgSOCacheHaveVersion &cache : hello.socache_have_versions())
+    {
+        if (cache.has_soid()
+            && cache.soid().type() == SoIdTypeSteamId
+            && cache.soid().id() == m_steamId
+            && cache.version() == m_inventory.Version())
+        {
+            cacheIsCurrent = true;
+            break;
+        }
+    }
+
+    if (cacheIsCurrent)
+    {
+        CMsgSOCacheSubscriptionCheck *cache = message.add_uptodate_subscribed_caches();
+        cache->set_version(m_inventory.Version());
+        cache->mutable_owner_soid()->set_type(SoIdTypeSteamId);
+        cache->mutable_owner_soid()->set_id(m_steamId);
+    }
+    else
+    {
+        m_inventory.BuildCacheSubscription(*message.add_outofdate_subscribed_caches(),
+            GetConfig().Level(), false);
+    }
     message.mutable_location()->set_latitude(65.0133006f);
     message.mutable_location()->set_longitude(25.4646212f);
     message.mutable_location()->set_country("FI"); // finland
@@ -1214,7 +1244,8 @@ void ClientGC::OnClientHello(GCMessageRead &messageRead)
         return;
     }
 
-    // we don't care about anything in this message, just reply
+    // The client reports any SOCache versions it already has so the welcome can
+    // avoid retransmitting a full inventory snapshot when it is still current.
     CMsgCStrike15Welcome csWelcome;
     BuildCSWelcome(csWelcome);
 
@@ -1222,7 +1253,7 @@ void ClientGC::OnClientHello(GCMessageRead &messageRead)
     BuildMatchmakingHello(mmHello);
 
     CMsgClientWelcome clientWelcome;
-    BuildClientWelcome(clientWelcome, csWelcome, mmHello);
+    BuildClientWelcome(clientWelcome, hello, csWelcome, mmHello);
 
     SendMessageToGame(false, k_EMsgGCClientWelcome, clientWelcome);
 
@@ -1232,6 +1263,28 @@ void ClientGC::OnClientHello(GCMessageRead &messageRead)
 
     // send all ranks here as well, it's a bit back and forth with real gc
     SendRankUpdate();
+}
+
+void ClientGC::SOCacheSubscriptionRefresh(GCMessageRead &messageRead)
+{
+    CMsgSOCacheSubscriptionRefresh refresh;
+    if (!messageRead.ReadProtobuf(refresh))
+    {
+        Platform::Print("Parsing CMsgSOCacheSubscriptionRefresh failed, ignoring\n");
+        return;
+    }
+
+    if (!refresh.has_owner_soid()
+        || refresh.owner_soid().type() != SoIdTypeSteamId
+        || refresh.owner_soid().id() != m_steamId)
+    {
+        Platform::Print("Ignoring SOCache refresh for a different owner\n");
+        return;
+    }
+
+    CMsgSOCacheSubscribed subscription;
+    m_inventory.BuildCacheSubscription(subscription, GetConfig().Level(), false);
+    SendMessageToGame(false, k_ESOMsg_CacheSubscribed, subscription);
 }
 
 void ClientGC::AdjustItemEquippedState(GCMessageRead &messageRead)
