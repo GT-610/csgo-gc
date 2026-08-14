@@ -47,7 +47,8 @@ public:
 
     void BuildCacheSubscription(CMsgSOCacheSubscribed &message, int level, bool server);
 
-    bool EquipItem(uint64_t itemId, uint32_t classId, uint32_t slotId, CMsgSOMultipleObjects &update);
+    bool EquipItem(uint64_t itemId, uint32_t classId, uint32_t slotId, bool swap,
+        CMsgSOMultipleObjects &update);
 
     bool RemoveItem(uint64_t itemId, CMsgSOSingleObject &destroy);
 
@@ -199,7 +200,7 @@ private:
     void WriteItem(KeyValue &itemKey, const CSOEconItem &item) const;
 
     // helper, only called via EquipItem
-    bool UnequipItem(uint64_t itemId, CMsgSOMultipleObjects &update);
+    bool UnequipItem(uint64_t itemId, uint32_t classId, CMsgSOMultipleObjects &update);
     void UnequipItem(uint32_t classId, uint32_t slotId, CMsgSOMultipleObjects &update);
 
     void DestroyItem(ItemMap::iterator iterator, CMsgSOSingleObject &message);

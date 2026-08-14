@@ -183,10 +183,104 @@ static bool InventoryPersistenceProtectsFiles()
     return preserved && validEmptyInventory;
 }
 
+static int EquippedSlotForClass(const CSOEconItem &item, uint32_t classId)
+{
+    int slot = -1;
+    for (const CSOEconItemEquipped &equipped : item.equipped_state())
+    {
+        if (equipped.new_class() == classId)
+        {
+            if (slot != -1)
+            {
+                return -2;
+            }
+            slot = static_cast<int>(equipped.new_slot());
+        }
+    }
+    return slot;
+}
+
+static bool WriteLoadoutFixture()
+{
+    if (!TestFilesystem::MakeDirectory("csgo_gc"))
+    {
+        return false;
+    }
+
+    KeyValue inventory{ "inventory" };
+    inventory.AddNumber("format_version", 1);
+    KeyValue &items = inventory.AddSubkey("items");
+
+    auto addItem = [&](const char *highItemId, uint32_t defIndex, uint32_t class2Slot,
+                       bool equipForClass3)
+    {
+        KeyValue &item = items.AddSubkey(highItemId);
+        item.AddNumber("def_index", defIndex);
+        KeyValue &equippedState = item.AddSubkey("equipped_state");
+        equippedState.AddNumber("2", class2Slot);
+        if (equipForClass3)
+        {
+            equippedState.AddNumber("3", class2Slot);
+        }
+    };
+
+    addItem("1", 7, 1, true);
+    addItem("2", 8, 2, false);
+    inventory.AddSubkey("default_equips");
+    return inventory.WriteToFile("csgo_gc/inventory.txt");
+}
+
+static bool LoadoutStateTransitionsPreserveClassesAndSwapSlots()
+{
+    constexpr uint64_t SteamId = 76561197960265729ull;
+    constexpr uint64_t Item1 = (uint64_t{ 1 } << 32) | (SteamId & UINT32_MAX);
+    constexpr uint64_t Item2 = (uint64_t{ 2 } << 32) | (SteamId & UINT32_MAX);
+
+    TestFilesystem::RemoveFile("csgo_gc/inventory.txt");
+    if (!WriteLoadoutFixture())
+    {
+        return false;
+    }
+
+    bool valid = true;
+    {
+        Inventory inventory{ SteamId };
+
+        CMsgSOMultipleObjects unequip;
+        valid &= inventory.EquipItem(Item1, 2, 0xffff, false, unequip);
+        const CSOEconItem *item1 = inventory.GetItem(Item1);
+        valid &= item1 && EquippedSlotForClass(*item1, 2) == -1
+            && EquippedSlotForClass(*item1, 3) == 1;
+
+        CMsgSOMultipleObjects reequip;
+        valid &= inventory.EquipItem(Item1, 2, 1, false, reequip);
+
+        CMsgSOMultipleObjects swap;
+        valid &= inventory.EquipItem(Item1, 2, 2, true, swap);
+        item1 = inventory.GetItem(Item1);
+        const CSOEconItem *item2 = inventory.GetItem(Item2);
+        valid &= item1 && item2
+            && EquippedSlotForClass(*item1, 2) == 2
+            && EquippedSlotForClass(*item1, 3) == 1
+            && EquippedSlotForClass(*item2, 2) == 1;
+
+        CMsgSOMultipleObjects move;
+        valid &= inventory.EquipItem(Item1, 2, 3, false, move);
+        item1 = inventory.GetItem(Item1);
+        valid &= item1 && EquippedSlotForClass(*item1, 2) == 3
+            && EquippedSlotForClass(*item1, 3) == 1;
+    }
+
+    TestFilesystem::RemoveFile("csgo_gc/inventory.txt");
+    TestFilesystem::RemoveDirectory("csgo_gc");
+    return valid;
+}
+
 int main()
 {
     return ExtendedCraftResponseSerialization()
         && TruncatedCraftRequestGetsInvalidResponse()
         && BasicStructHeaderSerializationIsUnchanged()
-        && InventoryPersistenceProtectsFiles() ? 0 : 1;
+        && InventoryPersistenceProtectsFiles()
+        && LoadoutStateTransitionsPreserveClassesAndSwapSlots() ? 0 : 1;
 }

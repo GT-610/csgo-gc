@@ -1244,7 +1244,8 @@ void ClientGC::AdjustItemEquippedState(GCMessageRead &messageRead)
     }
 
     CMsgSOMultipleObjects update;
-    if (!m_inventory.EquipItem(message.item_id(), message.new_class(), message.new_slot(), update))
+    if (!m_inventory.EquipItem(message.item_id(), message.new_class(), message.new_slot(),
+        message.swap(), update))
     {
         // no change
         assert(false);
