@@ -117,11 +117,56 @@ After changing C++ code, at minimum build:
   --target csgo_gc
 ```
 
+When a change affects test code or GC behavior covered by tests, also build the
+affected test target and run the full configured suite:
+
+```bat
+"%VS_BUILDTOOLS%\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" ^
+  --build build ^
+  --config Release ^
+  --target gc_message_tests
+
+"%VS_BUILDTOOLS%\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\ctest.exe" ^
+  --test-dir build ^
+  -C Release ^
+  --output-on-failure
+```
+
 Build-generated protobuf sources and vendored Steamworks SDK headers are noisy. When searching for project issues, usually scope searches to:
 
 ```bat
 rg <pattern> csgo_gc launcher CMakeLists.txt README.md AGENTS.md
 ```
+
+## Final Client Compatibility Invariants
+
+The primary runtime target is the final September 2023 legacy CS:GO client.
+Preserve the shared CS:GO GC message IDs and protobuf shapes so common
+client/server functionality remains interoperable with upstream. Fork-only
+state should be additive and safe for an implementation that ignores it; do
+not describe this as complete feature parity without direct testing.
+
+Inventory equipped state is class/team-specific. Do not clear another class's
+state when unequipping an item, and do not publish empty SO updates when no
+state changed. Default-item swaps are order-sensitive: clear the target keyed
+SO before publishing a displaced default equip into its new slot.
+
+The store currently permits one active transaction per ClientGC. Preserve the
+delayed `MicroTxnAuthorizationResponse_t` callback so the client can store the
+transaction ID before starting Finalize. Do not introduce a pending
+authorization queue unless the single-active-transaction model changes.
+Finalize must publish created inventory SOs before its success response, and a
+partial creation failure must remove unpublished items and clear the pending
+transaction.
+
+## Documentation Repository
+
+The documentation site is maintained in the separate `csgo-gc-docs`
+repository. This repository currently links to the site but does not contain a
+`.gitmodules` entry or a documentation gitlink. Verify the actual checkout
+topology before attempting a submodule pointer update. Keep English and Chinese
+pages aligned, and commit and push documentation-repository changes before
+committing related README or agent-guidance changes here.
 
 ## Reverse Engineering Notes
 
