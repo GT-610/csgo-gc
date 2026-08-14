@@ -514,7 +514,7 @@ bool Inventory::EquipItem(uint64_t itemId, uint32_t classId, uint32_t slotId, bo
     {
         // Equipped state is independent for each class/team. Removing one class
         // must not clear the same item from the other team.
-        return UnequipItem(itemId, classId, update);
+        return UnequipItemForClass(itemId, classId, update);
     }
 
     assert(itemId);
@@ -523,7 +523,7 @@ bool Inventory::EquipItem(uint64_t itemId, uint32_t classId, uint32_t slotId, bo
     if (itemId == ItemIdInvalid)
     {
         // unequip from this slot, itemid not provided so nothing gets equipped
-        UnequipItem(classId, slotId, update);
+        UnequipSlotForClass(classId, slotId, update);
         return true;
     }
 
@@ -576,13 +576,13 @@ bool Inventory::EquipItem(uint64_t itemId, uint32_t classId, uint32_t slotId, bo
 
             if (!movedDisplacedItem)
             {
-                UnequipItem(classId, slotId, update);
+                UnequipSlotForClass(classId, slotId, update);
             }
         }
         else
         {
             // if an item is equipped in this slot, unequip it first
-            UnequipItem(classId, slotId, update);
+            UnequipSlotForClass(classId, slotId, update);
         }
 
         Platform::Print("EquipItem def %u class %d slot %d\n", defIndex, classId, slotId);
@@ -640,7 +640,7 @@ bool Inventory::EquipItem(uint64_t itemId, uint32_t classId, uint32_t slotId, bo
         // The final client only performs a displaced-item swap for explicit
         // base/default items. Equipping a unique item clears the destination
         // slot even when the request carries swap=true.
-        UnequipItem(classId, slotId, update);
+        UnequipSlotForClass(classId, slotId, update);
 
         Platform::Print("EquipItem %llu class %d slot %d\n", itemId, classId,
             slotId);
@@ -2337,7 +2337,8 @@ uint64_t Inventory::CreateRconItem(uint32_t defIndex,
     return item.id();
 }
 
-bool Inventory::UnequipItem(uint64_t itemId, uint32_t classId, CMsgSOMultipleObjects &update)
+bool Inventory::UnequipItemForClass(uint64_t itemId, uint32_t classId,
+    CMsgSOMultipleObjects &update)
 {
     uint32_t defIndex, paintKitIndex;
     if (IsDefaultItemId(itemId, defIndex, paintKitIndex))
@@ -2370,16 +2371,18 @@ bool Inventory::UnequipItem(uint64_t itemId, uint32_t classId, CMsgSOMultipleObj
     }
 
     CSOEconItem &item = it->second;
-    if (RemoveEquippedStateForClass(item, classId))
+    if (!RemoveEquippedStateForClass(item, classId))
     {
-        AddToMultipleObjects(update, item);
+        return false;
     }
 
+    AddToMultipleObjects(update, item);
     return true;
 }
 
 // this goes through everything on purpose
-void Inventory::UnequipItem(uint32_t classId, uint32_t slotId, CMsgSOMultipleObjects &update)
+void Inventory::UnequipSlotForClass(uint32_t classId, uint32_t slotId,
+    CMsgSOMultipleObjects &update)
 {
     // check non default items first
     for (auto &pair : m_items)

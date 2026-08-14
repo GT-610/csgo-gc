@@ -239,7 +239,7 @@ static bool WaitForHostMessage(ClientGC &gc, uint32_t type, EventData &result,
         }
 
         events.clear();
-        std::this_thread::yield();
+        std::this_thread::sleep_for(std::chrono::milliseconds{ 1 });
     }
 
     return false;
@@ -460,6 +460,11 @@ static bool LoadoutStateTransitionsPreserveClassesAndSwapSlots()
         const CSOEconItem *item1 = inventory.GetItem(Item1);
         valid &= item1 && EquippedSlotForClass(*item1, 2) == -1
             && EquippedSlotForClass(*item1, 3) == 1;
+
+        CMsgSOMultipleObjects unchangedUnequip;
+        valid &= !inventory.EquipItem(Item1, 2, 0xffff, false, unchangedUnequip)
+            && !unchangedUnequip.has_version()
+            && unchangedUnequip.objects_modified_size() == 0;
 
         CMsgSOMultipleObjects move;
         valid &= inventory.EquipItem(Item2, 2, 5, false, move);
@@ -777,12 +782,32 @@ static bool StorePurchasesFinalizeTransactionally()
 
 int main()
 {
-    return ExtendedCraftResponseSerialization()
-        && TruncatedCraftRequestGetsInvalidResponse()
-        && BasicStructHeaderSerializationIsUnchanged()
-        && NetworkingClientRefreshesInterfacesAndSkipsIdlePolling()
-        && InventoryPersistenceProtectsFiles()
-        && LoadoutStateTransitionsPreserveClassesAndSwapSlots()
-        && SOCacheVersionNegotiationAndRefresh()
-        && StorePurchasesFinalizeTransactionally() ? 0 : 1;
+    struct TestCase
+    {
+        const char *name;
+        bool (*run)();
+    };
+
+    const TestCase tests[]{
+        { "ExtendedCraftResponseSerialization", ExtendedCraftResponseSerialization },
+        { "TruncatedCraftRequestGetsInvalidResponse", TruncatedCraftRequestGetsInvalidResponse },
+        { "BasicStructHeaderSerializationIsUnchanged", BasicStructHeaderSerializationIsUnchanged },
+        { "NetworkingClientRefreshesInterfacesAndSkipsIdlePolling",
+            NetworkingClientRefreshesInterfacesAndSkipsIdlePolling },
+        { "InventoryPersistenceProtectsFiles", InventoryPersistenceProtectsFiles },
+        { "LoadoutStateTransitionsPreserveClassesAndSwapSlots",
+            LoadoutStateTransitionsPreserveClassesAndSwapSlots },
+        { "SOCacheVersionNegotiationAndRefresh", SOCacheVersionNegotiationAndRefresh },
+        { "StorePurchasesFinalizeTransactionally", StorePurchasesFinalizeTransactionally },
+    };
+
+    bool allPassed = true;
+    for (const TestCase &test : tests)
+    {
+        const bool passed = test.run();
+        std::printf("%s: %s\n", test.name, passed ? "PASS" : "FAIL");
+        allPassed &= passed;
+    }
+
+    return allPassed ? 0 : 1;
 }

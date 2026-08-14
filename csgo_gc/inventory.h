@@ -201,8 +201,8 @@ private:
     void WriteItem(KeyValue &itemKey, const CSOEconItem &item) const;
 
     // helper, only called via EquipItem
-    bool UnequipItem(uint64_t itemId, uint32_t classId, CMsgSOMultipleObjects &update);
-    void UnequipItem(uint32_t classId, uint32_t slotId, CMsgSOMultipleObjects &update);
+    bool UnequipItemForClass(uint64_t itemId, uint32_t classId, CMsgSOMultipleObjects &update);
+    void UnequipSlotForClass(uint32_t classId, uint32_t slotId, CMsgSOMultipleObjects &update);
 
     void DestroyItem(ItemMap::iterator iterator, CMsgSOSingleObject &message);
 

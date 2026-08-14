@@ -1642,6 +1642,13 @@ void ClientGC::StorePurchaseFinalize(GCMessageRead &messageRead)
             {
                 Platform::Print("StorePurchaseFinalize failed to create def %u for transaction %llu\n",
                     lineItem.defIndex, m_transactionId);
+                for (uint64_t createdItemId : itemIds)
+                {
+                    CMsgSOSingleObject discardedDestroy;
+                    m_inventory.RemoveItem(createdItemId, discardedDestroy);
+                }
+                m_transactionId = 0;
+                m_transactionLineItems.clear();
                 response.set_result(StoreResultInvalid);
                 SendMessageToGame(false, k_EMsgGCStorePurchaseFinalizeResponse, response,
                     messageRead.JobId());
