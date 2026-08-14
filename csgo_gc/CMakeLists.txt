@@ -113,6 +113,7 @@ if (BUILD_TESTING)
         item_schema.cpp
         item_utils.cpp
         keyvalue.cpp
+        networking_client.cpp
         souvenir.cpp)
 
     target_precompile_headers(gc_message_tests PRIVATE stdafx.h)

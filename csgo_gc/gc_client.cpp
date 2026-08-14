@@ -976,6 +976,10 @@ void ClientGC::HandleMessage(uint32_t type, const void *data, uint32_t size)
             OnClientHello(messageRead);
             break;
 
+        case k_ESOMsg_CacheSubscriptionRefresh:
+            SOCacheSubscriptionRefresh(messageRead);
+            break;
+
         case k_EMsgGCAdjustItemEquippedState:
             AdjustItemEquippedState(messageRead);
             break;
@@ -1125,6 +1129,11 @@ constexpr uint32_t MakeAddress(uint32_t v1, uint32_t v2, uint32_t v3, uint32_t v
     return v4 | (v3 << 8) | (v2 << 16) | (v1 << 24);
 }
 
+constexpr uint32_t PriceSheetVersion = 1680057676;
+constexpr int32_t StoreResultOK = 1;
+constexpr int32_t StoreResultInvalid = 2;
+constexpr uint32_t MaxStorePurchaseItems = 1024;
+
 static void BuildCSWelcome(CMsgCStrike15Welcome &message)
 {
     message.set_store_item_hash(136617352);
@@ -1152,7 +1161,7 @@ void ClientGC::BuildMatchmakingHello(CMsgGCCStrike15_v2_MatchmakingGC2ClientHell
 
     // Do not set required_appid_version fields: archived clients interpret them as a minimum build
     // and show "Game update required" when the advertised version is newer than their own.
-    message.mutable_global_stats()->set_pricesheet_version(1680057676);
+    message.mutable_global_stats()->set_pricesheet_version(PriceSheetVersion);
     message.mutable_global_stats()->set_twitch_streams_version(2);
     message.mutable_global_stats()->set_active_tournament_eventid(20);
     message.mutable_global_stats()->set_active_survey_id(0);
@@ -1165,12 +1174,38 @@ void ClientGC::BuildMatchmakingHello(CMsgGCCStrike15_v2_MatchmakingGC2ClientHell
     message.set_player_cur_xp(GetConfig().Xp());
 }
 
-void ClientGC::BuildClientWelcome(CMsgClientWelcome &message, const CMsgCStrike15Welcome &csWelcome,
+void ClientGC::BuildClientWelcome(CMsgClientWelcome &message, const CMsgClientHello &hello,
+    const CMsgCStrike15Welcome &csWelcome,
     const CMsgGCCStrike15_v2_MatchmakingGC2ClientHello &matchmakingHello)
 {
     message.set_version(0); // this is accurate
     message.set_game_data(csWelcome.SerializeAsString());
-    m_inventory.BuildCacheSubscription(*message.add_outofdate_subscribed_caches(), GetConfig().Level(), false);
+
+    bool cacheIsCurrent = false;
+    for (const CMsgSOCacheHaveVersion &cache : hello.socache_have_versions())
+    {
+        if (cache.has_soid()
+            && cache.soid().type() == SoIdTypeSteamId
+            && cache.soid().id() == m_steamId
+            && cache.version() == m_inventory.Version())
+        {
+            cacheIsCurrent = true;
+            break;
+        }
+    }
+
+    if (cacheIsCurrent)
+    {
+        CMsgSOCacheSubscriptionCheck *cache = message.add_uptodate_subscribed_caches();
+        cache->set_version(m_inventory.Version());
+        cache->mutable_owner_soid()->set_type(SoIdTypeSteamId);
+        cache->mutable_owner_soid()->set_id(m_steamId);
+    }
+    else
+    {
+        m_inventory.BuildCacheSubscription(*message.add_outofdate_subscribed_caches(),
+            GetConfig().Level(), false);
+    }
     message.mutable_location()->set_latitude(65.0133006f);
     message.mutable_location()->set_longitude(25.4646212f);
     message.mutable_location()->set_country("FI"); // finland
@@ -1214,7 +1249,8 @@ void ClientGC::OnClientHello(GCMessageRead &messageRead)
         return;
     }
 
-    // we don't care about anything in this message, just reply
+    // The client reports any SOCache versions it already has so the welcome can
+    // avoid retransmitting a full inventory snapshot when it is still current.
     CMsgCStrike15Welcome csWelcome;
     BuildCSWelcome(csWelcome);
 
@@ -1222,7 +1258,7 @@ void ClientGC::OnClientHello(GCMessageRead &messageRead)
     BuildMatchmakingHello(mmHello);
 
     CMsgClientWelcome clientWelcome;
-    BuildClientWelcome(clientWelcome, csWelcome, mmHello);
+    BuildClientWelcome(clientWelcome, hello, csWelcome, mmHello);
 
     SendMessageToGame(false, k_EMsgGCClientWelcome, clientWelcome);
 
@@ -1232,6 +1268,28 @@ void ClientGC::OnClientHello(GCMessageRead &messageRead)
 
     // send all ranks here as well, it's a bit back and forth with real gc
     SendRankUpdate();
+}
+
+void ClientGC::SOCacheSubscriptionRefresh(GCMessageRead &messageRead)
+{
+    CMsgSOCacheSubscriptionRefresh refresh;
+    if (!messageRead.ReadProtobuf(refresh))
+    {
+        Platform::Print("Parsing CMsgSOCacheSubscriptionRefresh failed, ignoring\n");
+        return;
+    }
+
+    if (!refresh.has_owner_soid()
+        || refresh.owner_soid().type() != SoIdTypeSteamId
+        || refresh.owner_soid().id() != m_steamId)
+    {
+        Platform::Print("Ignoring SOCache refresh for a different owner\n");
+        return;
+    }
+
+    CMsgSOCacheSubscribed subscription;
+    m_inventory.BuildCacheSubscription(subscription, GetConfig().Level(), false);
+    SendMessageToGame(false, k_ESOMsg_CacheSubscribed, subscription);
 }
 
 void ClientGC::AdjustItemEquippedState(GCMessageRead &messageRead)
@@ -1244,7 +1302,8 @@ void ClientGC::AdjustItemEquippedState(GCMessageRead &messageRead)
     }
 
     CMsgSOMultipleObjects update;
-    if (!m_inventory.EquipItem(message.item_id(), message.new_class(), message.new_slot(), update))
+    if (!m_inventory.EquipItem(message.item_id(), message.new_class(), message.new_slot(),
+        message.swap(), update))
     {
         // no change
         assert(false);
@@ -1470,9 +1529,12 @@ void ClientGC::StoreGetUserData(GCMessageRead &messageRead)
         return;
     }
 
+    CMsgStoreGetUserDataResponse response;
     KeyValue priceSheet{ "price_sheet" };
     if (!priceSheet.ParseFromFile("csgo_gc/price_sheet.txt"))
     {
+        response.set_result(StoreResultInvalid);
+        SendMessageToGame(false, k_EMsgGCStoreGetUserDataResponse, response, messageRead.JobId());
         return;
     }
 
@@ -1480,13 +1542,11 @@ void ClientGC::StoreGetUserData(GCMessageRead &messageRead)
     binaryString.reserve(1 << 17);
     priceSheet.BinaryWriteToString(binaryString);
 
-    // fuck you idiot
-    CMsgStoreGetUserDataResponse response;
-    response.set_result(1);
-    response.set_price_sheet_version(1729); // what
+    response.set_result(StoreResultOK);
+    response.set_price_sheet_version(PriceSheetVersion);
     *response.mutable_price_sheet() = std::move(binaryString);
 
-    SendMessageToGame(false, k_EMsgGCStoreGetUserDataResponse, response);
+    SendMessageToGame(false, k_EMsgGCStoreGetUserDataResponse, response, messageRead.JobId());
 }
 
 void ClientGC::StorePurchaseInit(GCMessageRead &messageRead)
@@ -1498,52 +1558,57 @@ void ClientGC::StorePurchaseInit(GCMessageRead &messageRead)
         return;
     }
 
-    // value doesn't matter
-    uint64_t transactionId = Random{}.Integer<uint64_t>();
-
-    assert(!m_transactionId);
-    m_transactionId = transactionId;
-    m_transactionItemIds.clear();
-    m_transactionItemIds.reserve(message.line_items_size()); // rough approx
-
-    // inventory update response
-    std::vector<CMsgSOSingleObject> inventoryUpdate;
-
-    for (const auto &item : message.line_items())
+    CMsgGCStorePurchaseInitResponse response;
+    if (m_transactionId || message.line_items_size() == 0)
     {
-        for (uint32_t i = 0; i < item.quantity(); i++)
-        {
-            uint64_t itemId = m_inventory.PurchaseItem(item.item_def_id(), inventoryUpdate);
-            if (!itemId)
-            {
-                assert(false);
-            }
-            else
-            {
-                m_transactionItemIds.push_back(itemId);
-            }
-        }
+        Platform::Print("StorePurchaseInit rejected: pending transaction %llu, line items %d\n",
+            m_transactionId, message.line_items_size());
+        response.set_result(StoreResultInvalid);
+        SendMessageToGame(false, k_EMsgGCStorePurchaseInitResponse, response, messageRead.JobId());
+        return;
     }
+
+    std::vector<PendingStoreLineItem> lineItems;
+    lineItems.reserve(message.line_items_size());
+    uint64_t itemCount = 0;
+    for (const CGCStorePurchaseInit_LineItem &item : message.line_items())
+    {
+        itemCount += item.quantity();
+        if (!item.has_item_def_id() || !item.quantity()
+            || itemCount > MaxStorePurchaseItems
+            || !m_inventory.GetItemSchema().ItemInfoByDefIndex(item.item_def_id()))
+        {
+            Platform::Print("StorePurchaseInit rejected line item: def %u, quantity %u, total %llu\n",
+                item.item_def_id(), item.quantity(), itemCount);
+            response.set_result(StoreResultInvalid);
+            SendMessageToGame(false, k_EMsgGCStorePurchaseInitResponse, response, messageRead.JobId());
+            return;
+        }
+
+        lineItems.push_back({ item.item_def_id(), item.quantity() });
+    }
+
+    do
+    {
+        m_transactionId = Random{}.Integer<uint64_t>();
+    } while (!m_transactionId);
+    m_transactionLineItems = std::move(lineItems);
 
     char url[128]; // url doesn't matter, but it needs to be set
-    snprintf(url, sizeof(url), "https://checkout.steampowered.com/checkout/approvetxn/%llu/?returnurl=steam", transactionId);
+    snprintf(url, sizeof(url), "https://checkout.steampowered.com/checkout/approvetxn/%llu/?returnurl=steam",
+        m_transactionId);
 
-    CMsgGCStorePurchaseInitResponse response;
-    response.set_result(1); // success
-    response.set_txn_id(transactionId);
+    response.set_result(StoreResultOK);
+    response.set_txn_id(m_transactionId);
     response.set_url(url);
-    response.mutable_item_ids()->Assign(m_transactionItemIds.begin(), m_transactionItemIds.end());
 
+    Platform::Print("StorePurchaseInit accepted transaction %llu with %llu items (job %llu)\n",
+        m_transactionId, itemCount, messageRead.JobId());
     SendMessageToGame(false, k_EMsgGCStorePurchaseInitResponse, response, messageRead.JobId());
 
-    // server needs to know about new items for validation
-    for (auto &newItem : inventoryUpdate)
-    {
-        SendMessageToGame(true, k_ESOMsg_Create, newItem);
-    }
-
-    // this will run the steam callback
-    PostToHost(HostEvent::MicroTransactionResponse, 0, nullptr, 0);
+    // The host delays this callback until the client has consumed the Init
+    // response and stored the transaction id used by its Finalize job.
+    PostToHost(HostEvent::MicroTransactionResponse, m_transactionId, nullptr, 0);
 }
 
 void ClientGC::StorePurchaseFinalize(GCMessageRead &messageRead)
@@ -1555,16 +1620,60 @@ void ClientGC::StorePurchaseFinalize(GCMessageRead &messageRead)
         return;
     }
 
-    assert(m_transactionId);
-
     CMsgGCStorePurchaseFinalizeResponse response;
-    response.set_result(1); // success
-    response.mutable_item_ids()->Assign(m_transactionItemIds.begin(), m_transactionItemIds.end());
+    Platform::Print("StorePurchaseFinalize requested transaction %llu, pending %llu (job %llu)\n",
+        message.has_txn_id() ? message.txn_id() : 0, m_transactionId, messageRead.JobId());
+    if (!m_transactionId || !message.has_txn_id() || message.txn_id() != m_transactionId)
+    {
+        Platform::Print("StorePurchaseFinalize rejected transaction id\n");
+        response.set_result(StoreResultInvalid);
+        SendMessageToGame(false, k_EMsgGCStorePurchaseFinalizeResponse, response, messageRead.JobId());
+        return;
+    }
+
+    std::vector<CMsgSOSingleObject> inventoryUpdate;
+    std::vector<uint64_t> itemIds;
+    for (const PendingStoreLineItem &lineItem : m_transactionLineItems)
+    {
+        for (uint32_t i = 0; i < lineItem.quantity; ++i)
+        {
+            uint64_t itemId = m_inventory.PurchaseItem(lineItem.defIndex, inventoryUpdate);
+            if (!itemId)
+            {
+                Platform::Print("StorePurchaseFinalize failed to create def %u for transaction %llu\n",
+                    lineItem.defIndex, m_transactionId);
+                for (uint64_t createdItemId : itemIds)
+                {
+                    CMsgSOSingleObject discardedDestroy;
+                    m_inventory.RemoveItem(createdItemId, discardedDestroy);
+                }
+                m_transactionId = 0;
+                m_transactionLineItems.clear();
+                response.set_result(StoreResultInvalid);
+                SendMessageToGame(false, k_EMsgGCStorePurchaseFinalizeResponse, response,
+                    messageRead.JobId());
+                return;
+            }
+            itemIds.push_back(itemId);
+        }
+    }
+
+    // Publish the SO creates before completing the transaction so the item ids
+    // in the response already resolve in the client's cache.
+    for (CMsgSOSingleObject &newItem : inventoryUpdate)
+    {
+        SendMessageToGame(true, k_ESOMsg_Create, newItem);
+    }
+
+    response.set_result(StoreResultOK);
+    response.mutable_item_ids()->Assign(itemIds.begin(), itemIds.end());
+    Platform::Print("StorePurchaseFinalize completed transaction %llu with %llu items\n",
+        m_transactionId, static_cast<uint64_t>(itemIds.size()));
     SendMessageToGame(false, k_EMsgGCStorePurchaseFinalizeResponse, response, messageRead.JobId());
 
     // done with this one
     m_transactionId = 0;
-    m_transactionItemIds.clear();
+    m_transactionLineItems.clear();
 }
 
 void ClientGC::DeleteItem(GCMessageRead &messageRead)

@@ -10,8 +10,19 @@
 
 constexpr const char *InventoryFilePath = "csgo_gc/inventory.txt";
 
-// mikkotodo actual versioning
-constexpr uint64_t InventoryVersion = 7523377975160828514;
+static uint64_t InitialInventoryVersion()
+{
+    static std::atomic<uint64_t> nextVersion{
+        static_cast<uint64_t>(std::chrono::system_clock::now().time_since_epoch().count())
+    };
+
+    uint64_t version = nextVersion.fetch_add(1, std::memory_order_relaxed) + 1;
+    if (!version)
+    {
+        version = nextVersion.fetch_add(1, std::memory_order_relaxed) + 1;
+    }
+    return version;
+}
 
 // mix the account id into item ids to avoid collisions in multiplayer games
 inline uint64_t ComposeItemId(uint32_t accountId, uint32_t highItemId)
@@ -87,6 +98,7 @@ uint32_t StickerRotationAttribute(size_t slot)
 
 Inventory::Inventory(uint64_t steamId)
     : m_steamId{ steamId }
+    , m_version{ InitialInventoryVersion() }
 {
     ReadFromFile();
 }
@@ -101,7 +113,7 @@ void Inventory::AddToMultipleObjects(CMsgSOMultipleObjects &message, SOTypeId ty
     if (!message.has_version())
     {
         assert(!message.has_owner_soid());
-        message.set_version(InventoryVersion);
+        message.set_version(AdvanceVersion());
         message.mutable_owner_soid()->set_type(SoIdTypeSteamId);
         message.mutable_owner_soid()->set_id(m_steamId);
     }
@@ -122,12 +134,21 @@ void Inventory::ToSingleObject(CMsgSOSingleObject &message, SOTypeId type, const
     assert(!message.has_type_id());
     assert(!message.has_object_data());
 
-    message.set_version(InventoryVersion);
+    message.set_version(AdvanceVersion());
     message.mutable_owner_soid()->set_type(SoIdTypeSteamId);
     message.mutable_owner_soid()->set_id(m_steamId);
 
     message.set_type_id(type);
     message.set_object_data(object.SerializeAsString());
+}
+
+uint64_t Inventory::AdvanceVersion()
+{
+    if (!++m_version)
+    {
+        ++m_version;
+    }
+    return m_version;
 }
 
 uint32_t Inventory::AccountId() const
@@ -388,7 +409,7 @@ void Inventory::WriteItem(KeyValue &itemKey, const CSOEconItem &item) const
 
 void Inventory::BuildCacheSubscription(CMsgSOCacheSubscribed &message, int level, bool server)
 {
-    message.set_version(InventoryVersion);
+    message.set_version(m_version);
     message.mutable_owner_soid()->set_type(SoIdTypeSteamId);
     message.mutable_owner_soid()->set_id(m_steamId);
 
@@ -424,7 +445,6 @@ void Inventory::BuildCacheSubscription(CMsgSOCacheSubscribed &message, int level
         accountClient.set_bonus_xp_timestamp_refresh(static_cast<uint32_t>(time(nullptr)));
         accountClient.set_bonus_xp_usedflags(16); // caught cheater lobbies, overwatch bonus etc
         accountClient.set_elevated_state(ElevatedStatePrime);
-        accountClient.set_elevated_timestamp(ElevatedStatePrime); // is this actually 5????
 
         CMsgSOCacheSubscribed_SubscribedType *object = message.add_objects();
         object->set_type_id(SOTypeGameAccountClient);
@@ -445,14 +465,56 @@ void Inventory::BuildCacheSubscription(CMsgSOCacheSubscribed &message, int level
 constexpr uint32_t SlotUneqip = 0xffff;
 constexpr uint64_t ItemIdInvalid = 0;
 
+static std::optional<uint32_t> EquippedSlotForClass(const CSOEconItem &item, uint32_t classId)
+{
+    for (const CSOEconItemEquipped &equipped : item.equipped_state())
+    {
+        if (equipped.new_class() == classId)
+        {
+            return equipped.new_slot();
+        }
+    }
+
+    return std::nullopt;
+}
+
+static bool RemoveEquippedStateForClass(CSOEconItem &item, uint32_t classId)
+{
+    bool modified = false;
+    for (auto it = item.mutable_equipped_state()->begin(); it != item.mutable_equipped_state()->end();)
+    {
+        if (it->new_class() == classId)
+        {
+            it = item.mutable_equipped_state()->erase(it);
+            modified = true;
+        }
+        else
+        {
+            ++it;
+        }
+    }
+
+    return modified;
+}
+
+static void SetEquippedStateForClass(CSOEconItem &item, uint32_t classId, uint32_t slotId)
+{
+    RemoveEquippedStateForClass(item, classId);
+    CSOEconItemEquipped *equippedState = item.add_equipped_state();
+    equippedState->set_new_class(classId);
+    equippedState->set_new_slot(slotId);
+}
+
 // yes this function is inefficent!!! but i think that makes it more clear
 // also i think this is the way valve gc does it???? can't remember
-bool Inventory::EquipItem(uint64_t itemId, uint32_t classId, uint32_t slotId, CMsgSOMultipleObjects &update)
+bool Inventory::EquipItem(uint64_t itemId, uint32_t classId, uint32_t slotId, bool swap,
+    CMsgSOMultipleObjects &update)
 {
     if (slotId == SlotUneqip)
     {
-        // unequipping a specific item from all slots
-        return UnequipItem(itemId, update);
+        // Equipped state is independent for each class/team. Removing one class
+        // must not clear the same item from the other team.
+        return UnequipItemForClass(itemId, classId, update);
     }
 
     assert(itemId);
@@ -461,25 +523,106 @@ bool Inventory::EquipItem(uint64_t itemId, uint32_t classId, uint32_t slotId, CM
     if (itemId == ItemIdInvalid)
     {
         // unequip from this slot, itemid not provided so nothing gets equipped
-        UnequipItem(classId, slotId, update);
+        UnequipSlotForClass(classId, slotId, update);
         return true;
     }
 
     uint32_t defIndex, paintKitIndex;
     if (IsDefaultItemId(itemId, defIndex, paintKitIndex))
     {
-        // if an item is equipped in this slot, unequip it first
-        UnequipItem(classId, slotId, update);
+        std::optional<uint32_t> previousSlot;
+        std::optional<CSOEconDefaultEquippedDefinitionInstanceClient> displacedDefaultEquip;
+        for (const CSOEconDefaultEquippedDefinitionInstanceClient &defaultEquip : m_defaultEquips)
+        {
+            if (defaultEquip.item_definition() == defIndex && defaultEquip.class_id() == classId)
+            {
+                previousSlot = defaultEquip.slot_id();
+                break;
+            }
+        }
+
+        if (swap && previousSlot && *previousSlot != slotId)
+        {
+            bool movedDisplacedItem = false;
+            for (auto &pair : m_items)
+            {
+                CSOEconItem &item = pair.second;
+                if (EquippedSlotForClass(item, classId) == slotId)
+                {
+                    SetEquippedStateForClass(item, classId, *previousSlot);
+                    AddToMultipleObjects(update, item);
+                    movedDisplacedItem = true;
+                    break;
+                }
+            }
+
+            if (!movedDisplacedItem)
+            {
+                for (CSOEconDefaultEquippedDefinitionInstanceClient &defaultEquip : m_defaultEquips)
+                {
+                    if (defaultEquip.class_id() == classId && defaultEquip.slot_id() == slotId
+                        && defaultEquip.item_definition() != defIndex)
+                    {
+                        CSOEconDefaultEquippedDefinitionInstanceClient cleared = defaultEquip;
+                        cleared.set_item_definition(0);
+                        AddToMultipleObjects(update, cleared);
+                        defaultEquip.set_slot_id(*previousSlot);
+                        displacedDefaultEquip = defaultEquip;
+                        movedDisplacedItem = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!movedDisplacedItem)
+            {
+                UnequipSlotForClass(classId, slotId, update);
+            }
+        }
+        else
+        {
+            // if an item is equipped in this slot, unequip it first
+            UnequipSlotForClass(classId, slotId, update);
+        }
 
         Platform::Print("EquipItem def %u class %d slot %d\n", defIndex, classId, slotId);
 
-        CSOEconDefaultEquippedDefinitionInstanceClient &defaultEquip = m_defaultEquips.emplace_back();
-        defaultEquip.set_account_id(AccountId());
-        defaultEquip.set_item_definition(defIndex);
-        defaultEquip.set_class_id(classId);
-        defaultEquip.set_slot_id(slotId);
+        std::optional<CSOEconDefaultEquippedDefinitionInstanceClient> defaultEquip;
+        for (auto it = m_defaultEquips.begin(); it != m_defaultEquips.end();)
+        {
+            if (it->item_definition() == defIndex && it->class_id() == classId)
+            {
+                CSOEconDefaultEquippedDefinitionInstanceClient cleared = *it;
+                cleared.set_item_definition(0);
+                AddToMultipleObjects(update, cleared);
+                defaultEquip = *it;
+                it = m_defaultEquips.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
 
-        AddToMultipleObjects(update, defaultEquip);
+        // Clear the target's old keyed SO before publishing a displaced default
+        // item into that slot. Reversing these updates makes the later clear
+        // remove the displaced item from the client's SOCache.
+        if (displacedDefaultEquip)
+        {
+            AddToMultipleObjects(update, *displacedDefaultEquip);
+        }
+
+        if (!defaultEquip)
+        {
+            defaultEquip.emplace();
+            defaultEquip->set_account_id(AccountId());
+            defaultEquip->set_item_definition(defIndex);
+            defaultEquip->set_class_id(classId);
+        }
+        defaultEquip->set_slot_id(slotId);
+        m_defaultEquips.push_back(*defaultEquip);
+
+        AddToMultipleObjects(update, *defaultEquip);
 
         return true;
     }
@@ -492,17 +635,17 @@ bool Inventory::EquipItem(uint64_t itemId, uint32_t classId, uint32_t slotId, CM
             return false; // didn't modify anything
         }
 
-        // if an item is equipped in this slot, unequip it first
-        UnequipItem(classId, slotId, update);
+        CSOEconItem &item = it->second;
+
+        // The final client only performs a displaced-item swap for explicit
+        // base/default items. Equipping a unique item clears the destination
+        // slot even when the request carries swap=true.
+        UnequipSlotForClass(classId, slotId, update);
 
         Platform::Print("EquipItem %llu class %d slot %d\n", itemId, classId,
             slotId);
 
-        CSOEconItem &item = it->second;
-
-        CSOEconItemEquipped *equippedState = item.add_equipped_state();
-        equippedState->set_new_class(classId);
-        equippedState->set_new_slot(slotId);
+        SetEquippedStateForClass(item, classId, slotId);
 
         AddToMultipleObjects(update, item);
 
@@ -549,7 +692,7 @@ bool Inventory::UseItem(uint64_t itemId,
     DestroyItem(it, destroy);
 
     // equip the new spray, this will also unequip the old one if we had one
-    EquipItem(unsealed.id(), 0, ItemSchema::LoadoutSlotGraffiti, updateMultiple);
+    EquipItem(unsealed.id(), 0, ItemSchema::LoadoutSlotGraffiti, false, updateMultiple);
 
     // remove this to have unlimited sprays
     CSOEconItemAttribute *attribute = unsealed.add_attribute();
@@ -2194,14 +2337,30 @@ uint64_t Inventory::CreateRconItem(uint32_t defIndex,
     return item.id();
 }
 
-bool Inventory::UnequipItem(uint64_t itemId, CMsgSOMultipleObjects &update)
+bool Inventory::UnequipItemForClass(uint64_t itemId, uint32_t classId,
+    CMsgSOMultipleObjects &update)
 {
     uint32_t defIndex, paintKitIndex;
     if (IsDefaultItemId(itemId, defIndex, paintKitIndex))
     {
-        // not supported
-        assert(false);
-        return false;
+        bool found = false;
+        for (auto it = m_defaultEquips.begin(); it != m_defaultEquips.end();)
+        {
+            if (it->item_definition() == defIndex && it->class_id() == classId)
+            {
+                CSOEconDefaultEquippedDefinitionInstanceClient removed = *it;
+                removed.set_item_definition(0);
+                AddToMultipleObjects(update, removed);
+                it = m_defaultEquips.erase(it);
+                found = true;
+            }
+            else
+            {
+                ++it;
+            }
+        }
+
+        return found;
     }
 
     auto it = m_items.find(itemId);
@@ -2212,15 +2371,18 @@ bool Inventory::UnequipItem(uint64_t itemId, CMsgSOMultipleObjects &update)
     }
 
     CSOEconItem &item = it->second;
-    item.clear_equipped_state();
+    if (!RemoveEquippedStateForClass(item, classId))
+    {
+        return false;
+    }
 
     AddToMultipleObjects(update, item);
-
     return true;
 }
 
 // this goes through everything on purpose
-void Inventory::UnequipItem(uint32_t classId, uint32_t slotId, CMsgSOMultipleObjects &update)
+void Inventory::UnequipSlotForClass(uint32_t classId, uint32_t slotId,
+    CMsgSOMultipleObjects &update)
 {
     // check non default items first
     for (auto &pair : m_items)

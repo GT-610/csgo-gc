@@ -9,6 +9,8 @@
 ## What is this?
 In Valve games, the Game Coordinator (GC) is a backend service most notably responsible for matchmaking and inventory management (like loadouts and skins). This project redirects the GC traffic to a custom, in-process implementation.
 
+This fork targets the final September 2023 legacy CS:GO client. It preserves interoperability with upstream for shared client/server protocol features, while fork-specific features may not have an upstream equivalent.
+
 ## Why would you want this?
 While it's still possible to connect CS:GO to CS2's GC by spoofing the version number, this may break in the future if Valve updates the GC protocol. This project aims to restore most GC-related functionality without relying on a centralized server.
 

@@ -6,7 +6,7 @@ enum class HostEvent
 {
     Message, // id contains the message type, buffer contains the payload
     NetMessage, // id contains the recipient steam id, buffer contains the payload
-    MicroTransactionResponse, // runs MicroTxnAuthorizationResponse_t, no arguments
+    MicroTransactionResponse, // id contains the Steam microtransaction order id
 };
 
 enum class GCEvent

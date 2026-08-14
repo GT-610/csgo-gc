@@ -46,8 +46,10 @@ public:
     };
 
     void BuildCacheSubscription(CMsgSOCacheSubscribed &message, int level, bool server);
+    uint64_t Version() const { return m_version; }
 
-    bool EquipItem(uint64_t itemId, uint32_t classId, uint32_t slotId, CMsgSOMultipleObjects &update);
+    bool EquipItem(uint64_t itemId, uint32_t classId, uint32_t slotId, bool swap,
+        CMsgSOMultipleObjects &update);
 
     bool RemoveItem(uint64_t itemId, CMsgSOSingleObject &destroy);
 
@@ -199,8 +201,8 @@ private:
     void WriteItem(KeyValue &itemKey, const CSOEconItem &item) const;
 
     // helper, only called via EquipItem
-    bool UnequipItem(uint64_t itemId, CMsgSOMultipleObjects &update);
-    void UnequipItem(uint32_t classId, uint32_t slotId, CMsgSOMultipleObjects &update);
+    bool UnequipItemForClass(uint64_t itemId, uint32_t classId, CMsgSOMultipleObjects &update);
+    void UnequipSlotForClass(uint32_t classId, uint32_t slotId, CMsgSOMultipleObjects &update);
 
     void DestroyItem(ItemMap::iterator iterator, CMsgSOSingleObject &message);
 
@@ -210,6 +212,7 @@ private:
     // helpers for serializing items to CMsgSOMultipleObjects and CMsgSOSingleObject
     void AddToMultipleObjects(CMsgSOMultipleObjects &message, SOTypeId type, const google::protobuf::MessageLite &object);
     void ToSingleObject(CMsgSOSingleObject &message, SOTypeId type, const google::protobuf::MessageLite &object);
+    uint64_t AdvanceVersion();
 
     // helpers for above..
     void AddToMultipleObjects(CMsgSOMultipleObjects &message, const CSOEconItem &object)
@@ -241,6 +244,7 @@ private:
     void ConsumeToolItem(uint64_t toolId, CMsgSOSingleObject &removalMsg);
 
     const uint64_t m_steamId;
+    uint64_t m_version;
     ItemSchema m_itemSchema;
     Random m_random;
     uint32_t m_lastHighItemId{};

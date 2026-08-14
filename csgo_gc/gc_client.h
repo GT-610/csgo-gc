@@ -27,6 +27,12 @@ private:
         std::string (ClientGC::*handler)(const RconRequest &request);
     };
 
+    struct PendingStoreLineItem
+    {
+        uint32_t defIndex;
+        uint32_t quantity;
+    };
+
     void HandleEvent(GCEvent type, uint64_t id, const std::vector<uint8_t> &buffer) override;
 
     // event handlers
@@ -55,6 +61,7 @@ private:
         const google::protobuf::MessageLite &message, uint64_t jobId = JobIdInvalid);
 
     void OnClientHello(GCMessageRead &messageRead);
+    void SOCacheSubscriptionRefresh(GCMessageRead &messageRead);
     void AdjustItemEquippedState(GCMessageRead &messageRead);
     void ClientPlayerDecalSign(GCMessageRead &messageRead);
     void UseItemRequest(GCMessageRead &messageRead);
@@ -84,7 +91,8 @@ private:
     void BroadcastSwapOutcome(const Inventory::CounterSwapResult &outcome);
 
     void BuildMatchmakingHello(CMsgGCCStrike15_v2_MatchmakingGC2ClientHello &message);
-    void BuildClientWelcome(CMsgClientWelcome &message, const CMsgCStrike15Welcome &csWelcome,
+    void BuildClientWelcome(CMsgClientWelcome &message, const CMsgClientHello &hello,
+        const CMsgCStrike15Welcome &csWelcome,
         const CMsgGCCStrike15_v2_MatchmakingGC2ClientHello &matchmakingHello);
     void SendRankUpdate();
 
@@ -98,5 +106,5 @@ private:
 
     // microtransactions, we only have one going at a time
     uint64_t m_transactionId{};
-    std::vector<uint64_t> m_transactionItemIds;
+    std::vector<PendingStoreLineItem> m_transactionLineItems;
 };
