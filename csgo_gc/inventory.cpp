@@ -96,6 +96,16 @@ uint32_t StickerRotationAttribute(size_t slot)
     return ItemSchema::AttributeStickerRotation0 + static_cast<uint32_t>(slot) * 4;
 }
 
+static bool IsBaseItemClone(const CSOEconItem &item)
+{
+    return item.origin() == ItemOriginBaseItem;
+}
+
+static bool IsUncustomizedBaseItemClone(const CSOEconItem &item)
+{
+    return IsBaseItemClone(item) && item.custom_name().empty() && item.attribute_size() == 0;
+}
+
 Inventory::Inventory(uint64_t steamId)
     : m_steamId{ steamId }
     , m_version{ InitialInventoryVersion() }
@@ -1109,6 +1119,7 @@ bool Inventory::ApplySticker(const CMsgApplySticker &message,
     if (message.baseitem_defidx())
     {
         item = &CreateItem(message.baseitem_defidx(), ItemOriginBaseItem, UnacknowledgedInvalid);
+        item->set_rarity(ItemSchema::RarityDefault);
     }
 
     assert(item);
@@ -1166,15 +1177,17 @@ bool Inventory::ApplySticker(const CMsgApplySticker &message,
 
 static void RemoveStickerAttributes(CSOEconItem &item, uint32_t slot)
 {
-    // mikkotodo lookup table instead of this crap...
-    // mikkotodo rest of attribs???
-    uint32_t attributeStickerId = ItemSchema::AttributeStickerId0 + (slot * 4);
-    uint32_t attributeStickerWear = ItemSchema::AttributeStickerWear0 + (slot * 4);
+    const uint32_t attributeStickerId = StickerIdAttribute(slot);
+    const uint32_t attributeStickerWear = StickerWearAttribute(slot);
+    const uint32_t attributeStickerScale = StickerScaleAttribute(slot);
+    const uint32_t attributeStickerRotation = StickerRotationAttribute(slot);
 
     for (auto attrib = item.mutable_attribute()->begin(); attrib != item.mutable_attribute()->end();)
     {
         if (attrib->def_index() == attributeStickerId
-            || attrib->def_index() == attributeStickerWear)
+            || attrib->def_index() == attributeStickerWear
+            || attrib->def_index() == attributeStickerScale
+            || attrib->def_index() == attributeStickerRotation)
         {
             attrib = item.mutable_attribute()->erase(attrib);
         }
@@ -1233,13 +1246,15 @@ bool Inventory::ScrapeSticker(const CMsgApplySticker &message,
             request = k_EGCItemCustomizationNotification_RemovePatch;
         }
 
-        if (item.rarity() == ItemSchema::RarityDefault)
+        RemoveStickerAttributes(item, message.sticker_slot());
+
+        if (IsUncustomizedBaseItemClone(item))
         {
             // sticker removal notification with a fake item id
             notification.add_item_id(item.def_index() | ItemIdDefaultItemMask);
             notification.set_request(request);
 
-            // this was a default weapon clone with a sticker so destroy the entire item
+            // this was a default weapon clone whose last customization was removed
             DestroyItem(it, destroy);
         }
         else
@@ -1247,9 +1262,6 @@ bool Inventory::ScrapeSticker(const CMsgApplySticker &message,
             // sticker removal notification
             notification.add_item_id(item.id());
             notification.set_request(request);
-
-            // remove the sticker
-            RemoveStickerAttributes(item, message.sticker_slot());
 
             ToSingleObject(update, item);
         }
@@ -1503,6 +1515,7 @@ bool Inventory::NameBaseItem(uint64_t nameTagId,
     }
 
     CSOEconItem &item = CreateItem(defIndex, ItemOriginBaseItem, UnacknowledgedInvalid);
+    item.set_rarity(ItemSchema::RarityDefault);
 
     item.mutable_custom_name()->assign(name);
 
@@ -1531,7 +1544,9 @@ bool Inventory::RemoveItemName(uint64_t itemId,
         return false;
     }
 
-    if (it->second.rarity() == ItemSchema::RarityDefault)
+    it->second.mutable_custom_name()->clear();
+
+    if (IsUncustomizedBaseItemClone(it->second))
     {
         notification.add_item_id(it->second.def_index() | ItemIdDefaultItemMask);
         notification.set_request(k_EGCItemCustomizationNotification_RemoveItemName);
@@ -1540,8 +1555,6 @@ bool Inventory::RemoveItemName(uint64_t itemId,
     }
     else
     {
-        it->second.mutable_custom_name()->clear();
-
         notification.add_item_id(it->second.id());
         notification.set_request(k_EGCItemCustomizationNotification_RemoveItemName);
 

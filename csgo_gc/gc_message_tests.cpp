@@ -607,6 +607,242 @@ static bool SOCacheVersionNegotiationAndRefresh()
     return valid;
 }
 
+static void RemoveCustomizationFixtures()
+{
+    TestFilesystem::RemoveFile("csgo_gc/inventory.txt");
+    TestFilesystem::RemoveFile("csgo_gc/unusual_loot_lists.txt");
+    TestFilesystem::RemoveFile("csgo_gc/gc_loot_lists.txt");
+    TestFilesystem::RemoveFile("csgo/scripts/items/items_game.txt");
+    TestFilesystem::RemoveDirectory("csgo/scripts/items");
+    TestFilesystem::RemoveDirectory("csgo/scripts");
+    TestFilesystem::RemoveDirectory("csgo");
+    TestFilesystem::RemoveDirectory("csgo_gc");
+}
+
+static bool WriteCustomizationFixtures()
+{
+    if (!TestFilesystem::MakeDirectory("csgo")
+        || !TestFilesystem::MakeDirectory("csgo/scripts")
+        || !TestFilesystem::MakeDirectory("csgo/scripts/items")
+        || !TestFilesystem::MakeDirectory("csgo_gc"))
+    {
+        return false;
+    }
+
+    KeyValue schema{ "root" };
+    KeyValue &itemsGame = schema.AddSubkey("items_game");
+
+    KeyValue &attributes = itemsGame.AddSubkey("attributes");
+    attributes.AddSubkey(std::to_string(ItemSchema::AttributeStickerId0))
+        .AddNumber("stored_as_integer", 1);
+    attributes.AddSubkey(std::to_string(ItemSchema::AttributeStickerWear0))
+        .AddString("attribute_type", "float");
+    attributes.AddSubkey(std::to_string(ItemSchema::AttributeStickerScale0))
+        .AddString("attribute_type", "float");
+    attributes.AddSubkey(std::to_string(ItemSchema::AttributeStickerRotation0))
+        .AddString("attribute_type", "float");
+
+    KeyValue &items = itemsGame.AddSubkey("items");
+    KeyValue &weapon = items.AddSubkey("7");
+    weapon.AddString("name", "weapon_ak47");
+    weapon.AddString("item_rarity", "uncommon");
+    KeyValue &weaponCapabilities = weapon.AddSubkey("capabilities");
+    weaponCapabilities.AddNumber("can_sticker", 1);
+    weaponCapabilities.AddNumber("nameable", 1);
+
+    items.AddSubkey(std::to_string(ItemSchema::ItemSticker)).AddString("name", "sticker");
+    items.AddSubkey("999").AddString("name", "name_tag");
+
+    KeyValue inventory{ "inventory" };
+    inventory.AddNumber("format_version", 1);
+    KeyValue &inventoryItems = inventory.AddSubkey("items");
+
+    auto addSticker = [&](const char *highItemId, uint32_t stickerKit)
+    {
+        KeyValue &item = inventoryItems.AddSubkey(highItemId);
+        item.AddNumber("def_index", ItemSchema::ItemSticker);
+        item.AddNumber("origin", ItemOriginTraded);
+        item.AddNumber("rarity", ItemSchema::RarityCommon);
+        item.AddSubkey("attributes")
+            .AddNumber(std::to_string(ItemSchema::AttributeStickerId0), stickerKit);
+    };
+    auto addNameTag = [&](const char *highItemId)
+    {
+        KeyValue &item = inventoryItems.AddSubkey(highItemId);
+        item.AddNumber("def_index", 999);
+        item.AddNumber("origin", ItemOriginTraded);
+        item.AddNumber("rarity", ItemSchema::RarityCommon);
+    };
+
+    addSticker("1", 101);
+    addSticker("2", 102);
+    addNameTag("3");
+    addNameTag("4");
+
+    KeyValue unusualLootLists{ "unusual_loot_lists" };
+    KeyValue gcLootLists{ "gc_loot_lists" };
+    return schema.WriteToFile("csgo/scripts/items/items_game.txt")
+        && inventory.WriteToFile("csgo_gc/inventory.txt")
+        && unusualLootLists.WriteToFile("csgo_gc/unusual_loot_lists.txt")
+        && gcLootLists.WriteToFile("csgo_gc/gc_loot_lists.txt");
+}
+
+static bool ParseItemObject(const CMsgSOSingleObject &object, CSOEconItem &item)
+{
+    return object.type_id() == SOTypeItem && item.ParseFromString(object.object_data());
+}
+
+static bool HasAttribute(const CSOEconItem &item, uint32_t defIndex)
+{
+    for (const CSOEconItemAttribute &attribute : item.attribute())
+    {
+        if (attribute.def_index() == defIndex)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool ScrapeStickerUntilRemoved(Inventory &inventory, uint64_t itemId,
+    bool expectDestroyed, std::string_view expectedName)
+{
+    CMsgApplySticker scrape;
+    scrape.set_item_item_id(itemId);
+    scrape.set_sticker_slot(0);
+
+    for (int i = 0; i < 12; i++)
+    {
+        CMsgSOSingleObject update;
+        CMsgSOSingleObject destroy;
+        CMsgGCItemCustomizationNotification notification;
+        if (!inventory.ScrapeSticker(scrape, update, destroy, notification))
+        {
+            return false;
+        }
+
+        const CSOEconItem *item = inventory.GetItem(itemId);
+        if (!item)
+        {
+            CSOEconItem destroyedItem;
+            return expectDestroyed
+                && !update.has_object_data()
+                && ParseItemObject(destroy, destroyedItem)
+                && destroyedItem.id() == itemId
+                && notification.item_id_size() == 1
+                && notification.item_id(0) == (ItemIdDefaultItemMask | 7);
+        }
+
+        if (!HasAttribute(*item, ItemSchema::AttributeStickerId0))
+        {
+            CSOEconItem updatedItem;
+            return !expectDestroyed
+                && ParseItemObject(update, updatedItem)
+                && !destroy.has_object_data()
+                && updatedItem.id() == itemId
+                && updatedItem.custom_name() == expectedName
+                && updatedItem.attribute_size() == 0
+                && notification.item_id_size() == 1
+                && notification.item_id(0) == itemId;
+        }
+    }
+
+    return false;
+}
+
+static bool BaseItemCustomizationsPreserveRemainingState()
+{
+    constexpr uint64_t SteamId = 76561197960265729ull;
+    auto itemId = [&](uint32_t highItemId)
+    {
+        return (static_cast<uint64_t>(highItemId) << 32) | (SteamId & UINT32_MAX);
+    };
+
+    RemoveCustomizationFixtures();
+    if (!WriteCustomizationFixtures())
+    {
+        RemoveCustomizationFixtures();
+        return false;
+    }
+
+    bool valid = true;
+    {
+        Inventory inventory{ SteamId };
+
+        CMsgApplySticker applyToBase;
+        applyToBase.set_sticker_item_id(itemId(1));
+        applyToBase.set_sticker_slot(0);
+        applyToBase.set_baseitem_defidx(7);
+        CMsgSOSingleObject stickerCreate;
+        CMsgSOSingleObject stickerDestroy;
+        CMsgGCItemCustomizationNotification stickerNotification;
+        valid &= inventory.ApplySticker(applyToBase, stickerCreate, stickerDestroy,
+            stickerNotification);
+
+        CSOEconItem stickerClone;
+        valid &= ParseItemObject(stickerCreate, stickerClone)
+            && stickerClone.origin() == ItemOriginBaseItem
+            && stickerClone.rarity() == ItemSchema::RarityDefault;
+
+        CMsgSOSingleObject nameUpdate;
+        CMsgSOSingleObject nameTagDestroy;
+        CMsgGCItemCustomizationNotification nameNotification;
+        valid &= inventory.NameItem(itemId(3), stickerClone.id(), "named",
+            nameUpdate, nameTagDestroy, nameNotification);
+        valid &= ScrapeStickerUntilRemoved(inventory, stickerClone.id(), false, "named");
+
+        CMsgSOSingleObject removeNameUpdate;
+        CMsgSOSingleObject removeNameDestroy;
+        CMsgGCItemCustomizationNotification removeNameNotification;
+        valid &= inventory.RemoveItemName(stickerClone.id(), removeNameUpdate,
+            removeNameDestroy, removeNameNotification);
+        CSOEconItem destroyedStickerClone;
+        valid &= !inventory.GetItem(stickerClone.id())
+            && !removeNameUpdate.has_object_data()
+            && ParseItemObject(removeNameDestroy, destroyedStickerClone)
+            && destroyedStickerClone.id() == stickerClone.id();
+
+        CMsgSOSingleObject nameCreate;
+        CMsgSOSingleObject secondNameTagDestroy;
+        CMsgGCItemCustomizationNotification secondNameNotification;
+        valid &= inventory.NameBaseItem(itemId(4), 7, "named", nameCreate,
+            secondNameTagDestroy, secondNameNotification);
+
+        CSOEconItem nameClone;
+        valid &= ParseItemObject(nameCreate, nameClone)
+            && nameClone.origin() == ItemOriginBaseItem
+            && nameClone.rarity() == ItemSchema::RarityDefault;
+
+        CMsgApplySticker applyToNamedClone;
+        applyToNamedClone.set_sticker_item_id(itemId(2));
+        applyToNamedClone.set_sticker_slot(0);
+        applyToNamedClone.set_item_item_id(nameClone.id());
+        CMsgSOSingleObject secondStickerUpdate;
+        CMsgSOSingleObject secondStickerDestroy;
+        CMsgGCItemCustomizationNotification secondStickerNotification;
+        valid &= inventory.ApplySticker(applyToNamedClone, secondStickerUpdate,
+            secondStickerDestroy, secondStickerNotification);
+
+        CMsgSOSingleObject secondRemoveNameUpdate;
+        CMsgSOSingleObject secondRemoveNameDestroy;
+        CMsgGCItemCustomizationNotification secondRemoveNameNotification;
+        valid &= inventory.RemoveItemName(nameClone.id(), secondRemoveNameUpdate,
+            secondRemoveNameDestroy, secondRemoveNameNotification);
+        const CSOEconItem *unnamedClone = inventory.GetItem(nameClone.id());
+        CSOEconItem updatedUnnamedClone;
+        valid &= unnamedClone
+            && unnamedClone->custom_name().empty()
+            && HasAttribute(*unnamedClone, ItemSchema::AttributeStickerId0)
+            && ParseItemObject(secondRemoveNameUpdate, updatedUnnamedClone)
+            && !secondRemoveNameDestroy.has_object_data();
+
+        valid &= ScrapeStickerUntilRemoved(inventory, nameClone.id(), true, {});
+    }
+
+    RemoveCustomizationFixtures();
+    return valid;
+}
+
 static bool WriteStoreFixtures()
 {
     if (!TestFilesystem::MakeDirectory("csgo")
@@ -798,6 +1034,8 @@ int main()
         { "LoadoutStateTransitionsPreserveClassesAndSwapSlots",
             LoadoutStateTransitionsPreserveClassesAndSwapSlots },
         { "SOCacheVersionNegotiationAndRefresh", SOCacheVersionNegotiationAndRefresh },
+        { "BaseItemCustomizationsPreserveRemainingState",
+            BaseItemCustomizationsPreserveRemainingState },
         { "StorePurchasesFinalizeTransactionally", StorePurchasesFinalizeTransactionally },
     };
 
