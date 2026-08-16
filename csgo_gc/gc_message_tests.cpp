@@ -729,6 +729,7 @@ static bool ScrapeStickerUntilRemoved(Inventory &inventory, uint64_t itemId,
                 && !update.has_object_data()
                 && ParseItemObject(destroy, destroyedItem)
                 && destroyedItem.id() == itemId
+                && notification.request() == k_EGCItemCustomizationNotification_RemoveSticker
                 && notification.item_id_size() == 1
                 && notification.item_id(0) == (ItemIdDefaultItemMask | 7);
         }
@@ -742,6 +743,7 @@ static bool ScrapeStickerUntilRemoved(Inventory &inventory, uint64_t itemId,
                 && updatedItem.id() == itemId
                 && updatedItem.custom_name() == expectedName
                 && updatedItem.attribute_size() == 0
+                && notification.request() == k_EGCItemCustomizationNotification_RemoveSticker
                 && notification.item_id_size() == 1
                 && notification.item_id(0) == itemId;
         }
