@@ -79,12 +79,12 @@ ItemInfo::ItemInfo(uint32_t defIndex)
     // RecursiveParseItem parses the rest
 }
 
-PaintKitInfo::PaintKitInfo(const KeyValue &key)
+PaintKitInfo::PaintKitInfo(const KeyValue &key, float defaultMinFloat, float defaultMaxFloat)
     : m_defIndex{ FromString<uint32_t>(key.Name()) }
     , m_rarity{ ItemSchema::RarityCommon } // rarity is not set here, done in ParsePaintKitRarities
 {
-    m_minFloat = key.GetNumber<float>("wear_remap_min", 0.0f);
-    m_maxFloat = key.GetNumber<float>("wear_remap_max", 1.0f);
+    m_minFloat = key.GetNumber<float>("wear_remap_min", defaultMinFloat);
+    m_maxFloat = key.GetNumber<float>("wear_remap_max", defaultMaxFloat);
 }
 
 StickerKitInfo::StickerKitInfo(const KeyValue &key)
@@ -953,13 +953,21 @@ void ItemSchema::ParsePaintKits(const KeyValue *paintKitsKey)
 {
     m_paintKitInfo.reserve(paintKitsKey->SubkeyCount());
 
+    float defaultMinFloat = 0.0f;
+    float defaultMaxFloat = 1.0f;
+    if (const KeyValue *defaultPaintKitKey = paintKitsKey->GetSubkey("0"))
+    {
+        defaultMinFloat = defaultPaintKitKey->GetNumber<float>("wear_remap_min", defaultMinFloat);
+        defaultMaxFloat = defaultPaintKitKey->GetNumber<float>("wear_remap_max", defaultMaxFloat);
+    }
+
     for (const KeyValue &paintKitKey : *paintKitsKey)
     {
         std::string_view name = paintKitKey.GetString("name");
 
         m_paintKitInfo.emplace(std::piecewise_construct,
             std::forward_as_tuple(name),
-            std::forward_as_tuple(paintKitKey));
+            std::forward_as_tuple(paintKitKey, defaultMinFloat, defaultMaxFloat));
     }
 }
 

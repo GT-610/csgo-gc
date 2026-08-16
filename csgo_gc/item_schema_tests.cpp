@@ -82,6 +82,40 @@ public:
             && fiveSlotItem->m_stickerSlotCount == 5;
     }
 
+    bool ParsePaintKitWearRanges()
+    {
+        KeyValue paintKits{ "paint_kits" };
+
+        KeyValue &defaultPaintKit = paintKits.AddSubkey("0");
+        defaultPaintKit.AddString("name", "default");
+        defaultPaintKit.AddNumber("wear_remap_min", 0.06f);
+        defaultPaintKit.AddNumber("wear_remap_max", 0.8f);
+
+        paintKits.AddSubkey("1").AddString("name", "inherited");
+
+        KeyValue &overriddenPaintKit = paintKits.AddSubkey("2");
+        overriddenPaintKit.AddString("name", "overridden");
+        overriddenPaintKit.AddNumber("wear_remap_min", 0.2f);
+        overriddenPaintKit.AddNumber("wear_remap_max", 0.4f);
+
+        KeyValue &partiallyOverriddenPaintKit = paintKits.AddSubkey("3");
+        partiallyOverriddenPaintKit.AddString("name", "partially_overridden");
+        partiallyOverriddenPaintKit.AddNumber("wear_remap_max", 0.5f);
+
+        schema.ParsePaintKits(&paintKits);
+
+        const PaintKitInfo *inherited = schema.PaintKitInfoByDefIndex(1);
+        const PaintKitInfo *overridden = schema.PaintKitInfoByDefIndex(2);
+        const PaintKitInfo *partiallyOverridden = schema.PaintKitInfoByDefIndex(3);
+        return inherited && overridden && partiallyOverridden
+            && inherited->m_minFloat == 0.06f
+            && inherited->m_maxFloat == 0.8f
+            && overridden->m_minFloat == 0.2f
+            && overridden->m_maxFloat == 0.4f
+            && partiallyOverridden->m_minFloat == 0.06f
+            && partiallyOverridden->m_maxFloat == 0.5f;
+    }
+
     ItemSchema schema;
 };
 
@@ -119,6 +153,12 @@ static bool StickerSlotCountsFollowPrefabData()
     return fixture.ParseStickerSlotCounts();
 }
 
+static bool PaintKitWearRangesInheritDefaults()
+{
+    ItemSchemaTestFixture fixture;
+    return fixture.ParsePaintKitWearRanges();
+}
+
 int main()
 {
     if (!TournamentStickerCapsuleIsNotSouvenir())
@@ -134,6 +174,11 @@ int main()
     if (!StickerSlotCountsFollowPrefabData())
     {
         return 3;
+    }
+
+    if (!PaintKitWearRangesInheritDefaults())
+    {
+        return 4;
     }
 
     return 0;
