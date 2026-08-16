@@ -59,7 +59,7 @@ public:
 class PaintKitInfo
 {
 public:
-    explicit PaintKitInfo(const KeyValue &key);
+    PaintKitInfo(const KeyValue &key, float defaultMinFloat, float defaultMaxFloat);
 
     uint32_t m_defIndex;
     uint32_t m_rarity;
