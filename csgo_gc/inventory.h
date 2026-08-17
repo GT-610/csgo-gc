@@ -65,6 +65,11 @@ public:
         CMsgSOSingleObject &newItem,
         CMsgGCItemCustomizationNotification &notification);
 
+    bool OpenStatTrakSwapToolBundle(uint64_t bundleId,
+        CMsgSOSingleObject &destroyBundle,
+        std::array<CMsgSOSingleObject, 2> &newTools,
+        CMsgGCItemCustomizationNotification &notification);
+
     bool OpenSouvenirPackage(uint64_t packageId,
         CMsgSOSingleObject &destroyPackage,
         CMsgSOSingleObject &newItem,

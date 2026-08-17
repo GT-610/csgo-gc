@@ -1711,9 +1711,32 @@ void ClientGC::UnlockCrate(GCMessageRead &messageRead)
     Platform::Print("CASE OPENING %llu with %llu\n", crateId, keyId);
 
     CMsgSOSingleObject destroyCrate, destroyKey, newItem;
+    std::array<CMsgSOSingleObject, 2> newStatTrakSwapTools;
     CMsgGCItemCustomizationNotification notification;
 
     const CSOEconItem *crate = m_inventory.GetItem(crateId);
+    if (keyId == 0
+        && crate
+        && crate->def_index() == ItemSchema::ItemStatTrakSwapToolBundle
+        && m_inventory.OpenStatTrakSwapToolBundle(crateId, destroyCrate,
+            newStatTrakSwapTools, notification))
+    {
+        Platform::Print("STATTRAK SWAP TOOL BUNDLE OPENING %llu\n", crateId);
+
+        if (destroyCrate.has_type_id())
+        {
+            SendMessageToGame(true, k_ESOMsg_Destroy, destroyCrate);
+        }
+
+        for (const CMsgSOSingleObject &newTool : newStatTrakSwapTools)
+        {
+            SendMessageToGame(true, k_ESOMsg_Create, newTool);
+        }
+
+        SendMessageToGame(false, k_EMsgGCItemCustomizationNotification, notification);
+        return;
+    }
+
     if (keyId == 0
         && crate
         && m_inventory.GetItemSchema().IsSouvenirPackage(*crate)

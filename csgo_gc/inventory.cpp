@@ -787,6 +787,52 @@ bool Inventory::UnlockCrate(uint64_t crateId,
     return true;
 }
 
+bool Inventory::OpenStatTrakSwapToolBundle(uint64_t bundleId,
+    CMsgSOSingleObject &destroyBundle,
+    std::array<CMsgSOSingleObject, 2> &newTools,
+    CMsgGCItemCustomizationNotification &notification)
+{
+    auto bundle = m_items.find(bundleId);
+    if (bundle == m_items.end())
+    {
+        Platform::Print("OpenStatTrakSwapToolBundle: bundle %llu not found\n", bundleId);
+        return false;
+    }
+
+    if (bundle->second.def_index() != ItemSchema::ItemStatTrakSwapToolBundle)
+    {
+        Platform::Print("OpenStatTrakSwapToolBundle: item %llu has unexpected def %u\n",
+            bundleId, bundle->second.def_index());
+        return false;
+    }
+
+    if (!m_itemSchema.ItemInfoByDefIndex(ItemSchema::ItemStatTrakSwapTool))
+    {
+        Platform::Print("OpenStatTrakSwapToolBundle: StatTrak Swap Tool definition is missing\n");
+        return false;
+    }
+
+    for (CMsgSOSingleObject &newTool : newTools)
+    {
+        CSOEconItem &tool = CreateItem(ItemSchema::ItemStatTrakSwapTool,
+            ItemOriginCrate, UnacknowledgedFoundInCrate);
+        ToSingleObject(newTool, tool);
+        notification.add_item_id(tool.id());
+    }
+    notification.set_request(k_EGCItemCustomizationNotification_UnlockCrate);
+
+    if (GetConfig().DestroyUsedItems())
+    {
+        bundle = m_items.find(bundleId);
+        if (bundle != m_items.end())
+        {
+            DestroyItem(bundle, destroyBundle);
+        }
+    }
+
+    return true;
+}
+
 bool Inventory::OpenSouvenirPackage(uint64_t packageId,
     CMsgSOSingleObject &destroyPackage,
     CMsgSOSingleObject &newItem,
@@ -1687,7 +1733,6 @@ void Inventory::LogInventoryConsistency() const
         int casketLowAttributes = 0;
         int casketHighAttributes = 0;
         uint32_t paintKitDefIndex = 0;
-        uint32_t scoreType = 0;
 
         for (const CSOEconItemAttribute &attribute : item.attribute())
         {
@@ -1707,7 +1752,6 @@ void Inventory::LogInventoryConsistency() const
                 break;
 
             case ItemSchema::AttributeKillEaterScoreType:
-                scoreType = m_itemSchema.AttributeUint32(&attribute);
                 scoreTypeAttributes++;
                 break;
 
@@ -1785,12 +1829,6 @@ void Inventory::LogInventoryConsistency() const
                 issueCount++;
                 Platform::Print("InventoryCheck: StatTrak-like item %llu has kill eater but no score type\n",
                     item.id());
-            }
-            else if (scoreType == 0 && item.quality() != ItemSchema::QualityStrange)
-            {
-                issueCount++;
-                Platform::Print("InventoryCheck: weapon StatTrak item %llu has quality %u instead of Strange\n",
-                    item.id(), item.quality());
             }
         }
 
@@ -2086,15 +2124,6 @@ Inventory::CounterSwapResult Inventory::PerformCounterSwap(uint64_t toolId, uint
         return result;
     }
 
-    if (weaponA.quality() != ItemSchema::QualityStrange
-        || weaponB.quality() != ItemSchema::QualityStrange)
-    {
-        Platform::Print("StatTrakSwap: weapons must both be Strange quality (weapon %llu quality %u, weapon %llu quality %u)\n",
-            weaponAId, weaponA.quality(), weaponBId, weaponB.quality());
-        result.status = CounterSwapStatus::InvalidWeaponState;
-        return result;
-    }
-    
     CounterSwapWeaponCounters countersA = FindCounterSwapWeaponCounters(m_itemSchema, weaponA);
     CounterSwapWeaponCounters countersB = FindCounterSwapWeaponCounters(m_itemSchema, weaponB);
     CSOEconItemAttribute *attrA = countersA.killEater;
