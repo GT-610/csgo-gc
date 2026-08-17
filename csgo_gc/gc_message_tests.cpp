@@ -1094,6 +1094,8 @@ static bool UnusualStatTrakKnivesCanSwapCounters()
         int updateCount = 0;
         int destroyCount = 0;
         int notificationCount = 0;
+        const std::unordered_set<uint64_t> expectedWeaponIds{ itemId(3), itemId(4) };
+        std::unordered_set<uint64_t> updatedIds;
         std::unordered_set<uint64_t> notifiedIds;
         for (const EventData &event : events)
         {
@@ -1107,7 +1109,8 @@ static bool UnusualStatTrakKnivesCanSwapCounters()
                 if (parsed)
                 {
                     uint32_t counter = 0;
-                    valid &= item.quality() == ItemSchema::QualityUnusual
+                    valid &= updatedIds.insert(item.id()).second
+                        && item.quality() == ItemSchema::QualityUnusual
                         && GetUint32Attribute(item, ItemSchema::AttributeKillEater, counter);
                     if (item.id() == itemId(3))
                     {
@@ -1154,7 +1157,8 @@ static bool UnusualStatTrakKnivesCanSwapCounters()
         valid &= updateCount == 2
             && destroyCount == 1
             && notificationCount == 1
-            && notifiedIds == std::unordered_set<uint64_t>{ itemId(3), itemId(4) };
+            && updatedIds == expectedWeaponIds
+            && notifiedIds == expectedWeaponIds;
     }
 
     RemoveStatTrakFixtures();
