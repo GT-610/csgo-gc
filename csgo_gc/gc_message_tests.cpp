@@ -245,6 +245,39 @@ static bool WaitForHostMessage(ClientGC &gc, uint32_t type, EventData &result,
     return false;
 }
 
+static bool WaitForHostMessagesUntil(ClientGC &gc, uint32_t terminalType,
+    std::vector<EventData> &result)
+{
+    std::vector<EventData> events;
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{ 1 };
+    while (std::chrono::steady_clock::now() < deadline)
+    {
+        gc.GetHostEvents(events);
+        bool foundTerminal = false;
+        for (EventData &event : events)
+        {
+            if (event.type != static_cast<int>(HostEvent::Message))
+            {
+                continue;
+            }
+
+            const uint32_t type = static_cast<uint32_t>(event.id) & ~ProtobufMask;
+            foundTerminal |= type == terminalType;
+            result.emplace_back(std::move(event));
+        }
+
+        if (foundTerminal)
+        {
+            return true;
+        }
+
+        events.clear();
+        std::this_thread::sleep_for(std::chrono::milliseconds{ 1 });
+    }
+
+    return false;
+}
+
 template<typename T>
 static bool ParseHostProtobuf(const EventData &event, T &message)
 {
@@ -704,6 +737,20 @@ static bool HasAttribute(const CSOEconItem &item, uint32_t defIndex)
     return false;
 }
 
+static bool GetUint32Attribute(const CSOEconItem &item, uint32_t defIndex, uint32_t &value)
+{
+    for (const CSOEconItemAttribute &attribute : item.attribute())
+    {
+        if (attribute.def_index() == defIndex && attribute.value_bytes().size() == sizeof(value))
+        {
+            std::memcpy(&value, attribute.value_bytes().data(), sizeof(value));
+            return true;
+        }
+    }
+
+    return false;
+}
+
 static bool ScrapeStickerUntilRemoved(Inventory &inventory, uint64_t itemId,
     bool expectDestroyed, std::string_view expectedName)
 {
@@ -842,6 +889,275 @@ static bool BaseItemCustomizationsPreserveRemainingState()
     }
 
     RemoveCustomizationFixtures();
+    return valid;
+}
+
+static void RemoveStatTrakFixtures()
+{
+    TestFilesystem::RemoveFile("csgo_gc/inventory.txt");
+    TestFilesystem::RemoveFile("csgo_gc/unusual_loot_lists.txt");
+    TestFilesystem::RemoveFile("csgo_gc/gc_loot_lists.txt");
+    TestFilesystem::RemoveFile("csgo/scripts/items/items_game.txt");
+    TestFilesystem::RemoveDirectory("csgo/scripts/items");
+    TestFilesystem::RemoveDirectory("csgo/scripts");
+    TestFilesystem::RemoveDirectory("csgo");
+    TestFilesystem::RemoveDirectory("csgo_gc");
+}
+
+static bool WriteStatTrakFixtures()
+{
+    if (!TestFilesystem::MakeDirectory("csgo")
+        || !TestFilesystem::MakeDirectory("csgo/scripts")
+        || !TestFilesystem::MakeDirectory("csgo/scripts/items")
+        || !TestFilesystem::MakeDirectory("csgo_gc"))
+    {
+        return false;
+    }
+
+    KeyValue schema{ "root" };
+    KeyValue &itemsGame = schema.AddSubkey("items_game");
+    KeyValue &attributes = itemsGame.AddSubkey("attributes");
+    attributes.AddSubkey(std::to_string(ItemSchema::AttributeKillEater))
+        .AddNumber("stored_as_integer", 1);
+    attributes.AddSubkey(std::to_string(ItemSchema::AttributeKillEaterScoreType))
+        .AddNumber("stored_as_integer", 1);
+
+    KeyValue &items = itemsGame.AddSubkey("items");
+    items.AddSubkey(std::to_string(ItemSchema::ItemStatTrakSwapTool))
+        .AddString("name", "stattrak_swap_tool");
+    KeyValue &bundle = items.AddSubkey(std::to_string(ItemSchema::ItemStatTrakSwapToolBundle));
+    bundle.AddString("name", "crate_stattrak_swap_tool");
+    bundle.AddString("loot_list_name", "bundle_tool_stattrak_swap");
+
+    auto addKnifeDefinition = [&](uint32_t defIndex, const char *name)
+    {
+        KeyValue &knife = items.AddSubkey(std::to_string(defIndex));
+        knife.AddString("name", name);
+        knife.AddSubkey("capabilities").AddNumber("can_stattrack_swap", 1);
+    };
+    addKnifeDefinition(500, "weapon_knife");
+    addKnifeDefinition(507, "weapon_knife_karambit");
+
+    KeyValue inventory{ "inventory" };
+    inventory.AddNumber("format_version", 1);
+    KeyValue &inventoryItems = inventory.AddSubkey("items");
+
+    auto addItem = [&](const char *highItemId, uint32_t defIndex, uint32_t quality,
+        uint32_t rarity)
+    {
+        KeyValue &item = inventoryItems.AddSubkey(highItemId);
+        item.AddNumber("def_index", defIndex);
+        item.AddNumber("quality", quality);
+        item.AddNumber("origin", ItemOriginTraded);
+        item.AddNumber("rarity", rarity);
+        return &item;
+    };
+
+    addItem("1", ItemSchema::ItemStatTrakSwapToolBundle,
+        ItemSchema::QualityUnique, ItemSchema::RarityCommon);
+    addItem("2", ItemSchema::ItemStatTrakSwapTool,
+        ItemSchema::QualityUnique, ItemSchema::RarityCommon);
+
+    KeyValue *karambit = addItem("3", 507,
+        ItemSchema::QualityUnusual, ItemSchema::RarityAncient);
+    KeyValue &karambitAttributes = karambit->AddSubkey("attributes");
+    karambitAttributes.AddNumber(std::to_string(ItemSchema::AttributeKillEater), 7);
+    karambitAttributes.AddNumber(std::to_string(ItemSchema::AttributeKillEaterScoreType), 0);
+
+    KeyValue *bayonet = addItem("4", 500,
+        ItemSchema::QualityUnusual, ItemSchema::RarityAncient);
+    KeyValue &bayonetAttributes = bayonet->AddSubkey("attributes");
+    bayonetAttributes.AddNumber(std::to_string(ItemSchema::AttributeKillEater), 60);
+    bayonetAttributes.AddNumber(std::to_string(ItemSchema::AttributeKillEaterScoreType), 0);
+
+    KeyValue unusualLootLists{ "unusual_loot_lists" };
+    KeyValue gcLootLists{ "gc_loot_lists" };
+    return schema.WriteToFile("csgo/scripts/items/items_game.txt")
+        && inventory.WriteToFile("csgo_gc/inventory.txt")
+        && unusualLootLists.WriteToFile("csgo_gc/unusual_loot_lists.txt")
+        && gcLootLists.WriteToFile("csgo_gc/gc_loot_lists.txt");
+}
+
+static bool StatTrakSwapToolTwoPackCreatesTwoTools()
+{
+    constexpr uint64_t SteamId = 76561197960265729ull;
+    auto itemId = [&](uint32_t highItemId)
+    {
+        return (static_cast<uint64_t>(highItemId) << 32) | (SteamId & UINT32_MAX);
+    };
+
+    RemoveStatTrakFixtures();
+    if (!WriteStatTrakFixtures())
+    {
+        RemoveStatTrakFixtures();
+        return false;
+    }
+
+    bool valid = true;
+    {
+        ClientGC gc{ SteamId };
+        GCMessageWrite request{ k_EMsgGCUnlockCrate };
+        request.WriteUint64(0);
+        request.WriteUint64(itemId(1));
+        gc.PostToGC(GCEvent::Message, request.TypeMasked(), request.Data(), request.Size());
+
+        std::vector<EventData> events;
+        valid &= WaitForHostMessagesUntil(gc, k_EMsgGCItemCustomizationNotification, events);
+
+        int createCount = 0;
+        int destroyCount = 0;
+        int notificationCount = 0;
+        std::unordered_set<uint64_t> createdIds;
+        std::unordered_set<uint64_t> notifiedIds;
+        for (const EventData &event : events)
+        {
+            const uint32_t type = static_cast<uint32_t>(event.id) & ~ProtobufMask;
+            if (type == k_ESOMsg_Create)
+            {
+                CMsgSOSingleObject object;
+                CSOEconItem item;
+                const bool parsed = ParseHostProtobuf(event, object) && ParseItemObject(object, item);
+                valid &= parsed;
+                if (parsed)
+                {
+                    valid &= item.def_index() == ItemSchema::ItemStatTrakSwapTool
+                        && item.origin() == ItemOriginCrate
+                        && createdIds.insert(item.id()).second;
+                }
+                ++createCount;
+            }
+            else if (type == k_ESOMsg_Destroy)
+            {
+                CMsgSOSingleObject object;
+                CSOEconItem item;
+                valid &= ParseHostProtobuf(event, object)
+                    && ParseItemObject(object, item)
+                    && item.id() == itemId(1);
+                ++destroyCount;
+            }
+            else if (type == k_EMsgGCItemCustomizationNotification)
+            {
+                CMsgGCItemCustomizationNotification notification;
+                const bool parsed = ParseHostProtobuf(event, notification);
+                valid &= parsed;
+                if (parsed)
+                {
+                    valid &= notification.request()
+                        == k_EGCItemCustomizationNotification_UnlockCrate;
+                    for (uint64_t id : notification.item_id())
+                    {
+                        notifiedIds.insert(id);
+                    }
+                }
+                ++notificationCount;
+            }
+        }
+
+        valid &= createCount == 2
+            && destroyCount == 1
+            && notificationCount == 1
+            && createdIds.size() == 2
+            && createdIds == notifiedIds;
+    }
+
+    RemoveStatTrakFixtures();
+    return valid;
+}
+
+static bool UnusualStatTrakKnivesCanSwapCounters()
+{
+    constexpr uint64_t SteamId = 76561197960265729ull;
+    auto itemId = [&](uint32_t highItemId)
+    {
+        return (static_cast<uint64_t>(highItemId) << 32) | (SteamId & UINT32_MAX);
+    };
+
+    RemoveStatTrakFixtures();
+    if (!WriteStatTrakFixtures())
+    {
+        RemoveStatTrakFixtures();
+        return false;
+    }
+
+    bool valid = true;
+    {
+        ClientGC gc{ SteamId };
+        CMsgApplyStatTrakSwap request;
+        request.set_tool_item_id(itemId(2));
+        request.set_item_1_item_id(itemId(3));
+        request.set_item_2_item_id(itemId(4));
+        SendGCProtobuf(gc, k_EMsgGCStatTrakSwap, request);
+
+        std::vector<EventData> events;
+        valid &= WaitForHostMessagesUntil(gc, k_EMsgGCItemCustomizationNotification, events);
+
+        int updateCount = 0;
+        int destroyCount = 0;
+        int notificationCount = 0;
+        std::unordered_set<uint64_t> notifiedIds;
+        for (const EventData &event : events)
+        {
+            const uint32_t type = static_cast<uint32_t>(event.id) & ~ProtobufMask;
+            if (type == k_ESOMsg_Update)
+            {
+                CMsgSOSingleObject object;
+                CSOEconItem item;
+                const bool parsed = ParseHostProtobuf(event, object) && ParseItemObject(object, item);
+                valid &= parsed;
+                if (parsed)
+                {
+                    uint32_t counter = 0;
+                    valid &= item.quality() == ItemSchema::QualityUnusual
+                        && GetUint32Attribute(item, ItemSchema::AttributeKillEater, counter);
+                    if (item.id() == itemId(3))
+                    {
+                        valid &= counter == 60;
+                    }
+                    else if (item.id() == itemId(4))
+                    {
+                        valid &= counter == 7;
+                    }
+                    else
+                    {
+                        valid = false;
+                    }
+                }
+                ++updateCount;
+            }
+            else if (type == k_ESOMsg_Destroy)
+            {
+                CMsgSOSingleObject object;
+                CSOEconItem item;
+                valid &= ParseHostProtobuf(event, object)
+                    && ParseItemObject(object, item)
+                    && item.id() == itemId(2);
+                ++destroyCount;
+            }
+            else if (type == k_EMsgGCItemCustomizationNotification)
+            {
+                CMsgGCItemCustomizationNotification notification;
+                const bool parsed = ParseHostProtobuf(event, notification);
+                valid &= parsed;
+                if (parsed)
+                {
+                    valid &= notification.request()
+                        == k_EGCItemCustomizationNotification_StatTrakSwap;
+                    for (uint64_t id : notification.item_id())
+                    {
+                        notifiedIds.insert(id);
+                    }
+                }
+                ++notificationCount;
+            }
+        }
+
+        valid &= updateCount == 2
+            && destroyCount == 1
+            && notificationCount == 1
+            && notifiedIds == std::unordered_set<uint64_t>{ itemId(3), itemId(4) };
+    }
+
+    RemoveStatTrakFixtures();
     return valid;
 }
 
@@ -1038,6 +1354,8 @@ int main()
         { "SOCacheVersionNegotiationAndRefresh", SOCacheVersionNegotiationAndRefresh },
         { "BaseItemCustomizationsPreserveRemainingState",
             BaseItemCustomizationsPreserveRemainingState },
+        { "StatTrakSwapToolTwoPackCreatesTwoTools", StatTrakSwapToolTwoPackCreatesTwoTools },
+        { "UnusualStatTrakKnivesCanSwapCounters", UnusualStatTrakKnivesCanSwapCounters },
         { "StorePurchasesFinalizeTransactionally", StorePurchasesFinalizeTransactionally },
     };
 

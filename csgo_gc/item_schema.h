@@ -247,8 +247,10 @@ public:
         ItemCasket = 1201,
         ItemSticker = 1209,
         ItemMusicKit = 1314,
+        ItemStatTrakSwapTool = 1324,
         ItemSpray = 1348,
         ItemSprayPaint = 1349,
+        ItemStatTrakSwapToolBundle = 4088,
         ItemPatch = 4609
     };
 
