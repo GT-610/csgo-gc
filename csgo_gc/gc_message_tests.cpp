@@ -1179,6 +1179,9 @@ static bool WriteStoreFixtures()
     KeyValue &itemsGame = schema.AddSubkey("items_game");
     KeyValue &items = itemsGame.AddSubkey("items");
     items.AddSubkey("7").AddString("name", "weapon_ak47");
+    KeyValue &crate = items.AddSubkey("8");
+    crate.AddString("name", "crate_test");
+    crate.AddString("loot_list_name", "crate_test");
 
     KeyValue unusualLootLists{ "unusual_loot_lists" };
     unusualLootLists.AddSubkey("empty");
@@ -1186,6 +1189,14 @@ static bool WriteStoreFixtures()
     KeyValue priceSheet{ "price_sheet" };
     KeyValue &store = priceSheet.AddSubkey("store");
     store.AddNumber("featured_item_index", 7);
+    KeyValue &bannerLayout = store.AddSubkey("store_banner_layout");
+    bannerLayout.AddSubkey("8").AddNumber("market_link", 1);
+    KeyValue &entries = store.AddSubkey("entries");
+    KeyValue &priceTemplate = entries.AddSubkey("offline_price_template");
+    priceTemplate.AddString("item_link", "weapon_ak47");
+    KeyValue &prices = priceTemplate.AddSubkey("prices");
+    prices.AddNumber("USD", 99);
+    prices.AddNumber("CNY", 700);
 
     return schema.WriteToFile("csgo/scripts/items/items_game.txt")
         && unusualLootLists.WriteToFile("csgo_gc/unusual_loot_lists.txt")
@@ -1237,15 +1248,37 @@ static bool StorePurchasesFinalizeTransactionally()
         SendGCProtobuf(gc, k_EMsgGCStoreGetUserData, storeData);
         event = {};
         CMsgStoreGetUserDataResponse storeDataResponse;
+        constexpr std::string_view DisabledMarketLink{
+            "market_link\0" "0\0", sizeof("market_link\0" "0\0") - 1
+        };
+        constexpr std::string_view CrateEntryWithPrices{
+            "\0" "crate_test\0"
+            "\1" "item_link\0" "crate_test\0"
+            "\1" "category_tags\0" "Misc\0"
+            "\0" "prices\0"
+            "\1" "USD\0" "99\0"
+            "\1" "CNY\0" "700\0"
+            "\x0b" "\x0b",
+            sizeof("\0" "crate_test\0"
+                "\1" "item_link\0" "crate_test\0"
+                "\1" "category_tags\0" "Misc\0"
+                "\0" "prices\0"
+                "\1" "USD\0" "99\0"
+                "\1" "CNY\0" "700\0"
+                "\x0b" "\x0b") - 1
+        };
         valid &= WaitForHostMessage(gc, k_EMsgGCStoreGetUserDataResponse, event)
             && ParseHostProtobuf(event, storeDataResponse)
             && storeDataResponse.result() == 1
             && storeDataResponse.price_sheet_version() == priceSheetVersion
-            && !storeDataResponse.price_sheet().empty();
+            && !storeDataResponse.price_sheet().empty()
+            && storeDataResponse.price_sheet().find("crate_test") != std::string::npos
+            && storeDataResponse.price_sheet().find(DisabledMarketLink) != std::string::npos
+            && storeDataResponse.price_sheet().find(CrateEntryWithPrices) != std::string::npos;
 
         CMsgGCStorePurchaseInit purchaseInit;
         CGCStorePurchaseInit_LineItem *lineItem = purchaseInit.add_line_items();
-        lineItem->set_item_def_id(7);
+        lineItem->set_item_def_id(8);
         lineItem->set_quantity(2);
         SendGCProtobuf(gc, k_EMsgGCStorePurchaseInit, purchaseInit);
         event = {};
@@ -1302,7 +1335,7 @@ static bool StorePurchasesFinalizeTransactionally()
             const CMsgSOCacheSubscribed &subscription = welcome.outofdate_subscribed_caches(0);
             valid &= subscription.version() != initialCacheVersion;
 
-            std::unordered_set<uint64_t> snapshotItemIds;
+            std::unordered_map<uint64_t, uint32_t> snapshotItems;
             for (const CMsgSOCacheSubscribed_SubscribedType &type : subscription.objects())
             {
                 if (type.type_id() != SOTypeItem)
@@ -1314,15 +1347,16 @@ static bool StorePurchasesFinalizeTransactionally()
                     CSOEconItem item;
                     if (item.ParseFromString(objectData))
                     {
-                        snapshotItemIds.insert(item.id());
+                        snapshotItems.emplace(item.id(), item.def_index());
                     }
                 }
             }
 
-            valid &= snapshotItemIds.size() == 2;
+            valid &= snapshotItems.size() == 2;
             for (uint64_t itemId : finalizeResponse.item_ids())
             {
-                valid &= snapshotItemIds.contains(itemId);
+                auto item = snapshotItems.find(itemId);
+                valid &= item != snapshotItems.end() && item->second == 8;
             }
         }
 

@@ -1129,10 +1129,95 @@ constexpr uint32_t MakeAddress(uint32_t v1, uint32_t v2, uint32_t v3, uint32_t v
     return v4 | (v3 << 8) | (v2 << 16) | (v1 << 24);
 }
 
-constexpr uint32_t PriceSheetVersion = 1680057676;
+constexpr uint32_t PriceSheetVersion = 1680057677;
 constexpr int32_t StoreResultOK = 1;
 constexpr int32_t StoreResultInvalid = 2;
 constexpr uint32_t MaxStorePurchaseItems = 1024;
+
+static bool IsStoreCrate(const ItemInfo &item)
+{
+    return item.m_supplyCrateSeries || !item.m_lootListName.empty();
+}
+
+static void EnableOfflineStoreCrates(KeyValue &priceSheet, const ItemSchema &itemSchema)
+{
+    KeyValue *store = priceSheet.GetSubkey("store");
+    if (!store)
+    {
+        return;
+    }
+
+    KeyValue *bannerLayout = store->GetSubkey("store_banner_layout");
+    KeyValue *entries = store->GetSubkey("entries");
+    if (!bannerLayout || !entries)
+    {
+        return;
+    }
+
+    const KeyValue *templatePrices = nullptr;
+    for (const KeyValue &entry : *entries)
+    {
+        const KeyValue *prices = entry.GetSubkey("prices");
+        if (prices && prices->SubkeyCount())
+        {
+            templatePrices = prices;
+            break;
+        }
+    }
+
+    if (!templatePrices)
+    {
+        Platform::Print("Store price sheet has no price template for offline crates\n");
+        return;
+    }
+
+    // Adding entries can reallocate the entries vector, so preserve the price
+    // tree before iterating the banner layout.
+    KeyValue priceTemplate{ *templatePrices };
+    size_t enabledCount = 0;
+    for (KeyValue &bannerEntry : *bannerLayout)
+    {
+        if (!bannerEntry.GetNumber("market_link", false))
+        {
+            continue;
+        }
+
+        uint32_t defIndex{};
+        if (!TryParseNumber(bannerEntry.Name(), defIndex))
+        {
+            continue;
+        }
+
+        const ItemInfo *item = itemSchema.ItemInfoByDefIndex(defIndex);
+        if (!item || !IsStoreCrate(*item))
+        {
+            continue;
+        }
+
+        bannerEntry.SetString("market_link", "0");
+
+        KeyValue *entry = entries->GetSubkey(item->m_name);
+        if (!entry)
+        {
+            entry = &entries->AddSubkey(item->m_name);
+            entry->AddString("item_link", item->m_name);
+            entry->AddString("category_tags", "Misc");
+        }
+
+        if (!entry->GetSubkey("prices"))
+        {
+            entry->AddSubkey("prices") = priceTemplate;
+        }
+
+        ++enabledCount;
+    }
+
+    if (enabledCount)
+    {
+        Platform::Print("Enabled %zu market crate%s for offline store purchase\n", enabledCount,
+            enabledCount == 1 ? "" : "s");
+    }
+}
 
 static void BuildCSWelcome(CMsgCStrike15Welcome &message)
 {
@@ -1537,6 +1622,8 @@ void ClientGC::StoreGetUserData(GCMessageRead &messageRead)
         SendMessageToGame(false, k_EMsgGCStoreGetUserDataResponse, response, messageRead.JobId());
         return;
     }
+
+    EnableOfflineStoreCrates(priceSheet, m_inventory.GetItemSchema());
 
     std::string binaryString;
     binaryString.reserve(1 << 17);
