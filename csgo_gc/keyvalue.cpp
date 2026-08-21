@@ -453,6 +453,19 @@ void KeyValue::WriteToFile(FILE *f, int indent)
     }
 }
 
+KeyValue *KeyValue::GetSubkey(std::string_view name)
+{
+    for (KeyValue &subkey : m_subkeys)
+    {
+        if (subkey.m_name == name)
+        {
+            return &subkey;
+        }
+    }
+
+    return nullptr;
+}
+
 const KeyValue *KeyValue::GetSubkey(std::string_view name) const
 {
     for (const KeyValue &subkey : m_subkeys)
@@ -486,4 +499,15 @@ void KeyValue::AddString(std::string_view name, std::string_view value)
 {
     KeyValue &subkey = AddSubkey(name);
     subkey.m_string = value;
+}
+
+void KeyValue::SetString(std::string_view name, std::string_view value)
+{
+    KeyValue *subkey = GetSubkey(name);
+    if (!subkey)
+    {
+        subkey = &AddSubkey(name);
+    }
+
+    subkey->m_string = value;
 }

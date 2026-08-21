@@ -1179,6 +1179,9 @@ static bool WriteStoreFixtures()
     KeyValue &itemsGame = schema.AddSubkey("items_game");
     KeyValue &items = itemsGame.AddSubkey("items");
     items.AddSubkey("7").AddString("name", "weapon_ak47");
+    KeyValue &crate = items.AddSubkey("8");
+    crate.AddString("name", "crate_test");
+    crate.AddString("loot_list_name", "crate_test");
 
     KeyValue unusualLootLists{ "unusual_loot_lists" };
     unusualLootLists.AddSubkey("empty");
@@ -1186,6 +1189,14 @@ static bool WriteStoreFixtures()
     KeyValue priceSheet{ "price_sheet" };
     KeyValue &store = priceSheet.AddSubkey("store");
     store.AddNumber("featured_item_index", 7);
+    KeyValue &bannerLayout = store.AddSubkey("store_banner_layout");
+    bannerLayout.AddSubkey("8").AddNumber("market_link", 1);
+    KeyValue &entries = store.AddSubkey("entries");
+    KeyValue &priceTemplate = entries.AddSubkey("offline_price_template");
+    priceTemplate.AddString("item_link", "weapon_ak47");
+    KeyValue &prices = priceTemplate.AddSubkey("prices");
+    prices.AddNumber("USD", 99);
+    prices.AddNumber("CNY", 700);
 
     return schema.WriteToFile("csgo/scripts/items/items_game.txt")
         && unusualLootLists.WriteToFile("csgo_gc/unusual_loot_lists.txt")
@@ -1237,11 +1248,16 @@ static bool StorePurchasesFinalizeTransactionally()
         SendGCProtobuf(gc, k_EMsgGCStoreGetUserData, storeData);
         event = {};
         CMsgStoreGetUserDataResponse storeDataResponse;
+        constexpr std::string_view DisabledMarketLink{
+            "market_link\0" "0\0", sizeof("market_link\0" "0\0") - 1
+        };
         valid &= WaitForHostMessage(gc, k_EMsgGCStoreGetUserDataResponse, event)
             && ParseHostProtobuf(event, storeDataResponse)
             && storeDataResponse.result() == 1
             && storeDataResponse.price_sheet_version() == priceSheetVersion
-            && !storeDataResponse.price_sheet().empty();
+            && !storeDataResponse.price_sheet().empty()
+            && storeDataResponse.price_sheet().find("crate_test") != std::string::npos
+            && storeDataResponse.price_sheet().find(DisabledMarketLink) != std::string::npos;
 
         CMsgGCStorePurchaseInit purchaseInit;
         CGCStorePurchaseInit_LineItem *lineItem = purchaseInit.add_line_items();

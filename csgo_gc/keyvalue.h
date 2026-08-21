@@ -58,16 +58,20 @@ public:
     std::string_view String() const { return m_string; }
 
     // range based for loops for subkeys
+    KeyValue *begin() { return m_subkeys.data(); }
+    KeyValue *end() { return m_subkeys.data() + m_subkeys.size(); }
     const KeyValue *begin() const { return m_subkeys.data(); }
     const KeyValue *end() const { return m_subkeys.data() + m_subkeys.size(); }
 
     // parsing helpers
+    KeyValue *GetSubkey(std::string_view name);
     const KeyValue *GetSubkey(std::string_view name) const;
     std::string_view GetString(std::string_view name, std::string_view fallback = {}) const;
 
     // writing helpers
     KeyValue &AddSubkey(std::string_view name);
     void AddString(std::string_view name, std::string_view value);
+    void SetString(std::string_view name, std::string_view value);
 
     // template helpers for parsing/writing integers/floats
 
