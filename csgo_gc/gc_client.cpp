@@ -1182,7 +1182,13 @@ static void EnableOfflineStoreCrates(KeyValue &priceSheet, const ItemSchema &ite
             continue;
         }
 
-        const ItemInfo *item = itemSchema.ItemInfoByDefIndex(FromString<uint32_t>(bannerEntry.Name()));
+        uint32_t defIndex{};
+        if (!TryParseNumber(bannerEntry.Name(), defIndex))
+        {
+            continue;
+        }
+
+        const ItemInfo *item = itemSchema.ItemInfoByDefIndex(defIndex);
         if (!item || !IsStoreCrate(*item))
         {
             continue;
