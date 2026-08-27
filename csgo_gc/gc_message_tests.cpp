@@ -292,6 +292,61 @@ static void SendGCProtobuf(ClientGC &gc, uint32_t type, const T &message)
     gc.PostToGC(GCEvent::Message, messageWrite.TypeMasked(), messageWrite.Data(), messageWrite.Size());
 }
 
+static bool IsMinimalPlayerProfile(
+    const CMsgGCCStrike15_v2_MatchmakingGC2ClientHello &profile,
+    uint32_t accountId)
+{
+    return profile.has_account_id()
+        && profile.account_id() == accountId
+        && !profile.has_ongoingmatch()
+        && !profile.has_global_stats()
+        && !profile.has_penalty_seconds()
+        && !profile.has_penalty_reason()
+        && !profile.has_vac_banned()
+        && !profile.has_ranking()
+        && !profile.has_commendation()
+        && !profile.has_medals()
+        && !profile.has_player_level()
+        && !profile.has_player_cur_xp()
+        && profile.rankings_size() == 0;
+}
+
+static bool PlayerProfileRequestsReturnMinimalProfiles()
+{
+    ClientGC gc{ 76561197960265729ull };
+
+    CMsgGCCStrike15_v2_ClientRequestPlayersProfile request;
+    request.set_account_id(123456);
+    request.set_request_level(0x20);
+    SendGCProtobuf(gc, k_EMsgGCCStrike15_v2_ClientRequestPlayersProfile, request);
+
+    EventData event;
+    CMsgGCCStrike15_v2_PlayersProfile response;
+    bool valid = WaitForHostMessage(gc, k_EMsgGCCStrike15_v2_PlayersProfile, event)
+        && ParseHostProtobuf(event, response)
+        && !response.has_request_id()
+        && response.account_profiles_size() == 1
+        && IsMinimalPlayerProfile(response.account_profiles(0), 123456);
+
+    request.Clear();
+    request.set_request_id__deprecated(42);
+    request.add_account_ids__deprecated(111);
+    request.add_account_ids__deprecated(222);
+    SendGCProtobuf(gc, k_EMsgGCCStrike15_v2_ClientRequestPlayersProfile, request);
+
+    event = {};
+    response.Clear();
+    valid &= WaitForHostMessage(gc, k_EMsgGCCStrike15_v2_PlayersProfile, event)
+        && ParseHostProtobuf(event, response)
+        && response.has_request_id()
+        && response.request_id() == 42
+        && response.account_profiles_size() == 2
+        && IsMinimalPlayerProfile(response.account_profiles(0), 111)
+        && IsMinimalPlayerProfile(response.account_profiles(1), 222);
+
+    return valid;
+}
+
 static bool InventoryPersistenceProtectsFiles()
 {
     constexpr const char *InventoryDirectory = "csgo_gc";
@@ -1386,6 +1441,8 @@ int main()
         { "BasicStructHeaderSerializationIsUnchanged", BasicStructHeaderSerializationIsUnchanged },
         { "NetworkingClientRefreshesInterfacesAndSkipsIdlePolling",
             NetworkingClientRefreshesInterfacesAndSkipsIdlePolling },
+        { "PlayerProfileRequestsReturnMinimalProfiles",
+            PlayerProfileRequestsReturnMinimalProfiles },
         { "InventoryPersistenceProtectsFiles", InventoryPersistenceProtectsFiles },
         { "LoadoutStateTransitionsPreserveClassesAndSwapSlots",
             LoadoutStateTransitionsPreserveClassesAndSwapSlots },

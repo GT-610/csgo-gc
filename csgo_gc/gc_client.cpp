@@ -996,6 +996,10 @@ void ClientGC::HandleMessage(uint32_t type, const void *data, uint32_t size)
             ClientRequestJoinServerData(messageRead);
             break;
 
+        case k_EMsgGCCStrike15_v2_ClientRequestPlayersProfile:
+            ClientRequestPlayersProfile(messageRead);
+            break;
+
         case k_EMsgGCSetItemPositions:
             SetItemPositions(messageRead);
             break;
@@ -1109,6 +1113,46 @@ void ClientGC::HandleSOCacheRequest()
 
     GCMessageWrite messageWrite{ k_ESOMsg_CacheSubscribed, message };
     PostToHost(HostEvent::NetMessage, 0, messageWrite.Data(), messageWrite.Size());
+}
+
+void ClientGC::ClientRequestPlayersProfile(GCMessageRead &messageRead)
+{
+    CMsgGCCStrike15_v2_ClientRequestPlayersProfile request;
+    if (!messageRead.ReadProtobuf(request))
+    {
+        Platform::Print("Parsing CMsgGCCStrike15_v2_ClientRequestPlayersProfile failed, ignoring\n");
+        return;
+    }
+
+    CMsgGCCStrike15_v2_PlayersProfile response;
+    if (request.has_request_id__deprecated())
+    {
+        response.set_request_id(request.request_id__deprecated());
+    }
+
+    // The local GC does not know authoritative profile data for another user.
+    // Return only the requested account id instead of copying local player state.
+    auto addMinimalProfile = [&response](uint32_t accountId)
+    {
+        if (!accountId)
+        {
+            return;
+        }
+
+        response.add_account_profiles()->set_account_id(accountId);
+    };
+
+    if (request.has_account_id())
+    {
+        addMinimalProfile(request.account_id());
+    }
+
+    for (uint32_t accountId : request.account_ids__deprecated())
+    {
+        addMinimalProfile(accountId);
+    }
+
+    SendMessageToGame(false, k_EMsgGCCStrike15_v2_PlayersProfile, response);
 }
 
 void ClientGC::SendMessageToGame(bool sendToGameServer, uint32_t type,
