@@ -69,6 +69,7 @@ ItemInfo::ItemInfo(uint32_t defIndex)
     , m_level{ 1 }
     , m_supplyCrateSeries{ 0 }
     , m_stickerSlotCount{ 0 }
+    , m_prestigeYear{ 0 }
     , m_canSticker{ false }
     , m_canPatch{ false }
     , m_nameable{ false }
@@ -900,6 +901,9 @@ void ItemSchema::ParseItemRecursive(ItemInfo &info, const KeyValue &itemKey, con
     const KeyValue *attributes = itemKey.GetSubkey("attributes");
     if (attributes)
     {
+        info.m_prestigeYear = attributes->GetNumber<uint32_t>(
+            "prestige year", info.m_prestigeYear);
+
         const KeyValue *supplyCrateSeries = attributes->GetSubkey("set supply crate series");
         if (supplyCrateSeries)
         {
@@ -1735,4 +1739,19 @@ bool ItemSchema::CanStatTrakSwapDefIndex(uint32_t defIndex) const
 {
     const ItemInfo *info = ItemInfoByDefIndex(defIndex);
     return info && info->m_canStatTrakSwap;
+}
+
+std::vector<uint32_t> ItemSchema::PrestigeMedalDefIndexes(uint32_t year) const
+{
+    std::vector<uint32_t> defIndexes;
+    for (const auto &[defIndex, info] : m_itemInfo)
+    {
+        if (info.m_itemType == "prestige_coin" && info.m_prestigeYear == year)
+        {
+            defIndexes.push_back(defIndex);
+        }
+    }
+
+    std::sort(defIndexes.begin(), defIndexes.end());
+    return defIndexes;
 }

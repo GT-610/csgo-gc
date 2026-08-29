@@ -14,6 +14,8 @@ constexpr uint64_t ItemIdDefaultItemMask = 0xfull << 60;
 // technically 5 but there are attributes for 6 stickers...
 constexpr int MaxStickers = 6;
 
+constexpr int CSGOMaxPlayerLevel = 40;
+
 enum RankType : uint32_t
 {
     RankTypeCompetitive = 6,
@@ -80,7 +82,8 @@ enum ItemOrigin
     ItemOriginPurchased = 2,
     ItemOriginTraded = 3,
     ItemOriginCrate = 8,
-    ItemOriginBaseItem = 22
+    ItemOriginBaseItem = 22,
+    ItemOriginLevelUpReward = 24
 };
 
 enum ElevatedState : uint32_t

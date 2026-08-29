@@ -108,6 +108,10 @@ static bool IsUncustomizedBaseItemClone(const CSOEconItem &item)
 
 Inventory::Inventory(uint64_t steamId)
     : m_steamId{ steamId }
+    , m_configuredPlayerLevel{ GetConfig().Level() }
+    , m_configuredPlayerXp{ GetConfig().Xp() }
+    , m_playerLevel{ m_configuredPlayerLevel }
+    , m_playerXp{ m_configuredPlayerXp }
     , m_version{ InitialInventoryVersion() }
 {
     ReadFromFile();
@@ -175,6 +179,118 @@ const CSOEconItem *Inventory::GetItem(uint64_t itemId) const
     }
 
     return &it->second;
+}
+
+std::optional<Inventory::PrestigeMedalPlan> Inventory::GetPrestigeMedalPlan(uint32_t year) const
+{
+    std::vector<uint32_t> defIndexes = m_itemSchema.PrestigeMedalDefIndexes(year);
+    if (defIndexes.empty())
+    {
+        return std::nullopt;
+    }
+
+    size_t currentLevel = defIndexes.size();
+    uint64_t currentItemId = 0;
+    for (const auto &[itemId, item] : m_items)
+    {
+        auto defIndex = std::lower_bound(defIndexes.begin(), defIndexes.end(), item.def_index());
+        if (defIndex == defIndexes.end() || *defIndex != item.def_index())
+        {
+            continue;
+        }
+
+        size_t medalLevel = static_cast<size_t>(defIndex - defIndexes.begin());
+        if (!currentItemId || medalLevel > currentLevel)
+        {
+            currentLevel = medalLevel;
+            currentItemId = itemId;
+        }
+    }
+
+    size_t targetLevel = 0;
+    if (currentItemId)
+    {
+        if (currentLevel + 1 >= defIndexes.size())
+        {
+            return std::nullopt;
+        }
+        targetLevel = currentLevel + 1;
+    }
+
+    return PrestigeMedalPlan{ defIndexes[targetLevel], currentItemId };
+}
+
+bool Inventory::ClaimPrestigeMedal(uint32_t year, uint32_t expectedDefIndex,
+    PrestigeMedalClaim &claim)
+{
+    if (m_playerLevel < CSGOMaxPlayerLevel)
+    {
+        return false;
+    }
+
+    std::optional<PrestigeMedalPlan> plan = GetPrestigeMedalPlan(year);
+    if (!plan || plan->defIndex != expectedDefIndex)
+    {
+        return false;
+    }
+
+    const int previousPlayerLevel = m_playerLevel;
+    const int previousPlayerXp = m_playerXp;
+    const uint64_t previousVersion = m_version;
+    const uint32_t previousLastHighItemId = m_lastHighItemId;
+    uint32_t previousDefIndex = 0;
+
+    if (plan->upgradeId)
+    {
+        auto item = m_items.find(plan->upgradeId);
+        if (item == m_items.end())
+        {
+            return false;
+        }
+
+        previousDefIndex = item->second.def_index();
+        item->second.set_def_index(plan->defIndex);
+        ToSingleObject(claim.itemData, item->second);
+        claim.itemId = item->second.id();
+        claim.created = false;
+    }
+    else
+    {
+        CSOEconItem &item = CreateItem(plan->defIndex,
+            ItemOriginLevelUpReward, UnacknowledgedLevelUpReward);
+        ToSingleObject(claim.itemData, item);
+        claim.itemId = item.id();
+        claim.created = true;
+    }
+
+    m_playerLevel = 1;
+    m_playerXp = 0;
+
+    CSOPersonaDataPublic personaData;
+    personaData.set_player_level(m_playerLevel);
+    personaData.set_elevated_state(true);
+    ToSingleObject(claim.personaData, SOTypePersonaDataPublic, personaData);
+
+    if (!WriteToFile())
+    {
+        if (claim.created)
+        {
+            m_items.erase(claim.itemId);
+            m_lastHighItemId = previousLastHighItemId;
+        }
+        else
+        {
+            m_items.at(claim.itemId).set_def_index(previousDefIndex);
+        }
+
+        m_playerLevel = previousPlayerLevel;
+        m_playerXp = previousPlayerXp;
+        m_version = previousVersion;
+        claim = PrestigeMedalClaim{};
+        return false;
+    }
+
+    return true;
 }
 
 CSOEconItem &Inventory::AllocateItem(uint32_t highItemId)
@@ -266,6 +382,19 @@ void Inventory::ReadFromFile()
         return;
     }
 
+    const KeyValue *playerState = inventoryKey.GetSubkey("player_state");
+    if (playerState
+        && playerState->GetSubkey("configured_level")
+        && playerState->GetSubkey("configured_xp")
+        && playerState->GetSubkey("level")
+        && playerState->GetSubkey("xp")
+        && playerState->GetNumber<int>("configured_level") == m_configuredPlayerLevel
+        && playerState->GetNumber<int>("configured_xp") == m_configuredPlayerXp)
+    {
+        m_playerLevel = playerState->GetNumber<int>("level");
+        m_playerXp = playerState->GetNumber<int>("xp");
+    }
+
     const KeyValue *itemsKey = inventoryKey.GetSubkey("items");
     if (itemsKey)
     {
@@ -349,16 +478,24 @@ void Inventory::ReadItem(const KeyValue &itemKey, CSOEconItem &item) const
     }
 }
 
-void Inventory::WriteToFile() const
+bool Inventory::WriteToFile() const
 {
     if (!m_saveEnabled)
     {
         Platform::Print("Inventory: save skipped to preserve unreadable %s\n", InventoryFilePath);
-        return;
+        return false;
     }
 
     KeyValue inventoryKey{ "inventory" };
     inventoryKey.AddNumber("format_version", 1);
+
+    {
+        KeyValue &playerState = inventoryKey.AddSubkey("player_state");
+        playerState.AddNumber("configured_level", m_configuredPlayerLevel);
+        playerState.AddNumber("configured_xp", m_configuredPlayerXp);
+        playerState.AddNumber("level", m_playerLevel);
+        playerState.AddNumber("xp", m_playerXp);
+    }
 
     {
         KeyValue &itemsKey = inventoryKey.AddSubkey("items");
@@ -385,7 +522,10 @@ void Inventory::WriteToFile() const
     if (!inventoryKey.WriteToFile(InventoryFilePath))
     {
         Platform::Print("Inventory: failed to save %s; original file was preserved\n", InventoryFilePath);
+        return false;
     }
+
+    return true;
 }
 
 void Inventory::WriteItem(KeyValue &itemKey, const CSOEconItem &item) const
@@ -417,7 +557,7 @@ void Inventory::WriteItem(KeyValue &itemKey, const CSOEconItem &item) const
     }
 }
 
-void Inventory::BuildCacheSubscription(CMsgSOCacheSubscribed &message, int level, bool server)
+void Inventory::BuildCacheSubscription(CMsgSOCacheSubscribed &message, bool server)
 {
     message.set_version(m_version);
     message.mutable_owner_soid()->set_type(SoIdTypeSteamId);
@@ -440,7 +580,7 @@ void Inventory::BuildCacheSubscription(CMsgSOCacheSubscribed &message, int level
 
     {
         CSOPersonaDataPublic personaData;
-        personaData.set_player_level(level);
+        personaData.set_player_level(m_playerLevel);
         personaData.set_elevated_state(true);
 
         CMsgSOCacheSubscribed_SubscribedType *object = message.add_objects();

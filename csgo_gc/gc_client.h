@@ -72,6 +72,7 @@ private:
     // Increment the equipped StatTrak music kit when the local player receives round MVP.
     void LocalPlayerRoundMVP();
     void ApplySticker(GCMessageRead &messageRead);
+    void RequestPrestigeCoin(GCMessageRead &messageRead);
     void StoreGetUserData(GCMessageRead &messageRead);
     void StorePurchaseInit(GCMessageRead &messageRead);
     void StorePurchaseFinalize(GCMessageRead &messageRead);
@@ -100,6 +101,7 @@ private:
     uint32_t AccountId() const { return m_steamId & 0xffffffff; }
 
     const uint64_t m_steamId;
+    const uint32_t m_buildYear;
 
     Inventory m_inventory;
     std::atomic<int32_t> m_localUserId{};
