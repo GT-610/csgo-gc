@@ -310,10 +310,73 @@ static bool ParseHostProtobuf(const EventData &event, T &message)
 }
 
 template<typename T>
+static bool ParseHostJobProtobuf(const EventData &event, uint64_t jobId, T &message)
+{
+    constexpr size_t HeaderPrefixSize = sizeof(uint32_t) + sizeof(uint32_t);
+    if (event.buffer.size() < HeaderPrefixSize)
+    {
+        return false;
+    }
+
+    const uint8_t *data = event.buffer.data();
+    uint32_t type = 0;
+    uint32_t headerSize = 0;
+    std::memcpy(&type, data, sizeof(type));
+    std::memcpy(&headerSize, data + sizeof(type), sizeof(headerSize));
+    if (!(type & ProtobufMask)
+        || !headerSize
+        || HeaderPrefixSize + headerSize > event.buffer.size())
+    {
+        return false;
+    }
+
+    CMsgProtoBufHeader header;
+    if (!header.ParseFromArray(data + HeaderPrefixSize, headerSize)
+        || header.job_id_target() != jobId)
+    {
+        return false;
+    }
+
+    const size_t bodyOffset = HeaderPrefixSize + headerSize;
+    return message.ParseFromArray(data + bodyOffset, event.buffer.size() - bodyOffset);
+}
+
+template<typename T>
 static void SendGCProtobuf(ClientGC &gc, uint32_t type, const T &message)
 {
     GCMessageWrite messageWrite{ type, message };
     gc.PostToGC(GCEvent::Message, messageWrite.TypeMasked(), messageWrite.Data(), messageWrite.Size());
+}
+
+static bool SendGCProtobufJobData(ClientGC &gc, uint32_t type,
+    const void *data, uint32_t size, uint64_t jobId)
+{
+    CMsgProtoBufHeader header;
+    header.set_job_id_source(jobId);
+
+    std::string headerData;
+    if (!header.SerializeToString(&headerData))
+    {
+        return false;
+    }
+
+    uint32_t maskedType = type | ProtobufMask;
+    GCMessageWrite messageWrite{ &maskedType, sizeof(maskedType) };
+    messageWrite.WriteUint32(static_cast<uint32_t>(headerData.size()));
+    messageWrite.WriteData(headerData.data(), static_cast<uint32_t>(headerData.size()));
+    messageWrite.WriteData(data, size);
+    gc.PostToGC(GCEvent::Message, messageWrite.TypeMasked(), messageWrite.Data(), messageWrite.Size());
+    return true;
+}
+
+template<typename T>
+static bool SendGCProtobufJob(ClientGC &gc, uint32_t type,
+    const T &message, uint64_t jobId)
+{
+    std::string messageData;
+    return message.SerializeToString(&messageData)
+        && SendGCProtobufJobData(gc, type, messageData.data(),
+            static_cast<uint32_t>(messageData.size()), jobId);
 }
 
 static bool IsMinimalPlayerProfile(
@@ -1590,6 +1653,22 @@ static bool RequestPrestigeInquiry(ClientGC &gc,
         && ParseHostProtobuf(event, response);
 }
 
+static bool RequestPrestigeJob(ClientGC &gc,
+    const CMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin &request,
+    uint64_t jobId,
+    CMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin &response)
+{
+    EventData event;
+    return SendGCProtobufJob(gc,
+        k_EMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin,
+        request,
+        jobId)
+        && WaitForHostMessage(gc,
+            k_EMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin,
+            event)
+        && ParseHostJobProtobuf(event, jobId, response);
+}
+
 static bool ValidatePrestigeClaimEvents(const std::vector<EventData> &events,
     bool expectedCreate, uint32_t expectedDefIndex, uint64_t expectedItemId,
     uint64_t &actualItemId)
@@ -1684,6 +1763,29 @@ static bool ServiceMedalsFollowBuildYearAndPersistPrestige()
             && response.defindex() == 1376
             && !response.has_upgradeid()
             && !response.has_prestigetime();
+
+        constexpr uint64_t InquiryJobId = 101;
+        CMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin jobRequest;
+        response.Clear();
+        valid &= RequestPrestigeJob(gc, jobRequest, InquiryJobId, response)
+            && response.defindex() == 1376
+            && !response.has_upgradeid()
+            && !response.has_prestigetime();
+
+        constexpr uint64_t MalformedJobId = 102;
+        constexpr uint8_t MalformedRequest[]{ 0x80 };
+        EventData event;
+        response.Clear();
+        valid &= SendGCProtobufJobData(gc,
+            k_EMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin,
+            MalformedRequest,
+            sizeof(MalformedRequest),
+            MalformedJobId)
+            && WaitForHostMessage(gc,
+                k_EMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin,
+                event)
+            && ParseHostJobProtobuf(event, MalformedJobId, response)
+            && response.ByteSizeLong() == 0;
     }
 
     RemovePrestigeFixtures();
@@ -1704,6 +1806,11 @@ static bool ServiceMedalsFollowBuildYearAndPersistPrestige()
         valid &= HostMessageNotReceived(gc,
             k_EMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin);
 
+        constexpr uint64_t StaleClaimJobId = 103;
+        CMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin rejectedResponse;
+        valid &= RequestPrestigeJob(gc, staleClaim, StaleClaimJobId, rejectedResponse)
+            && rejectedResponse.ByteSizeLong() == 0;
+
         inquiry.Clear();
         valid &= RequestPrestigeInquiry(gc, inquiry) && inquiry.defindex() == 4873;
 
@@ -1721,6 +1828,14 @@ static bool ServiceMedalsFollowBuildYearAndPersistPrestige()
             ineligibleInquiry);
         valid &= HostMessageNotReceived(gc,
             k_EMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin);
+
+        constexpr uint64_t IneligibleJobId = 104;
+        rejectedResponse.Clear();
+        valid &= RequestPrestigeJob(gc,
+            ineligibleInquiry,
+            IneligibleJobId,
+            rejectedResponse)
+            && rejectedResponse.ByteSizeLong() == 0;
     }
 
     valid &= medalItemId != 0
@@ -1779,6 +1894,14 @@ static bool ServiceMedalsFollowBuildYearAndPersistPrestige()
         SendGCProtobuf(gc, k_EMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin, inquiry);
         valid &= HostMessageNotReceived(gc,
             k_EMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin);
+
+        constexpr uint64_t MissingPlanJobId = 105;
+        CMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin rejectedResponse;
+        valid &= RequestPrestigeJob(gc,
+            inquiry,
+            MissingPlanJobId,
+            rejectedResponse)
+            && rejectedResponse.ByteSizeLong() == 0;
     }
 
     RemovePrestigeFixtures();

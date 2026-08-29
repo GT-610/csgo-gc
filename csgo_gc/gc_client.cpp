@@ -1655,10 +1655,25 @@ void ClientGC::ApplySticker(GCMessageRead &messageRead)
 
 void ClientGC::RequestPrestigeCoin(GCMessageRead &messageRead)
 {
+    auto sendRejectedResponse = [&]()
+    {
+        if (messageRead.JobId() == JobIdInvalid)
+        {
+            return;
+        }
+
+        CMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin response;
+        SendMessageToGame(false,
+            k_EMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin,
+            response,
+            messageRead.JobId());
+    };
+
     CMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin request;
     if (!messageRead.ReadProtobuf(request))
     {
         Platform::Print("Parsing CMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin failed, ignoring\n");
+        sendRejectedResponse();
         return;
     }
 
@@ -1666,6 +1681,7 @@ void ClientGC::RequestPrestigeCoin(GCMessageRead &messageRead)
     {
         Platform::Print("RequestPrestigeCoin: player level %d is below %d\n",
             m_inventory.PlayerLevel(), CSGOMaxPlayerLevel);
+        sendRejectedResponse();
         return;
     }
 
@@ -1675,6 +1691,7 @@ void ClientGC::RequestPrestigeCoin(GCMessageRead &messageRead)
     {
         Platform::Print("RequestPrestigeCoin: no service medal is available for build year %u\n",
             m_buildYear);
+        sendRejectedResponse();
         return;
     }
 
@@ -1699,6 +1716,7 @@ void ClientGC::RequestPrestigeCoin(GCMessageRead &messageRead)
     {
         Platform::Print("RequestPrestigeCoin: rejected stale or invalid defindex %u for year %u\n",
             request.defindex(), m_buildYear);
+        sendRejectedResponse();
         return;
     }
 
