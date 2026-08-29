@@ -41,6 +41,7 @@ public:
     uint32_t m_level;
     uint32_t m_supplyCrateSeries; // cases only
     uint32_t m_stickerSlotCount;
+    uint32_t m_prestigeYear;
     TournamentMetadata m_tournament;
     std::string m_itemType;
     std::vector<std::string> m_prefabs;
@@ -195,6 +196,7 @@ public:
     bool CanApplyPatchToDefIndex(uint32_t defIndex) const;
     bool CanNameDefIndex(uint32_t defIndex) const;
     bool CanStatTrakSwapDefIndex(uint32_t defIndex) const;
+    std::vector<uint32_t> PrestigeMedalDefIndexes(uint32_t year) const;
 
 
 public:

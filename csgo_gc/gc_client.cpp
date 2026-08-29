@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "gc_client.h"
+#include "appid.h"
 #include "graffiti.h"
 #include "item_utils.h"
 #include "keyvalue.h"
@@ -305,6 +306,7 @@ std::string UnknownParameter(std::string_view key)
 
 ClientGC::ClientGC(uint64_t steamId)
     : m_steamId{ steamId }
+    , m_buildYear{ AppId::GetBuildYear() }
     , m_inventory{ steamId }
 {
     // also called from ServerGC's constructor
@@ -943,7 +945,7 @@ std::string ClientGC::RconRefreshInventory(const RconRequest &request)
     }
 
     CMsgSOCacheSubscribed message;
-    m_inventory.BuildCacheSubscription(message, GetConfig().Level(), false);
+    m_inventory.BuildCacheSubscription(message, false);
     SendMessageToGame(false, k_ESOMsg_CacheSubscribed, message);
     return "OK refreshed";
 }
@@ -955,8 +957,7 @@ std::string ClientGC::RconSaveInventory(const RconRequest &request)
         return Usage("save_inventory");
     }
 
-    m_inventory.Save();
-    return "OK saved";
+    return m_inventory.Save() ? "OK saved" : "ERR save failed";
 }
 
 void ClientGC::HandleMessage(uint32_t type, const void *data, uint32_t size)
@@ -1006,6 +1007,10 @@ void ClientGC::HandleMessage(uint32_t type, const void *data, uint32_t size)
 
         case k_EMsgGCApplySticker:
             ApplySticker(messageRead);
+            break;
+
+        case k_EMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin:
+            RequestPrestigeCoin(messageRead);
             break;
 
         case k_EMsgGCStoreGetUserData:
@@ -1109,7 +1114,7 @@ void ClientGC::HandleNetMessage(const void *data, uint32_t size)
 void ClientGC::HandleSOCacheRequest()
 {
     CMsgSOCacheSubscribed message;
-    m_inventory.BuildCacheSubscription(message, GetConfig().Level(), true);
+    m_inventory.BuildCacheSubscription(message, true);
 
     GCMessageWrite messageWrite{ k_ESOMsg_CacheSubscribed, message };
     PostToHost(HostEvent::NetMessage, 0, messageWrite.Data(), messageWrite.Size());
@@ -1299,8 +1304,8 @@ void ClientGC::BuildMatchmakingHello(CMsgGCCStrike15_v2_MatchmakingGC2ClientHell
     message.mutable_commendation()->set_cmd_friendly(GetConfig().CommendedFriendly());
     message.mutable_commendation()->set_cmd_teaching(GetConfig().CommendedTeaching());
     message.mutable_commendation()->set_cmd_leader(GetConfig().CommendedLeader());
-    message.set_player_level(GetConfig().Level());
-    message.set_player_cur_xp(GetConfig().Xp());
+    message.set_player_level(m_inventory.PlayerLevel());
+    message.set_player_cur_xp(m_inventory.PlayerXp());
 }
 
 void ClientGC::BuildClientWelcome(CMsgClientWelcome &message, const CMsgClientHello &hello,
@@ -1332,8 +1337,7 @@ void ClientGC::BuildClientWelcome(CMsgClientWelcome &message, const CMsgClientHe
     }
     else
     {
-        m_inventory.BuildCacheSubscription(*message.add_outofdate_subscribed_caches(),
-            GetConfig().Level(), false);
+        m_inventory.BuildCacheSubscription(*message.add_outofdate_subscribed_caches(), false);
     }
     message.mutable_location()->set_latitude(65.0133006f);
     message.mutable_location()->set_longitude(25.4646212f);
@@ -1417,7 +1421,7 @@ void ClientGC::SOCacheSubscriptionRefresh(GCMessageRead &messageRead)
     }
 
     CMsgSOCacheSubscribed subscription;
-    m_inventory.BuildCacheSubscription(subscription, GetConfig().Level(), false);
+    m_inventory.BuildCacheSubscription(subscription, false);
     SendMessageToGame(false, k_ESOMsg_CacheSubscribed, subscription);
 }
 
@@ -1647,6 +1651,90 @@ void ClientGC::ApplySticker(GCMessageRead &messageRead)
     {
         assert(false);
     }
+}
+
+void ClientGC::RequestPrestigeCoin(GCMessageRead &messageRead)
+{
+    auto sendRejectedResponse = [&]()
+    {
+        if (messageRead.JobId() == JobIdInvalid)
+        {
+            return;
+        }
+
+        CMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin response;
+        SendMessageToGame(false,
+            k_EMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin,
+            response,
+            messageRead.JobId());
+    };
+
+    CMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin request;
+    if (!messageRead.ReadProtobuf(request))
+    {
+        Platform::Print("Parsing CMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin failed, ignoring\n");
+        sendRejectedResponse();
+        return;
+    }
+
+    if (m_inventory.PlayerLevel() < CSGOMaxPlayerLevel)
+    {
+        Platform::Print("RequestPrestigeCoin: player level %d is below %d\n",
+            m_inventory.PlayerLevel(), CSGOMaxPlayerLevel);
+        sendRejectedResponse();
+        return;
+    }
+
+    std::optional<Inventory::PrestigeMedalPlan> plan
+        = m_inventory.GetPrestigeMedalPlan(m_buildYear);
+    if (!plan)
+    {
+        Platform::Print("RequestPrestigeCoin: no service medal is available for build year %u\n",
+            m_buildYear);
+        sendRejectedResponse();
+        return;
+    }
+
+    if (!request.has_defindex() || !request.defindex())
+    {
+        CMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin response;
+        response.set_defindex(plan->defIndex);
+        if (plan->upgradeId)
+        {
+            response.set_upgradeid(plan->upgradeId);
+        }
+
+        SendMessageToGame(false,
+            k_EMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin,
+            response,
+            messageRead.JobId());
+        return;
+    }
+
+    Inventory::PrestigeMedalClaim claim;
+    if (!m_inventory.ClaimPrestigeMedal(m_buildYear, request.defindex(), claim))
+    {
+        Platform::Print("RequestPrestigeCoin: rejected stale or invalid defindex %u for year %u\n",
+            request.defindex(), m_buildYear);
+        sendRejectedResponse();
+        return;
+    }
+
+    SendMessageToGame(true, claim.created ? k_ESOMsg_Create : k_ESOMsg_Update, claim.itemData);
+    SendMessageToGame(true, k_ESOMsg_Update, claim.personaData);
+
+    CMsgGCCStrike15_v2_MatchmakingGC2ClientHello matchmakingHello;
+    BuildMatchmakingHello(matchmakingHello);
+    SendMessageToGame(false, k_EMsgGCCStrike15_v2_MatchmakingGC2ClientHello, matchmakingHello);
+
+    CMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin response;
+    response.set_defindex(request.defindex());
+    response.set_upgradeid(claim.itemId);
+    response.set_prestigetime(static_cast<uint32_t>(time(nullptr)));
+    SendMessageToGame(false,
+        k_EMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin,
+        response,
+        messageRead.JobId());
 }
 
 void ClientGC::StoreGetUserData(GCMessageRead &messageRead)

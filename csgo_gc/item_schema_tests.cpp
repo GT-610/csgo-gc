@@ -116,6 +116,34 @@ public:
             && partiallyOverridden->m_maxFloat == 0.5f;
     }
 
+    bool ParsePrestigeMedals()
+    {
+        KeyValue prefabs{ "prefabs" };
+        prefabs.AddSubkey("prestige_coin").AddString("item_type", "prestige_coin");
+
+        KeyValue items{ "items" };
+        auto addMedal = [&](const char *defIndex, uint32_t year)
+        {
+            KeyValue &item = items.AddSubkey(defIndex);
+            item.AddString("prefab", "prestige_coin");
+            item.AddSubkey("attributes").AddNumber("prestige year", year);
+        };
+
+        addMedal("5002", 2023);
+        addMedal("5000", 2023);
+        addMedal("4999", 2022);
+        items.AddSubkey("5001").AddSubkey("attributes").AddNumber("prestige year", 2023);
+
+        schema.ParseItems(&items, &prefabs);
+
+        const ItemInfo *medal = schema.ItemInfoByDefIndex(5000);
+        const std::vector<uint32_t> expected{ 5000, 5002 };
+        return medal
+            && medal->m_itemType == "prestige_coin"
+            && medal->m_prestigeYear == 2023
+            && schema.PrestigeMedalDefIndexes(2023) == expected;
+    }
+
     ItemSchema schema;
 };
 
@@ -159,6 +187,12 @@ static bool PaintKitWearRangesInheritDefaults()
     return fixture.ParsePaintKitWearRanges();
 }
 
+static bool PrestigeMedalsUseSchemaYearAndSortedDefIndexes()
+{
+    ItemSchemaTestFixture fixture;
+    return fixture.ParsePrestigeMedals();
+}
+
 int main()
 {
     if (!TournamentStickerCapsuleIsNotSouvenir())
@@ -179,6 +213,11 @@ int main()
     if (!PaintKitWearRangesInheritDefaults())
     {
         return 4;
+    }
+
+    if (!PrestigeMedalsUseSchemaYearAndSortedDefIndexes())
+    {
+        return 5;
     }
 
     return 0;

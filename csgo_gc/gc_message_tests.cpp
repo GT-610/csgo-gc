@@ -278,6 +278,30 @@ static bool WaitForHostMessagesUntil(ClientGC &gc, uint32_t terminalType,
     return false;
 }
 
+static bool HostMessageNotReceived(ClientGC &gc, uint32_t type,
+    std::chrono::milliseconds duration = std::chrono::milliseconds{ 100 })
+{
+    std::vector<EventData> events;
+    auto deadline = std::chrono::steady_clock::now() + duration;
+    while (std::chrono::steady_clock::now() < deadline)
+    {
+        gc.GetHostEvents(events);
+        for (const EventData &event : events)
+        {
+            if (event.type == static_cast<int>(HostEvent::Message)
+                && (event.id & ~ProtobufMask) == type)
+            {
+                return false;
+            }
+        }
+
+        events.clear();
+        std::this_thread::sleep_for(std::chrono::milliseconds{ 1 });
+    }
+
+    return true;
+}
+
 template<typename T>
 static bool ParseHostProtobuf(const EventData &event, T &message)
 {
@@ -286,10 +310,73 @@ static bool ParseHostProtobuf(const EventData &event, T &message)
 }
 
 template<typename T>
+static bool ParseHostJobProtobuf(const EventData &event, uint64_t jobId, T &message)
+{
+    constexpr size_t HeaderPrefixSize = sizeof(uint32_t) + sizeof(uint32_t);
+    if (event.buffer.size() < HeaderPrefixSize)
+    {
+        return false;
+    }
+
+    const uint8_t *data = event.buffer.data();
+    uint32_t type = 0;
+    uint32_t headerSize = 0;
+    std::memcpy(&type, data, sizeof(type));
+    std::memcpy(&headerSize, data + sizeof(type), sizeof(headerSize));
+    if (!(type & ProtobufMask)
+        || !headerSize
+        || HeaderPrefixSize + headerSize > event.buffer.size())
+    {
+        return false;
+    }
+
+    CMsgProtoBufHeader header;
+    if (!header.ParseFromArray(data + HeaderPrefixSize, headerSize)
+        || header.job_id_target() != jobId)
+    {
+        return false;
+    }
+
+    const size_t bodyOffset = HeaderPrefixSize + headerSize;
+    return message.ParseFromArray(data + bodyOffset, event.buffer.size() - bodyOffset);
+}
+
+template<typename T>
 static void SendGCProtobuf(ClientGC &gc, uint32_t type, const T &message)
 {
     GCMessageWrite messageWrite{ type, message };
     gc.PostToGC(GCEvent::Message, messageWrite.TypeMasked(), messageWrite.Data(), messageWrite.Size());
+}
+
+static bool SendGCProtobufJobData(ClientGC &gc, uint32_t type,
+    const void *data, uint32_t size, uint64_t jobId)
+{
+    CMsgProtoBufHeader header;
+    header.set_job_id_source(jobId);
+
+    std::string headerData;
+    if (!header.SerializeToString(&headerData))
+    {
+        return false;
+    }
+
+    uint32_t maskedType = type | ProtobufMask;
+    GCMessageWrite messageWrite{ &maskedType, sizeof(maskedType) };
+    messageWrite.WriteUint32(static_cast<uint32_t>(headerData.size()));
+    messageWrite.WriteData(headerData.data(), static_cast<uint32_t>(headerData.size()));
+    messageWrite.WriteData(data, size);
+    gc.PostToGC(GCEvent::Message, messageWrite.TypeMasked(), messageWrite.Data(), messageWrite.Size());
+    return true;
+}
+
+template<typename T>
+static bool SendGCProtobufJob(ClientGC &gc, uint32_t type,
+    const T &message, uint64_t jobId)
+{
+    std::string messageData;
+    return message.SerializeToString(&messageData)
+        && SendGCProtobufJobData(gc, type, messageData.data(),
+            static_cast<uint32_t>(messageData.size()), jobId);
 }
 
 static bool IsMinimalPlayerProfile(
@@ -455,7 +542,7 @@ static bool DefaultEquipMatches(const std::unordered_map<uint64_t, uint32_t> &de
 static std::unordered_map<uint64_t, uint32_t> SnapshotDefaultEquips(Inventory &inventory)
 {
     CMsgSOCacheSubscribed subscription;
-    inventory.BuildCacheSubscription(subscription, 1, false);
+    inventory.BuildCacheSubscription(subscription, false);
 
     std::unordered_map<uint64_t, uint32_t> defaultEquips;
     for (const CMsgSOCacheSubscribed_SubscribedType &type : subscription.objects())
@@ -1427,6 +1514,400 @@ static bool StorePurchasesFinalizeTransactionally()
     return valid;
 }
 
+static void RemovePrestigeFixtures()
+{
+    TestFilesystem::RemoveFile("csgo_gc/inventory.txt");
+    TestFilesystem::RemoveFile("csgo_gc/unusual_loot_lists.txt");
+    TestFilesystem::RemoveFile("csgo/scripts/items/items_game.txt");
+    TestFilesystem::RemoveFile("csgo/steam.inf");
+    TestFilesystem::RemoveDirectory("csgo/scripts/items");
+    TestFilesystem::RemoveDirectory("csgo/scripts");
+    TestFilesystem::RemoveDirectory("csgo");
+    TestFilesystem::RemoveDirectory("csgo_gc");
+}
+
+static bool WriteTextFile(const char *path, std::string_view contents)
+{
+    FILE *file = fopen(path, "wb");
+    if (!file)
+    {
+        return false;
+    }
+
+    bool written = fwrite(contents.data(), 1, contents.size(), file) == contents.size();
+    written &= fclose(file) == 0;
+    return written;
+}
+
+static bool WritePrestigeFixtures(std::string_view versionDate)
+{
+    if (!TestFilesystem::MakeDirectory("csgo")
+        || !TestFilesystem::MakeDirectory("csgo/scripts")
+        || !TestFilesystem::MakeDirectory("csgo/scripts/items")
+        || !TestFilesystem::MakeDirectory("csgo_gc"))
+    {
+        return false;
+    }
+
+    KeyValue schema{ "root" };
+    KeyValue &itemsGame = schema.AddSubkey("items_game");
+    itemsGame.AddSubkey("prefabs")
+        .AddSubkey("prestige_coin")
+        .AddString("item_type", "prestige_coin");
+
+    KeyValue &items = itemsGame.AddSubkey("items");
+    auto addMedal = [&](uint32_t defIndex, uint32_t year)
+    {
+        KeyValue &item = items.AddSubkey(std::to_string(defIndex));
+        item.AddString("name", std::string{ "prestige coin " }.append(std::to_string(year)));
+        item.AddString("prefab", "prestige_coin");
+        item.AddSubkey("attributes").AddNumber("prestige year", year);
+    };
+
+    addMedal(1376, 2019);
+    addMedal(1377, 2019);
+    addMedal(4873, 2023);
+    addMedal(4874, 2023);
+
+    KeyValue unusualLootLists{ "unusual_loot_lists" };
+    unusualLootLists.AddSubkey("empty");
+
+    KeyValue inventory{ "inventory" };
+    inventory.AddNumber("format_version", 1);
+    KeyValue &playerState = inventory.AddSubkey("player_state");
+    playerState.AddNumber("configured_level", GetConfig().Level());
+    playerState.AddNumber("configured_xp", GetConfig().Xp());
+    playerState.AddNumber("level", CSGOMaxPlayerLevel);
+    playerState.AddNumber("xp", 4999);
+    inventory.AddSubkey("items");
+
+    std::string steamInf{ "ClientVersion=1569\nVersionDate=" };
+    steamInf.append(versionDate.data(), versionDate.size());
+    steamInf.push_back('\n');
+
+    return schema.WriteToFile("csgo/scripts/items/items_game.txt")
+        && unusualLootLists.WriteToFile("csgo_gc/unusual_loot_lists.txt")
+        && inventory.WriteToFile("csgo_gc/inventory.txt")
+        && WriteTextFile("csgo/steam.inf", steamInf);
+}
+
+static bool SetPersistedPlayerProgress(int level, int xp)
+{
+    KeyValue inventory{ "inventory" };
+    if (!inventory.ParseFromFile("csgo_gc/inventory.txt"))
+    {
+        return false;
+    }
+
+    KeyValue *playerState = inventory.GetSubkey("player_state");
+    if (!playerState)
+    {
+        return false;
+    }
+
+    playerState->SetString("level", std::to_string(level));
+    playerState->SetString("xp", std::to_string(xp));
+    return inventory.WriteToFile("csgo_gc/inventory.txt");
+}
+
+static bool PersistedPlayerProgressIs(int level, int xp)
+{
+    KeyValue inventory{ "inventory" };
+    if (!inventory.ParseFromFile("csgo_gc/inventory.txt"))
+    {
+        return false;
+    }
+
+    const KeyValue *playerState = inventory.GetSubkey("player_state");
+    return playerState
+        && playerState->GetNumber<int>("level") == level
+        && playerState->GetNumber<int>("xp") == xp;
+}
+
+static bool PersistedItemHasDefIndex(uint64_t itemId, uint32_t defIndex)
+{
+    KeyValue inventory{ "inventory" };
+    if (!inventory.ParseFromFile("csgo_gc/inventory.txt"))
+    {
+        return false;
+    }
+
+    const KeyValue *items = inventory.GetSubkey("items");
+    if (!items)
+    {
+        return false;
+    }
+
+    const KeyValue *item = items->GetSubkey(std::to_string(itemId >> 32));
+    return item && item->GetNumber<uint32_t>("def_index") == defIndex;
+}
+
+static bool RequestPrestigeInquiry(ClientGC &gc,
+    CMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin &response)
+{
+    CMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin request;
+    SendGCProtobuf(gc, k_EMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin, request);
+
+    EventData event;
+    return WaitForHostMessage(gc, k_EMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin, event)
+        && ParseHostProtobuf(event, response);
+}
+
+static bool RequestPrestigeJob(ClientGC &gc,
+    const CMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin &request,
+    uint64_t jobId,
+    CMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin &response)
+{
+    EventData event;
+    return SendGCProtobufJob(gc,
+        k_EMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin,
+        request,
+        jobId)
+        && WaitForHostMessage(gc,
+            k_EMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin,
+            event)
+        && ParseHostJobProtobuf(event, jobId, response);
+}
+
+static bool ValidatePrestigeClaimEvents(const std::vector<EventData> &events,
+    bool expectedCreate, uint32_t expectedDefIndex, uint64_t expectedItemId,
+    uint64_t &actualItemId)
+{
+    size_t itemEventIndex = events.size();
+    size_t responseEventIndex = events.size();
+    bool foundPersona = false;
+    bool foundMatchmakingHello = false;
+    bool foundResponse = false;
+    CMsgSOSingleObject itemData;
+    CMsgSOSingleObject personaData;
+    CSOEconItem item;
+    CSOPersonaDataPublic persona;
+    CMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin response;
+
+    for (size_t i = 0; i < events.size(); i++)
+    {
+        uint32_t type = static_cast<uint32_t>(events[i].id) & ~ProtobufMask;
+        if (type == k_ESOMsg_Create || type == k_ESOMsg_Update)
+        {
+            CMsgSOSingleObject object;
+            if (!ParseHostProtobuf(events[i], object))
+            {
+                return false;
+            }
+
+            if (object.type_id() == SOTypeItem)
+            {
+                uint32_t expectedType = expectedCreate
+                    ? static_cast<uint32_t>(k_ESOMsg_Create)
+                    : static_cast<uint32_t>(k_ESOMsg_Update);
+                if (type != expectedType
+                    || !item.ParseFromString(object.object_data()))
+                {
+                    return false;
+                }
+                itemData = object;
+                itemEventIndex = i;
+            }
+            else if (object.type_id() == SOTypePersonaDataPublic)
+            {
+                if (!persona.ParseFromString(object.object_data()))
+                {
+                    return false;
+                }
+                personaData = object;
+                foundPersona = true;
+            }
+        }
+        else if (type == k_EMsgGCCStrike15_v2_MatchmakingGC2ClientHello)
+        {
+            CMsgGCCStrike15_v2_MatchmakingGC2ClientHello hello;
+            foundMatchmakingHello = ParseHostProtobuf(events[i], hello)
+                && hello.player_level() == 1
+                && hello.player_cur_xp() == 0;
+        }
+        else if (type == k_EMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin)
+        {
+            foundResponse = ParseHostProtobuf(events[i], response);
+            responseEventIndex = i;
+        }
+    }
+
+    actualItemId = item.id();
+    return itemEventIndex < responseEventIndex
+        && item.def_index() == expectedDefIndex
+        && (!expectedItemId || item.id() == expectedItemId)
+        && item.origin() == ItemOriginLevelUpReward
+        && (!expectedCreate
+            || item.inventory() == InventoryUnacknowledged(UnacknowledgedLevelUpReward))
+        && foundPersona
+        && persona.player_level() == 1
+        && itemData.version() < personaData.version()
+        && foundMatchmakingHello
+        && foundResponse
+        && response.defindex() == expectedDefIndex
+        && response.upgradeid() == item.id()
+        && response.prestigetime() != 0;
+}
+
+static bool ServiceMedalsFollowBuildYearAndPersistPrestige()
+{
+    constexpr uint64_t SteamId = 76561197960265729ull;
+    RemovePrestigeFixtures();
+
+    bool valid = WritePrestigeFixtures("Mar 28 2019");
+    if (valid)
+    {
+        ClientGC gc{ SteamId };
+        CMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin response;
+        valid &= RequestPrestigeInquiry(gc, response)
+            && response.defindex() == 1376
+            && !response.has_upgradeid()
+            && !response.has_prestigetime();
+
+        constexpr uint64_t InquiryJobId = 101;
+        CMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin jobRequest;
+        response.Clear();
+        valid &= RequestPrestigeJob(gc, jobRequest, InquiryJobId, response)
+            && response.defindex() == 1376
+            && !response.has_upgradeid()
+            && !response.has_prestigetime();
+
+        constexpr uint64_t MalformedJobId = 102;
+        constexpr uint8_t MalformedRequest[]{ 0x80 };
+        EventData event;
+        response.Clear();
+        valid &= SendGCProtobufJobData(gc,
+            k_EMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin,
+            MalformedRequest,
+            sizeof(MalformedRequest),
+            MalformedJobId)
+            && WaitForHostMessage(gc,
+                k_EMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin,
+                event)
+            && ParseHostJobProtobuf(event, MalformedJobId, response)
+            && response.ByteSizeLong() == 0;
+    }
+
+    RemovePrestigeFixtures();
+    valid &= WritePrestigeFixtures("invalid");
+
+    uint64_t medalItemId = 0;
+    if (valid)
+    {
+        ClientGC gc{ SteamId };
+        CMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin inquiry;
+        valid &= RequestPrestigeInquiry(gc, inquiry)
+            && inquiry.defindex() == 4873
+            && !inquiry.has_upgradeid();
+
+        CMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin staleClaim;
+        staleClaim.set_defindex(4874);
+        SendGCProtobuf(gc, k_EMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin, staleClaim);
+        valid &= HostMessageNotReceived(gc,
+            k_EMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin);
+
+        constexpr uint64_t StaleClaimJobId = 103;
+        CMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin rejectedResponse;
+        valid &= RequestPrestigeJob(gc, staleClaim, StaleClaimJobId, rejectedResponse)
+            && rejectedResponse.ByteSizeLong() == 0;
+
+        inquiry.Clear();
+        valid &= RequestPrestigeInquiry(gc, inquiry) && inquiry.defindex() == 4873;
+
+        CMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin claim;
+        claim.set_defindex(4873);
+        SendGCProtobuf(gc, k_EMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin, claim);
+
+        std::vector<EventData> events;
+        valid &= WaitForHostMessagesUntil(gc,
+            k_EMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin, events)
+            && ValidatePrestigeClaimEvents(events, true, 4873, 0, medalItemId);
+
+        CMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin ineligibleInquiry;
+        SendGCProtobuf(gc, k_EMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin,
+            ineligibleInquiry);
+        valid &= HostMessageNotReceived(gc,
+            k_EMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin);
+
+        constexpr uint64_t IneligibleJobId = 104;
+        rejectedResponse.Clear();
+        valid &= RequestPrestigeJob(gc,
+            ineligibleInquiry,
+            IneligibleJobId,
+            rejectedResponse)
+            && rejectedResponse.ByteSizeLong() == 0;
+    }
+
+    valid &= medalItemId != 0
+        && PersistedPlayerProgressIs(1, 0)
+        && PersistedItemHasDefIndex(medalItemId, 4873);
+
+    if (valid)
+    {
+        ClientGC gc{ SteamId };
+        CMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin inquiry;
+        SendGCProtobuf(gc, k_EMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin, inquiry);
+        valid &= HostMessageNotReceived(gc,
+            k_EMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin);
+
+        CMsgClientHello hello;
+        SendGCProtobuf(gc, k_EMsgGCClientHello, hello);
+        EventData event;
+        CMsgClientWelcome welcome;
+        CMsgGCCStrike15_v2_MatchmakingGC2ClientHello matchmakingHello;
+        valid &= WaitForHostMessage(gc, k_EMsgGCClientWelcome, event)
+            && ParseHostProtobuf(event, welcome)
+            && matchmakingHello.ParseFromString(welcome.game_data2())
+            && matchmakingHello.player_level() == 1
+            && matchmakingHello.player_cur_xp() == 0;
+    }
+
+    valid &= SetPersistedPlayerProgress(CSGOMaxPlayerLevel, 4999);
+    if (valid)
+    {
+        ClientGC gc{ SteamId };
+        CMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin inquiry;
+        valid &= RequestPrestigeInquiry(gc, inquiry)
+            && inquiry.defindex() == 4874
+            && inquiry.upgradeid() == medalItemId;
+
+        CMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin claim;
+        claim.set_defindex(4874);
+        SendGCProtobuf(gc, k_EMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin, claim);
+
+        std::vector<EventData> events;
+        uint64_t upgradedItemId = 0;
+        valid &= WaitForHostMessagesUntil(gc,
+            k_EMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin, events)
+            && ValidatePrestigeClaimEvents(events, false, 4874, medalItemId, upgradedItemId)
+            && upgradedItemId == medalItemId;
+    }
+
+    valid &= PersistedPlayerProgressIs(1, 0)
+        && PersistedItemHasDefIndex(medalItemId, 4874)
+        && SetPersistedPlayerProgress(CSGOMaxPlayerLevel, 4999);
+
+    if (valid)
+    {
+        ClientGC gc{ SteamId };
+        CMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin inquiry;
+        SendGCProtobuf(gc, k_EMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin, inquiry);
+        valid &= HostMessageNotReceived(gc,
+            k_EMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin);
+
+        constexpr uint64_t MissingPlanJobId = 105;
+        CMsgGCCStrike15_v2_Client2GCRequestPrestigeCoin rejectedResponse;
+        valid &= RequestPrestigeJob(gc,
+            inquiry,
+            MissingPlanJobId,
+            rejectedResponse)
+            && rejectedResponse.ByteSizeLong() == 0;
+    }
+
+    RemovePrestigeFixtures();
+    return valid;
+}
+
 int main()
 {
     struct TestCase
@@ -1452,6 +1933,8 @@ int main()
         { "StatTrakSwapToolTwoPackCreatesTwoTools", StatTrakSwapToolTwoPackCreatesTwoTools },
         { "UnusualStatTrakKnivesCanSwapCounters", UnusualStatTrakKnivesCanSwapCounters },
         { "StorePurchasesFinalizeTransactionally", StorePurchasesFinalizeTransactionally },
+        { "ServiceMedalsFollowBuildYearAndPersistPrestige",
+            ServiceMedalsFollowBuildYearAndPersistPrestige },
     };
 
     bool allPassed = true;

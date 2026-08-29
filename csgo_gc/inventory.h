@@ -45,8 +45,28 @@ public:
         std::array<std::optional<float>, 6> stickerRotation;
     };
 
-    void BuildCacheSubscription(CMsgSOCacheSubscribed &message, int level, bool server);
+    void BuildCacheSubscription(CMsgSOCacheSubscribed &message, bool server);
     uint64_t Version() const { return m_version; }
+    int PlayerLevel() const { return m_playerLevel; }
+    int PlayerXp() const { return m_playerXp; }
+
+    struct PrestigeMedalPlan
+    {
+        uint32_t defIndex{};
+        uint64_t upgradeId{};
+    };
+
+    struct PrestigeMedalClaim
+    {
+        CMsgSOSingleObject itemData;
+        CMsgSOSingleObject personaData;
+        uint64_t itemId{};
+        bool created{};
+    };
+
+    std::optional<PrestigeMedalPlan> GetPrestigeMedalPlan(uint32_t year) const;
+    bool ClaimPrestigeMedal(uint32_t year, uint32_t expectedDefIndex,
+        PrestigeMedalClaim &claim);
 
     bool EquipItem(uint64_t itemId, uint32_t classId, uint32_t slotId, bool swap,
         CMsgSOMultipleObjects &update);
@@ -185,7 +205,7 @@ public:
         std::string &error);
     size_t ItemCount() const { return m_items.size(); }
     const ItemMap &Items() const { return m_items; }
-    void Save() const { WriteToFile(); }
+    bool Save() const { return WriteToFile(); }
 
 private:
     uint32_t AccountId() const;
@@ -202,7 +222,7 @@ private:
     void ReadItem(const KeyValue &itemKey, CSOEconItem &item) const;
     void LogInventoryConsistency() const;
 
-    void WriteToFile() const;
+    bool WriteToFile() const;
     void WriteItem(KeyValue &itemKey, const CSOEconItem &item) const;
 
     // helper, only called via EquipItem
@@ -249,6 +269,10 @@ private:
     void ConsumeToolItem(uint64_t toolId, CMsgSOSingleObject &removalMsg);
 
     const uint64_t m_steamId;
+    const int m_configuredPlayerLevel;
+    const int m_configuredPlayerXp;
+    int m_playerLevel;
+    int m_playerXp;
     uint64_t m_version;
     ItemSchema m_itemSchema;
     Random m_random;

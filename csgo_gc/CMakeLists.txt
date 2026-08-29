@@ -102,6 +102,7 @@ endif()
 
 if (BUILD_TESTING)
     add_executable(gc_message_tests
+        appid.cpp
         case_opening.cpp
         config.cpp
         gc_client.cpp
