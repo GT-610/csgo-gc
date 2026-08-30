@@ -181,6 +181,13 @@ const CSOEconItem *Inventory::GetItem(uint64_t itemId) const
     return &it->second;
 }
 
+bool Inventory::HasItemDefinition(uint32_t defIndex) const
+{
+    return std::any_of(m_items.begin(), m_items.end(), [defIndex](const auto &pair) {
+        return pair.second.def_index() == defIndex;
+    });
+}
+
 std::optional<Inventory::PrestigeMedalPlan> Inventory::GetPrestigeMedalPlan(uint32_t year) const
 {
     std::vector<uint32_t> defIndexes = m_itemSchema.PrestigeMedalDefIndexes(year);
@@ -406,6 +413,8 @@ void Inventory::ReadFromFile()
             CSOEconItem &item = AllocateItem(highItemId);
             ReadItem(itemKey, item);
         }
+
+        DeduplicateStatsSubscriptions();
     }
 
     const KeyValue *defaultEquipsKey = inventoryKey.GetSubkey("default_equips");
@@ -437,6 +446,47 @@ void Inventory::ReadFromFile()
     }
 
     LogInventoryConsistency();
+}
+
+void Inventory::DeduplicateStatsSubscriptions()
+{
+    // Purchased item ids increase monotonically. Keep the newest subscription so
+    // the item id returned by the latest completed purchase remains valid.
+    uint64_t latestItemId = 0;
+    for (const auto &[itemId, item] : m_items)
+    {
+        if (item.def_index() == ItemSchema::ItemStatsSubscription
+            && itemId > latestItemId)
+        {
+            latestItemId = itemId;
+        }
+    }
+
+    if (!latestItemId)
+    {
+        return;
+    }
+
+    uint64_t removed = 0;
+    for (auto it = m_items.begin(); it != m_items.end();)
+    {
+        if (it->second.def_index() == ItemSchema::ItemStatsSubscription
+            && it->first != latestItemId)
+        {
+            it = m_items.erase(it);
+            ++removed;
+        }
+        else
+        {
+            ++it;
+        }
+    }
+
+    if (removed)
+    {
+        Platform::Print("Inventory: removed %llu duplicate stats subscription items; keeping %llu\n",
+            removed, latestItemId);
+    }
 }
 
 void Inventory::ReadItem(const KeyValue &itemKey, CSOEconItem &item) const
@@ -2452,6 +2502,12 @@ uint64_t Inventory::PurchaseItem(uint32_t defIndex, std::vector<CMsgSOSingleObje
     if (!m_itemSchema.ItemInfoByDefIndex(defIndex))
     {
         Platform::Print("PurchaseItem: unknown def_index %u\n", defIndex);
+        return 0;
+    }
+
+    if (defIndex == ItemSchema::ItemStatsSubscription && HasItemDefinition(defIndex))
+    {
+        Platform::Print("PurchaseItem: stats subscription already exists\n");
         return 0;
     }
 
