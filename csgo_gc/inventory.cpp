@@ -956,9 +956,19 @@ bool Inventory::ActivateTournamentAccessItem(ItemMap::iterator accessItem,
     else
     {
         previousJournal = journal->second;
-        CSOEconItemAttribute *purchased = FindOrAddAttribute(journal->second,
+        CSOEconItemAttribute *purchased = FindAttribute(journal->second,
             ItemSchema::AttributeOperationDropsAwardedPurchased);
-        const uint32_t tokenCount = m_itemSchema.AttributeUint32(purchased);
+        uint32_t tokenCount = 0;
+        if (purchased)
+        {
+            tokenCount = m_itemSchema.AttributeUint32(purchased);
+        }
+        else
+        {
+            purchased = FindOrAddAttribute(journal->second,
+                ItemSchema::AttributeOperationDropsAwardedPurchased);
+            m_itemSchema.SetAttributeUint32(purchased, 0);
+        }
         if (tokenCount == UINT32_MAX)
         {
             return false;

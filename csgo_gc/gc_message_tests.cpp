@@ -2201,6 +2201,49 @@ static bool ViewerPassTokenPacksUpdatePersistedJournal()
     return valid;
 }
 
+static bool SouvenirTokenInitializesMissingPurchasedCount()
+{
+    constexpr uint64_t SteamId = 76561197960265729ull;
+    RemoveTournamentAccessFixtures();
+    if (!WriteTournamentAccessFixtures({ 200, 102 }))
+    {
+        RemoveTournamentAccessFixtures();
+        return false;
+    }
+
+    const uint64_t journalId = TournamentFixtureItemId(SteamId, 1);
+    const uint64_t tokenId = TournamentFixtureItemId(SteamId, 2);
+    bool valid = true;
+    {
+        ClientGC gc{ SteamId };
+        CMsgUseItem request;
+        request.set_item_id(tokenId);
+        SendGCProtobuf(gc, k_EMsgGCUseItemRequest, request);
+
+        std::vector<EventData> events;
+        uint64_t updatedJournalId = 0;
+        valid &= WaitForHostMessagesUntil(gc,
+            k_EMsgGCItemCustomizationNotification, events)
+            && ValidateTournamentActivationEvents(events, tokenId,
+                k_ESOMsg_Update, 1, updatedJournalId)
+            && updatedJournalId == journalId;
+    }
+
+    {
+        Inventory persisted{ SteamId };
+        const CSOEconItem *journal = persisted.GetItem(journalId);
+        uint32_t purchased = 0;
+        valid &= !persisted.GetItem(tokenId)
+            && journal
+            && GetUint32Attribute(*journal,
+                ItemSchema::AttributeOperationDropsAwardedPurchased, purchased)
+            && purchased == 1;
+    }
+
+    RemoveTournamentAccessFixtures();
+    return valid;
+}
+
 static bool RequestEventFavorites(ClientGC &gc, bool allEvents, uint64_t jobId,
     std::string_view expectedFavorites)
 {
@@ -2298,6 +2341,8 @@ int main()
             ViewerPassActivationCreatesAndPersistsJournal },
         { "ViewerPassTokenPacksUpdatePersistedJournal",
             ViewerPassTokenPacksUpdatePersistedJournal },
+        { "SouvenirTokenInitializesMissingPurchasedCount",
+            SouvenirTokenInitializesMissingPurchasedCount },
         { "EventFavoritesPersistAndPreserveRequestJobs",
             EventFavoritesPersistAndPreserveRequestJobs },
     };
