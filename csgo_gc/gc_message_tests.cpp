@@ -1908,6 +1908,299 @@ static bool ServiceMedalsFollowBuildYearAndPersistPrestige()
     return valid;
 }
 
+static void RemoveTournamentAccessFixtures()
+{
+    TestFilesystem::RemoveFile("csgo_gc/inventory.txt");
+    TestFilesystem::RemoveFile("csgo_gc/unusual_loot_lists.txt");
+    TestFilesystem::RemoveFile("csgo_gc/gc_loot_lists.txt");
+    TestFilesystem::RemoveFile("csgo/scripts/items/items_game.txt");
+    TestFilesystem::RemoveDirectory("csgo/scripts/items");
+    TestFilesystem::RemoveDirectory("csgo/scripts");
+    TestFilesystem::RemoveDirectory("csgo");
+    TestFilesystem::RemoveDirectory("csgo_gc");
+}
+
+static bool WriteTournamentAccessFixtures(std::initializer_list<uint32_t> inventoryDefIndexes)
+{
+    if (!TestFilesystem::MakeDirectory("csgo")
+        || !TestFilesystem::MakeDirectory("csgo/scripts")
+        || !TestFilesystem::MakeDirectory("csgo/scripts/items")
+        || !TestFilesystem::MakeDirectory("csgo_gc"))
+    {
+        return false;
+    }
+
+    KeyValue schema{ "root" };
+    KeyValue &itemsGame = schema.AddSubkey("items_game");
+    KeyValue &attributes = itemsGame.AddSubkey("attributes");
+    auto addIntegerAttribute = [&](uint32_t defIndex, const char *name)
+    {
+        KeyValue &attribute = attributes.AddSubkey(std::to_string(defIndex));
+        attribute.AddString("name", name);
+        attribute.AddNumber("stored_as_integer", 1);
+    };
+    addIntegerAttribute(ItemSchema::AttributeStickerId0, "sticker slot 0 id");
+    addIntegerAttribute(ItemSchema::AttributeTournamentEventId, "tournament event id");
+    addIntegerAttribute(ItemSchema::AttributeCampaignId, "campaign id");
+    addIntegerAttribute(ItemSchema::AttributeCampaignCompletionBitfield,
+        "campaign completion bitfield");
+    addIntegerAttribute(ItemSchema::AttributeOperationDropsAwardedPurchased,
+        "operation drops awarded 1");
+    addIntegerAttribute(ItemSchema::AttributeOperationDropsAwardedRedeemed,
+        "operation drops awarded 0");
+
+    KeyValue &prefabs = itemsGame.AddSubkey("prefabs");
+    prefabs.AddSubkey("fan_token");
+    prefabs.AddSubkey("fan_shield");
+
+    KeyValue &passPrefab = prefabs.AddSubkey("paris_pass");
+    passPrefab.AddString("prefab", "fan_token");
+    KeyValue &passEvent = passPrefab.AddSubkey("attributes")
+        .AddSubkey("tournament event id");
+    passEvent.AddNumber("value", 21);
+
+    KeyValue &journalPrefab = prefabs.AddSubkey("paris_journal");
+    journalPrefab.AddString("prefab", "fan_shield");
+    KeyValue &journalAttributes = journalPrefab.AddSubkey("attributes");
+    journalAttributes.AddSubkey("tournament event id").AddNumber("value", 21);
+    auto addGenerated = [&](const char *name, uint32_t value)
+    {
+        KeyValue &attribute = journalAttributes.AddSubkey(name);
+        attribute.AddNumber("value", value);
+        attribute.AddNumber("force_gc_to_generate", 1);
+    };
+    addGenerated("sticker slot 0 id", 6732);
+    addGenerated("campaign id", 15);
+    addGenerated("campaign completion bitfield", 1);
+    addGenerated("operation drops awarded 1", 0);
+    addGenerated("operation drops awarded 0", 0);
+
+    KeyValue &items = itemsGame.AddSubkey("items");
+    auto addItemDefinition = [&](uint32_t defIndex, const char *name, const char *prefab)
+    {
+        KeyValue &item = items.AddSubkey(std::to_string(defIndex));
+        item.AddString("name", name);
+        item.AddString("prefab", prefab);
+    };
+    addItemDefinition(100, "tournament_pass_paris2023", "paris_pass");
+    addItemDefinition(101, "tournament_pass_paris2023_pack", "paris_pass");
+    addItemDefinition(102, "tournament_pass_paris2023_charge", "paris_pass");
+    addItemDefinition(200, "tournament_journal_paris2023", "paris_journal");
+
+    KeyValue inventory{ "inventory" };
+    inventory.AddNumber("format_version", 1);
+    KeyValue &inventoryItems = inventory.AddSubkey("items");
+    uint32_t highItemId = 1;
+    for (uint32_t defIndex : inventoryDefIndexes)
+    {
+        KeyValue &item = inventoryItems.AddSubkey(std::to_string(highItemId++));
+        item.AddNumber("def_index", defIndex);
+        item.AddNumber("origin", ItemOriginPurchased);
+    }
+
+    KeyValue unusualLootLists{ "unusual_loot_lists" };
+    KeyValue gcLootLists{ "gc_loot_lists" };
+    return schema.WriteToFile("csgo/scripts/items/items_game.txt")
+        && inventory.WriteToFile("csgo_gc/inventory.txt")
+        && unusualLootLists.WriteToFile("csgo_gc/unusual_loot_lists.txt")
+        && gcLootLists.WriteToFile("csgo_gc/gc_loot_lists.txt");
+}
+
+static uint64_t TournamentFixtureItemId(uint64_t steamId, uint32_t highItemId)
+{
+    return (static_cast<uint64_t>(highItemId) << 32) | (steamId & UINT32_MAX);
+}
+
+static bool ValidateTournamentActivationEvents(const std::vector<EventData> &events,
+    uint64_t consumedItemId, uint32_t journalMessageType, uint32_t expectedTokens,
+    uint64_t &journalItemId)
+{
+    size_t destroyIndex = events.size();
+    size_t journalIndex = events.size();
+    size_t notificationIndex = events.size();
+    CSOEconItem journal;
+    bool valid = true;
+
+    for (size_t i = 0; i < events.size(); i++)
+    {
+        const uint32_t type = static_cast<uint32_t>(events[i].id) & ~ProtobufMask;
+        if (type == k_ESOMsg_Destroy)
+        {
+            CMsgSOSingleObject object;
+            CSOEconItem consumed;
+            valid &= destroyIndex == events.size()
+                && ParseHostProtobuf(events[i], object)
+                && ParseItemObject(object, consumed)
+                && consumed.id() == consumedItemId;
+            destroyIndex = i;
+        }
+        else if (type == journalMessageType)
+        {
+            CMsgSOSingleObject object;
+            valid &= journalIndex == events.size()
+                && ParseHostProtobuf(events[i], object)
+                && ParseItemObject(object, journal)
+                && journal.def_index() == 200;
+            journalIndex = i;
+        }
+        else if (type == k_EMsgGCItemCustomizationNotification)
+        {
+            CMsgGCItemCustomizationNotification notification;
+            const bool parsed = ParseHostProtobuf(events[i], notification);
+            valid &= notificationIndex == events.size()
+                && parsed
+                && notification.request()
+                    == k_EGCItemCustomizationNotification_ActivateFanToken
+                && notification.item_id_size() == 1;
+            if (parsed && notification.item_id_size() == 1)
+            {
+                journalItemId = notification.item_id(0);
+            }
+            notificationIndex = i;
+        }
+    }
+
+    uint32_t tokenCount = 0;
+    valid &= destroyIndex < journalIndex
+        && journalIndex < notificationIndex
+        && journal.id() == journalItemId
+        && GetUint32Attribute(journal,
+            ItemSchema::AttributeOperationDropsAwardedPurchased, tokenCount)
+        && tokenCount == expectedTokens;
+    return valid;
+}
+
+static bool ViewerPassActivationCreatesAndPersistsJournal()
+{
+    constexpr uint64_t SteamId = 76561197960265729ull;
+    RemoveTournamentAccessFixtures();
+    if (!WriteTournamentAccessFixtures({ 100, 100 }))
+    {
+        RemoveTournamentAccessFixtures();
+        return false;
+    }
+
+    const uint64_t passId = TournamentFixtureItemId(SteamId, 1);
+    const uint64_t duplicatePassId = TournamentFixtureItemId(SteamId, 2);
+    uint64_t journalId = 0;
+    bool valid = true;
+    {
+        ClientGC gc{ SteamId };
+        CMsgUseItem request;
+        request.set_item_id(passId);
+        SendGCProtobuf(gc, k_EMsgGCUseItemRequest, request);
+
+        std::vector<EventData> events;
+        valid &= WaitForHostMessagesUntil(gc,
+            k_EMsgGCItemCustomizationNotification, events)
+            && ValidateTournamentActivationEvents(events, passId,
+                k_ESOMsg_Create, 0, journalId);
+
+        request.set_item_id(duplicatePassId);
+        SendGCProtobuf(gc, k_EMsgGCUseItemRequest, request);
+        valid &= HostMessageNotReceived(gc, k_EMsgGCItemCustomizationNotification);
+    }
+
+    {
+        Inventory persisted{ SteamId };
+        const CSOEconItem *journal = persisted.GetItem(journalId);
+        uint32_t stickerId = 0;
+        uint32_t campaignId = 0;
+        uint32_t completion = 0;
+        uint32_t purchased = 0;
+        uint32_t redeemed = 0;
+        valid &= !persisted.GetItem(passId)
+            && persisted.GetItem(duplicatePassId)
+            && journal
+            && journal->origin() == ItemOriginPurchased
+            && journal->inventory() == InventoryUnacknowledged(UnacknowledgedPurchased)
+            && GetUint32Attribute(*journal, ItemSchema::AttributeStickerId0, stickerId)
+            && stickerId == 6732
+            && GetUint32Attribute(*journal, ItemSchema::AttributeCampaignId, campaignId)
+            && campaignId == 15
+            && GetUint32Attribute(*journal,
+                ItemSchema::AttributeCampaignCompletionBitfield, completion)
+            && completion == 1
+            && GetUint32Attribute(*journal,
+                ItemSchema::AttributeOperationDropsAwardedPurchased, purchased)
+            && purchased == 0
+            && GetUint32Attribute(*journal,
+                ItemSchema::AttributeOperationDropsAwardedRedeemed, redeemed)
+            && redeemed == 0;
+    }
+
+    RemoveTournamentAccessFixtures();
+    return valid;
+}
+
+static bool ViewerPassTokenPacksUpdatePersistedJournal()
+{
+    constexpr uint64_t SteamId = 76561197960265729ull;
+    RemoveTournamentAccessFixtures();
+    if (!WriteTournamentAccessFixtures({ 101, 102 }))
+    {
+        RemoveTournamentAccessFixtures();
+        return false;
+    }
+
+    const uint64_t packId = TournamentFixtureItemId(SteamId, 1);
+    const uint64_t tokenId = TournamentFixtureItemId(SteamId, 2);
+    uint64_t journalId = 0;
+    bool valid = true;
+    {
+        ClientGC gc{ SteamId };
+        CMsgUseItem request;
+        request.set_item_id(packId);
+        SendGCProtobuf(gc, k_EMsgGCUseItemRequest, request);
+
+        std::vector<EventData> events;
+        valid &= WaitForHostMessagesUntil(gc,
+            k_EMsgGCItemCustomizationNotification, events)
+            && ValidateTournamentActivationEvents(events, packId,
+                k_ESOMsg_Create, 3, journalId);
+
+        request.set_item_id(tokenId);
+        SendGCProtobuf(gc, k_EMsgGCUseItemRequest, request);
+        events.clear();
+        uint64_t updatedJournalId = 0;
+        valid &= WaitForHostMessagesUntil(gc,
+            k_EMsgGCItemCustomizationNotification, events)
+            && ValidateTournamentActivationEvents(events, tokenId,
+                k_ESOMsg_Update, 4, updatedJournalId)
+            && updatedJournalId == journalId;
+    }
+
+    {
+        Inventory persisted{ SteamId };
+        const CSOEconItem *journal = persisted.GetItem(journalId);
+        uint32_t purchased = 0;
+        valid &= !persisted.GetItem(packId)
+            && !persisted.GetItem(tokenId)
+            && journal
+            && GetUint32Attribute(*journal,
+                ItemSchema::AttributeOperationDropsAwardedPurchased, purchased)
+            && purchased == 4;
+    }
+
+    RemoveTournamentAccessFixtures();
+    valid &= WriteTournamentAccessFixtures({ 102 });
+    if (valid)
+    {
+        ClientGC gc{ SteamId };
+        CMsgUseItem request;
+        request.set_item_id(TournamentFixtureItemId(SteamId, 1));
+        SendGCProtobuf(gc, k_EMsgGCUseItemRequest, request);
+        valid &= HostMessageNotReceived(gc, k_EMsgGCItemCustomizationNotification);
+    }
+    {
+        Inventory persisted{ SteamId };
+        valid &= persisted.GetItem(TournamentFixtureItemId(SteamId, 1)) != nullptr;
+    }
+
+    RemoveTournamentAccessFixtures();
+    return valid;
+}
+
 int main()
 {
     struct TestCase
@@ -1935,6 +2228,10 @@ int main()
         { "StorePurchasesFinalizeTransactionally", StorePurchasesFinalizeTransactionally },
         { "ServiceMedalsFollowBuildYearAndPersistPrestige",
             ServiceMedalsFollowBuildYearAndPersistPrestige },
+        { "ViewerPassActivationCreatesAndPersistsJournal",
+            ViewerPassActivationCreatesAndPersistsJournal },
+        { "ViewerPassTokenPacksUpdatePersistedJournal",
+            ViewerPassTokenPacksUpdatePersistedJournal },
     };
 
     bool allPassed = true;

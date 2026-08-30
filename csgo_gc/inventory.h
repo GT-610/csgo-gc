@@ -73,10 +73,23 @@ public:
 
     bool RemoveItem(uint64_t itemId, CMsgSOSingleObject &destroy);
 
-    bool UseItem(uint64_t itemId,
-        CMsgSOSingleObject &destroy,
-        CMsgSOMultipleObjects &updateMultiple,
-        CMsgGCItemCustomizationNotification &notification);
+    enum class UseItemChange
+    {
+        None,
+        Create,
+        Update
+    };
+
+    struct UseItemResult
+    {
+        CMsgSOSingleObject destroy;
+        CMsgSOSingleObject itemData;
+        CMsgSOMultipleObjects updateMultiple;
+        CMsgGCItemCustomizationNotification notification;
+        UseItemChange itemChange{ UseItemChange::None };
+    };
+
+    bool UseItem(uint64_t itemId, UseItemResult &result);
 
     bool UnlockCrate(uint64_t crateId,
         uint64_t keyId,
@@ -230,6 +243,8 @@ private:
     void UnequipSlotForClass(uint32_t classId, uint32_t slotId, CMsgSOMultipleObjects &update);
 
     void DestroyItem(ItemMap::iterator iterator, CMsgSOSingleObject &message);
+    bool ActivateTournamentAccessItem(ItemMap::iterator accessItem,
+        const TournamentAccessInfo &access, UseItemResult &result);
 
     // move this to the item schema maybe?
     void ItemToPreviewDataBlock(const CSOEconItem &item, CEconItemPreviewDataBlock &block);

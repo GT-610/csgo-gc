@@ -1476,16 +1476,24 @@ void ClientGC::UseItemRequest(GCMessageRead &messageRead)
         return;
     }
 
-    CMsgSOSingleObject destroy;
-    CMsgSOMultipleObjects updateMultiple;
-    CMsgGCItemCustomizationNotification notification;
-
-    if (m_inventory.UseItem(message.item_id(), destroy, updateMultiple, notification))
+    Inventory::UseItemResult result;
+    if (m_inventory.UseItem(message.item_id(), result))
     {
-        SendMessageToGame(true, k_ESOMsg_Destroy, destroy);
-        SendMessageToGame(true, k_ESOMsg_UpdateMultiple, updateMultiple);
+        SendMessageToGame(true, k_ESOMsg_Destroy, result.destroy);
 
-        SendMessageToGame(false, k_EMsgGCItemCustomizationNotification, notification);
+        if (result.itemChange != Inventory::UseItemChange::None)
+        {
+            SendMessageToGame(true,
+                result.itemChange == Inventory::UseItemChange::Create
+                    ? k_ESOMsg_Create : k_ESOMsg_Update,
+                result.itemData);
+        }
+        if (result.updateMultiple.objects_modified_size())
+        {
+            SendMessageToGame(true, k_ESOMsg_UpdateMultiple, result.updateMultiple);
+        }
+
+        SendMessageToGame(false, k_EMsgGCItemCustomizationNotification, result.notification);
     }
 }
 

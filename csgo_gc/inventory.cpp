@@ -816,16 +816,19 @@ bool Inventory::RemoveItem(uint64_t itemId, CMsgSOSingleObject &response)
     return true;
 }
 
-bool Inventory::UseItem(uint64_t itemId,
-    CMsgSOSingleObject &destroy,
-    CMsgSOMultipleObjects &updateMultiple,
-    CMsgGCItemCustomizationNotification &notification)
+bool Inventory::UseItem(uint64_t itemId, UseItemResult &result)
 {
     auto it = m_items.find(itemId);
     if (it == m_items.end())
     {
         assert(false);
         return false;
+    }
+
+    if (std::optional<TournamentAccessInfo> access
+        = m_itemSchema.TournamentAccessByDefIndex(it->second.def_index()))
+    {
+        return ActivateTournamentAccessItem(it, *access, result);
     }
 
     if (it->second.def_index() != ItemSchema::ItemSpray)
@@ -839,10 +842,10 @@ bool Inventory::UseItem(uint64_t itemId,
     unsealed.set_def_index(ItemSchema::ItemSprayPaint);
 
     // remove the sealed spray from our inventory
-    DestroyItem(it, destroy);
+    DestroyItem(it, result.destroy);
 
     // equip the new spray, this will also unequip the old one if we had one
-    EquipItem(unsealed.id(), 0, ItemSchema::LoadoutSlotGraffiti, false, updateMultiple);
+    EquipItem(unsealed.id(), 0, ItemSchema::LoadoutSlotGraffiti, false, result.updateMultiple);
 
     // remove this to have unlimited sprays
     CSOEconItemAttribute *attribute = unsealed.add_attribute();
@@ -850,10 +853,85 @@ bool Inventory::UseItem(uint64_t itemId,
     m_itemSchema.SetAttributeUint32(attribute, 50);
 
     // set notification
-    notification.add_item_id(unsealed.id());
-    notification.set_request(k_EGCItemCustomizationNotification_GraffitiUnseal);
+    result.notification.add_item_id(unsealed.id());
+    result.notification.set_request(k_EGCItemCustomizationNotification_GraffitiUnseal);
 
     return true;
+}
+
+bool Inventory::ActivateTournamentAccessItem(ItemMap::iterator accessItem,
+    const TournamentAccessInfo &access, UseItemResult &result)
+{
+    auto journal = std::find_if(m_items.begin(), m_items.end(), [&](const auto &pair) {
+        return pair.second.def_index() == access.journalDefIndex;
+    });
+
+    const bool createsJournal = access.type != TournamentAccessType::Token;
+    if ((createsJournal && journal != m_items.end())
+        || (!createsJournal && journal == m_items.end()))
+    {
+        return false;
+    }
+
+    const uint64_t previousVersion = m_version;
+    const uint32_t previousLastHighItemId = m_lastHighItemId;
+    const CSOEconItem previousAccessItem = accessItem->second;
+    CSOEconItem previousJournal;
+
+    if (createsJournal)
+    {
+        CSOEconItem &created = CreateItem(access.journalDefIndex,
+            ItemOriginPurchased, UnacknowledgedPurchased);
+        journal = m_items.find(created.id());
+        accessItem = m_items.find(previousAccessItem.id());
+
+        if (access.includedTokens)
+        {
+            CSOEconItemAttribute *purchased = FindOrAddAttribute(created,
+                ItemSchema::AttributeOperationDropsAwardedPurchased);
+            m_itemSchema.SetAttributeUint32(purchased, access.includedTokens);
+        }
+
+        result.itemChange = UseItemChange::Create;
+    }
+    else
+    {
+        previousJournal = journal->second;
+        CSOEconItemAttribute *purchased = FindOrAddAttribute(journal->second,
+            ItemSchema::AttributeOperationDropsAwardedPurchased);
+        const uint32_t tokenCount = m_itemSchema.AttributeUint32(purchased);
+        if (tokenCount == UINT32_MAX)
+        {
+            return false;
+        }
+        m_itemSchema.SetAttributeUint32(purchased, tokenCount + 1);
+        result.itemChange = UseItemChange::Update;
+    }
+
+    const uint64_t journalId = journal->second.id();
+    DestroyItem(accessItem, result.destroy);
+    ToSingleObject(result.itemData, journal->second);
+    result.notification.add_item_id(journalId);
+    result.notification.set_request(k_EGCItemCustomizationNotification_ActivateFanToken);
+
+    if (WriteToFile())
+    {
+        return true;
+    }
+
+    m_items.emplace(previousAccessItem.id(), previousAccessItem);
+    if (createsJournal)
+    {
+        m_items.erase(journalId);
+    }
+    else
+    {
+        m_items.at(journalId) = previousJournal;
+    }
+    m_version = previousVersion;
+    m_lastHighItemId = previousLastHighItemId;
+    result = UseItemResult{};
+    return false;
 }
 
 bool Inventory::UnlockCrate(uint64_t crateId,
