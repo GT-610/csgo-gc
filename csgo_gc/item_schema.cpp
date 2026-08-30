@@ -149,16 +149,16 @@ ItemSchema::ItemSchema(bool loadFiles)
         return;
     }
 
-    const KeyValue *itemsKey = itemsGame->GetSubkey("items");
-    if (itemsKey)
-    {
-        ParseItems(itemsKey, itemsGame->GetSubkey("prefabs"));
-    }
-
     const KeyValue *attributesKey = itemsGame->GetSubkey("attributes");
     if (attributesKey)
     {
         ParseAttributes(attributesKey);
+    }
+
+    const KeyValue *itemsKey = itemsGame->GetSubkey("items");
+    if (itemsKey)
+    {
+        ParseItems(itemsKey, itemsGame->GetSubkey("prefabs"));
     }
 
     const KeyValue *stickerKitsKey = itemsGame->GetSubkey("sticker_kits");
@@ -693,6 +693,42 @@ bool ItemSchema::CreateItem(uint32_t defIndex, ItemOrigin origin, Unacknowledged
     econItem.set_in_use(false);
     econItem.set_rarity(itemInfo.m_rarity);
 
+    return ApplyGeneratedAttributes(itemInfo, econItem);
+}
+
+bool ItemSchema::ApplyGeneratedAttributes(const ItemInfo &info, CSOEconItem &item) const
+{
+    for (const GeneratedItemAttribute &generated : info.m_generatedAttributes)
+    {
+        auto attributeInfo = m_attributeInfo.find(generated.defIndex);
+        if (attributeInfo == m_attributeInfo.end())
+        {
+            return false;
+        }
+
+        CSOEconItemAttribute *attribute = item.add_attribute();
+        attribute->set_def_index(generated.defIndex);
+
+        bool applied = false;
+        switch (attributeInfo->second.m_type)
+        {
+        case AttributeType::Float:
+            applied = SetAttributeFloat(attribute, FromString<float>(generated.value));
+            break;
+        case AttributeType::Uint32:
+            applied = SetAttributeUint32(attribute, FromString<uint32_t>(generated.value));
+            break;
+        case AttributeType::String:
+            applied = SetAttributeString(attribute, generated.value);
+            break;
+        }
+
+        if (!applied)
+        {
+            return false;
+        }
+    }
+
     return true;
 }
 
@@ -712,6 +748,11 @@ void ItemSchema::ParseItems(const KeyValue *itemsKey, const KeyValue *prefabsKey
         auto emplace = m_itemInfo.try_emplace(defIndex, defIndex);
 
         ParseItemRecursive(emplace.first->second, itemKey, prefabsKey);
+
+        if (!emplace.first->second.m_name.empty())
+        {
+            m_itemDefIndexByName[emplace.first->second.m_name] = defIndex;
+        }
 
         // FIXME: remove, temp slop to make sure we parse correctly
         auto &itemInfo = emplace.first->second;
@@ -924,6 +965,36 @@ void ItemSchema::ParseItemRecursive(ItemInfo &info, const KeyValue &itemKey, con
         parseTournamentAttribute("tournament event team0 id", info.m_tournament.team0Id);
         parseTournamentAttribute("tournament event team1 id", info.m_tournament.team1Id);
         parseTournamentAttribute("tournament mvp account id", info.m_tournament.mvpAccountId);
+
+        for (const KeyValue &attribute : *attributes)
+        {
+            if (!attribute.GetNumber<int>("force_gc_to_generate"))
+            {
+                continue;
+            }
+
+            auto defIndex = m_attributeDefIndexByName.find(std::string{ attribute.Name() });
+            if (defIndex == m_attributeDefIndexByName.end())
+            {
+                Platform::Print("Unknown generated attribute '%s' for item %u\n",
+                    std::string{ attribute.Name() }.c_str(), info.m_defIndex);
+                continue;
+            }
+
+            const std::string value{ attribute.GetString("value") };
+            auto existing = std::find_if(info.m_generatedAttributes.begin(),
+                info.m_generatedAttributes.end(), [&](const GeneratedItemAttribute &generated) {
+                    return generated.defIndex == defIndex->second;
+                });
+            if (existing != info.m_generatedAttributes.end())
+            {
+                existing->value = value;
+            }
+            else
+            {
+                info.m_generatedAttributes.push_back({ defIndex->second, value });
+            }
+        }
     }
 }
 
@@ -936,6 +1007,12 @@ void ItemSchema::ParseAttributes(const KeyValue *attributesKey)
         uint32_t defIndex = FromString<uint32_t>(attributeKey.Name());
         assert(defIndex);
         m_attributeInfo.try_emplace(defIndex, attributeKey);
+
+        std::string_view name = attributeKey.GetString("name");
+        if (!name.empty())
+        {
+            m_attributeDefIndexByName[std::string{ name }] = defIndex;
+        }
     }
 }
 
@@ -1297,19 +1374,15 @@ void ItemSchema::ParseRevolvingLootLists(const KeyValue *revolvingLootListsKey)
     }
 }
 
-ItemInfo *ItemSchema::ItemInfoByName(std::string_view name)
+const ItemInfo *ItemSchema::ItemInfoByName(std::string_view name) const
 {
-    for (auto &pair : m_itemInfo)
+    auto defIndex = m_itemDefIndexByName.find(std::string{ name });
+    if (defIndex == m_itemDefIndexByName.end())
     {
-        const ItemInfo &info = pair.second;
-        if (info.m_name == name)
-        {
-            return &pair.second;
-        }
+        return nullptr;
     }
 
-    assert(false);
-    return nullptr;
+    return ItemInfoByDefIndex(defIndex->second);
 }
 
 const ItemInfo *ItemSchema::ItemInfoByDefIndex(uint32_t defIndex) const
@@ -1321,6 +1394,55 @@ const ItemInfo *ItemSchema::ItemInfoByDefIndex(uint32_t defIndex) const
     }
 
     return &it->second;
+}
+
+std::optional<TournamentAccessInfo> ItemSchema::TournamentAccessByDefIndex(uint32_t defIndex) const
+{
+    const ItemInfo *accessItem = ItemInfoByDefIndex(defIndex);
+    if (!accessItem || !accessItem->m_tournament.eventId
+        || !accessItem->m_name.starts_with("tournament_pass_"))
+    {
+        return std::nullopt;
+    }
+
+    if (std::find(accessItem->m_prefabs.begin(), accessItem->m_prefabs.end(), "fan_token")
+        == accessItem->m_prefabs.end())
+    {
+        return std::nullopt;
+    }
+
+    TournamentAccessInfo result;
+    result.eventId = accessItem->m_tournament.eventId;
+
+    std::string_view suffix = std::string_view{ accessItem->m_name }.substr(
+        std::string_view{ "tournament_pass_" }.size());
+    if (suffix.ends_with("_charge"))
+    {
+        result.type = TournamentAccessType::Token;
+        suffix.remove_suffix(std::string_view{ "_charge" }.size());
+    }
+    else if (suffix.ends_with("_pack"))
+    {
+        result.type = TournamentAccessType::PassWithTokens;
+        result.includedTokens = 3;
+        suffix.remove_suffix(std::string_view{ "_pack" }.size());
+    }
+    else
+    {
+        result.type = TournamentAccessType::Pass;
+    }
+
+    const std::string journalName = std::string{ "tournament_journal_" } + std::string{ suffix };
+    const ItemInfo *journal = ItemInfoByName(journalName);
+    if (!journal || journal->m_tournament.eventId != result.eventId
+        || std::find(journal->m_prefabs.begin(), journal->m_prefabs.end(), "fan_shield")
+            == journal->m_prefabs.end())
+    {
+        return std::nullopt;
+    }
+
+    result.journalDefIndex = journal->m_defIndex;
+    return result;
 }
 
 StickerKitInfo *ItemSchema::MutableStickerKitInfoByName(std::string_view name)

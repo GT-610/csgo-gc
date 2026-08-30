@@ -144,6 +144,102 @@ public:
             && schema.PrestigeMedalDefIndexes(2023) == expected;
     }
 
+    bool ParseTournamentAccessItems()
+    {
+        KeyValue attributes{ "attributes" };
+        auto addIntegerAttribute = [&](uint32_t defIndex, const char *name)
+        {
+            KeyValue &attribute = attributes.AddSubkey(std::to_string(defIndex));
+            attribute.AddString("name", name);
+            attribute.AddNumber("stored_as_integer", 1);
+        };
+        addIntegerAttribute(ItemSchema::AttributeStickerId0, "sticker slot 0 id");
+        addIntegerAttribute(ItemSchema::AttributeTournamentEventId, "tournament event id");
+        addIntegerAttribute(ItemSchema::AttributeCampaignCompletionBitfield,
+            "campaign completion bitfield");
+        addIntegerAttribute(ItemSchema::AttributeOperationDropsAwardedPurchased,
+            "operation drops awarded 1");
+        addIntegerAttribute(ItemSchema::AttributeOperationDropsAwardedRedeemed,
+            "operation drops awarded 0");
+        schema.ParseAttributes(&attributes);
+
+        KeyValue prefabs{ "prefabs" };
+        prefabs.AddSubkey("fan_token");
+        prefabs.AddSubkey("fan_shield");
+
+        KeyValue &passPrefab = prefabs.AddSubkey("paris_pass");
+        passPrefab.AddString("prefab", "fan_token");
+        KeyValue &passEvent = passPrefab.AddSubkey("attributes")
+            .AddSubkey("tournament event id");
+        passEvent.AddNumber("value", 21);
+
+        KeyValue &journalPrefab = prefabs.AddSubkey("paris_journal");
+        journalPrefab.AddString("prefab", "fan_shield");
+        KeyValue &journalAttributes = journalPrefab.AddSubkey("attributes");
+        journalAttributes.AddSubkey("tournament event id").AddNumber("value", 21);
+        auto addGenerated = [&](const char *name, uint32_t value)
+        {
+            KeyValue &attribute = journalAttributes.AddSubkey(name);
+            attribute.AddNumber("value", value);
+            attribute.AddNumber("force_gc_to_generate", 1);
+        };
+        addGenerated("sticker slot 0 id", 6732);
+        addGenerated("campaign completion bitfield", 1);
+        addGenerated("operation drops awarded 1", 0);
+        addGenerated("operation drops awarded 0", 0);
+
+        KeyValue items{ "items" };
+        auto addItem = [&](const char *defIndex, const char *name, const char *prefab)
+        {
+            KeyValue &item = items.AddSubkey(defIndex);
+            item.AddString("name", name);
+            item.AddString("prefab", prefab);
+        };
+        addItem("100", "tournament_pass_paris2023", "paris_pass");
+        addItem("101", "tournament_pass_paris2023_pack", "paris_pass");
+        addItem("102", "tournament_pass_paris2023_charge", "paris_pass");
+        addItem("200", "tournament_journal_paris2023", "paris_journal");
+        schema.ParseItems(&items, &prefabs);
+
+        auto pass = schema.TournamentAccessByDefIndex(100);
+        auto pack = schema.TournamentAccessByDefIndex(101);
+        auto token = schema.TournamentAccessByDefIndex(102);
+        if (!pass || !pack || !token
+            || pass->type != TournamentAccessType::Pass
+            || pack->type != TournamentAccessType::PassWithTokens
+            || pack->includedTokens != 3
+            || token->type != TournamentAccessType::Token
+            || pass->eventId != 21 || pass->journalDefIndex != 200
+            || pack->journalDefIndex != 200 || token->journalDefIndex != 200)
+        {
+            return false;
+        }
+
+        CSOEconItem journal;
+        if (!schema.CreateItem(200, ItemOriginPurchased, UnacknowledgedPurchased, journal))
+        {
+            return false;
+        }
+
+        auto generatedValue = [&](uint32_t defIndex) -> std::optional<uint32_t>
+        {
+            for (const CSOEconItemAttribute &attribute : journal.attribute())
+            {
+                if (attribute.def_index() == defIndex)
+                {
+                    return schema.AttributeUint32(&attribute);
+                }
+            }
+            return std::nullopt;
+        };
+
+        return journal.attribute_size() == 4
+            && generatedValue(ItemSchema::AttributeStickerId0) == 6732
+            && generatedValue(ItemSchema::AttributeCampaignCompletionBitfield) == 1
+            && generatedValue(ItemSchema::AttributeOperationDropsAwardedPurchased) == 0
+            && generatedValue(ItemSchema::AttributeOperationDropsAwardedRedeemed) == 0;
+    }
+
     ItemSchema schema;
 };
 
@@ -193,6 +289,12 @@ static bool PrestigeMedalsUseSchemaYearAndSortedDefIndexes()
     return fixture.ParsePrestigeMedals();
 }
 
+static bool TournamentAccessUsesSchemaMetadataAndGeneratedAttributes()
+{
+    ItemSchemaTestFixture fixture;
+    return fixture.ParseTournamentAccessItems();
+}
+
 int main()
 {
     if (!TournamentStickerCapsuleIsNotSouvenir())
@@ -218,6 +320,11 @@ int main()
     if (!PrestigeMedalsUseSchemaYearAndSortedDefIndexes())
     {
         return 5;
+    }
+
+    if (!TournamentAccessUsesSchemaMetadataAndGeneratedAttributes())
+    {
+        return 6;
     }
 
     return 0;

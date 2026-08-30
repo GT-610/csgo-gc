@@ -29,6 +29,27 @@ struct TournamentMetadata
     uint32_t mvpAccountId{};
 };
 
+struct GeneratedItemAttribute
+{
+    uint32_t defIndex{};
+    std::string value;
+};
+
+enum class TournamentAccessType
+{
+    Pass,
+    PassWithTokens,
+    Token
+};
+
+struct TournamentAccessInfo
+{
+    TournamentAccessType type{};
+    uint32_t eventId{};
+    uint32_t journalDefIndex{};
+    uint32_t includedTokens{};
+};
+
 class ItemInfo
 {
 public:
@@ -45,6 +66,7 @@ public:
     TournamentMetadata m_tournament;
     std::string m_itemType;
     std::vector<std::string> m_prefabs;
+    std::vector<GeneratedItemAttribute> m_generatedAttributes;
     std::string m_toolRestriction;
     bool m_canSticker;
     bool m_canPatch;
@@ -174,6 +196,8 @@ public:
 
     // trade-up helpers
     const ItemInfo *ItemInfoByDefIndex(uint32_t defIndex) const;
+    const ItemInfo *ItemInfoByName(std::string_view name) const;
+    std::optional<TournamentAccessInfo> TournamentAccessByDefIndex(uint32_t defIndex) const;
     const PaintKitInfo *PaintKitInfoByDefIndex(uint32_t defIndex) const;
     const StickerKitInfo *StickerKitInfoByDefIndex(uint32_t defIndex) const;
     const MusicDefinitionInfo *MusicDefinitionInfoByDefIndex(uint32_t defIndex) const;
@@ -293,9 +317,15 @@ public:
         AttributeMusicId = 166,
         AttributeQuestId = 168,
 
+        AttributeCampaignId = 184,
+        AttributeCampaignCompletionBitfield = 185,
+
         AttributeSpraysRemaining = 232,
         AttributeSprayTintId = 233,
+        AttributeOperationDropsAwardedPurchased = 237,
+        AttributeOperationDropsAwardedRedeemed = 240,
 
+        AttributeUpgradeLevel = 268,
         AttributeCasketItemsCount = 270,
         AttributeCasketModificationDate = 271,
         AttributeCasketIdLow = 272,
@@ -323,15 +353,17 @@ private:
     void ParseRevolvingLootLists(const KeyValue *revolvingLootListsKey);
 
     bool ParseLootListItem(LootListItem &item, std::string_view name);
+    bool ApplyGeneratedAttributes(const ItemInfo &info, CSOEconItem &item) const;
 
     // internal slop
-    ItemInfo *ItemInfoByName(std::string_view name);
     StickerKitInfo *MutableStickerKitInfoByName(std::string_view name);
     PaintKitInfo *PaintKitInfoByName(std::string_view name);
     MusicDefinitionInfo *MusicDefinitionInfoByName(std::string_view name);
 
     std::unordered_map<uint32_t, ItemInfo> m_itemInfo;
     std::unordered_map<uint32_t, AttributeInfo> m_attributeInfo;
+    std::unordered_map<std::string, uint32_t> m_itemDefIndexByName;
+    std::unordered_map<std::string, uint32_t> m_attributeDefIndexByName;
 
     std::unordered_map<std::string, StickerKitInfo> m_stickerKitInfo;
     std::unordered_map<std::string, PaintKitInfo> m_paintKitInfo;
