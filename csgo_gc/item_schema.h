@@ -277,7 +277,8 @@ public:
         ItemSpray = 1348,
         ItemSprayPaint = 1349,
         ItemStatTrakSwapToolBundle = 4088,
-        ItemPatch = 4609
+        ItemPatch = 4609,
+        ItemStatsSubscription = 4748
     };
 
     enum Attribute

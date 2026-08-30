@@ -479,6 +479,70 @@ static bool InventoryPersistenceProtectsFiles()
     return preserved && validEmptyInventory;
 }
 
+static bool StatsSubscriptionDuplicatesKeepNewest()
+{
+    constexpr uint64_t SteamId = 76561197960265729ull;
+    constexpr uint32_t AccountId = SteamId & UINT32_MAX;
+    constexpr uint64_t OldSubscriptionId = (uint64_t{ 3 } << 32) | AccountId;
+    constexpr uint64_t NewSubscriptionId = (uint64_t{ 9 } << 32) | AccountId;
+    constexpr uint64_t OtherItemId = (uint64_t{ 6 } << 32) | AccountId;
+    constexpr const char *InventoryPath = "csgo_gc/inventory.txt";
+
+    TestFilesystem::RemoveFile(InventoryPath);
+    if (!TestFilesystem::MakeDirectory("csgo_gc"))
+    {
+        return false;
+    }
+
+    KeyValue inventoryKey{ "inventory" };
+    inventoryKey.AddNumber("format_version", 1);
+    KeyValue &items = inventoryKey.AddSubkey("items");
+    auto addItem = [&](uint32_t highItemId, uint32_t defIndex, uint32_t position) {
+        KeyValue &item = items.AddSubkey(std::to_string(highItemId));
+        item.AddNumber("def_index", defIndex);
+        item.AddNumber("inventory", position);
+    };
+    addItem(3, ItemSchema::ItemStatsSubscription, 30);
+    addItem(6, 7, 60);
+    addItem(9, ItemSchema::ItemStatsSubscription, 90);
+    if (!inventoryKey.WriteToFile(InventoryPath))
+    {
+        TestFilesystem::RemoveFile(InventoryPath);
+        TestFilesystem::RemoveDirectory("csgo_gc");
+        return false;
+    }
+
+    bool valid = true;
+    {
+        Inventory inventory{ SteamId };
+        const CSOEconItem *newSubscription = inventory.GetItem(NewSubscriptionId);
+        valid &= inventory.ItemCount() == 2
+            && !inventory.GetItem(OldSubscriptionId)
+            && newSubscription
+            && newSubscription->def_index() == ItemSchema::ItemStatsSubscription
+            && newSubscription->inventory() == 90
+            && inventory.GetItem(OtherItemId);
+    }
+
+    KeyValue persisted{ "inventory" };
+    const KeyValue *persistedItems = nullptr;
+    valid &= persisted.ParseFromFile(InventoryPath);
+    if (valid)
+    {
+        persistedItems = persisted.GetSubkey("items");
+        valid &= persistedItems
+            && persistedItems->SubkeyCount() == 2
+            && !persistedItems->GetSubkey("3")
+            && persistedItems->GetSubkey("6")
+            && persistedItems->GetSubkey("9")
+            && persistedItems->GetSubkey("9")->GetNumber<uint32_t>("inventory") == 90;
+    }
+
+    TestFilesystem::RemoveFile(InventoryPath);
+    TestFilesystem::RemoveDirectory("csgo_gc");
+    return valid;
+}
+
 static int EquippedSlotForClass(const CSOEconItem &item, uint32_t classId)
 {
     int slot = -1;
@@ -1324,6 +1388,8 @@ static bool WriteStoreFixtures()
     KeyValue &crate = items.AddSubkey("8");
     crate.AddString("name", "crate_test");
     crate.AddString("loot_list_name", "crate_test");
+    items.AddSubkey(std::to_string(ItemSchema::ItemStatsSubscription))
+        .AddString("name", "subscription1");
 
     KeyValue unusualLootLists{ "unusual_loot_lists" };
     unusualLootLists.AddSubkey("empty");
@@ -1508,6 +1574,110 @@ static bool StorePurchasesFinalizeTransactionally()
         valid &= WaitForHostMessage(gc, k_EMsgGCStorePurchaseFinalizeResponse, event)
             && ParseHostProtobuf(event, finalizeResponse)
             && finalizeResponse.result() != 1;
+    }
+
+    RemoveStoreFixtures();
+    return valid;
+}
+
+static bool StatsSubscriptionPurchasesRejectDuplicates()
+{
+    constexpr uint64_t SteamId = 76561197960265729ull;
+    RemoveStoreFixtures();
+    if (!WriteStoreFixtures())
+    {
+        RemoveStoreFixtures();
+        return false;
+    }
+
+    bool valid = true;
+    uint64_t subscriptionItemId = 0;
+    {
+        ClientGC gc{ SteamId };
+        EventData event;
+        CMsgGCStorePurchaseInitResponse initResponse;
+
+        CMsgGCStorePurchaseInit invalidQuantity;
+        CGCStorePurchaseInit_LineItem *lineItem = invalidQuantity.add_line_items();
+        lineItem->set_item_def_id(ItemSchema::ItemStatsSubscription);
+        lineItem->set_quantity(2);
+        SendGCProtobuf(gc, k_EMsgGCStorePurchaseInit, invalidQuantity);
+        valid &= WaitForHostMessage(gc, k_EMsgGCStorePurchaseInitResponse, event)
+            && ParseHostProtobuf(event, initResponse)
+            && initResponse.result() != 1
+            && initResponse.item_ids_size() == 0;
+
+        CMsgGCStorePurchaseInit purchaseInit;
+        lineItem = purchaseInit.add_line_items();
+        lineItem->set_item_def_id(ItemSchema::ItemStatsSubscription);
+        lineItem->set_quantity(1);
+        SendGCProtobuf(gc, k_EMsgGCStorePurchaseInit, purchaseInit);
+        event = {};
+        initResponse.Clear();
+        uint64_t authorizationTransactionId = 0;
+        valid &= WaitForHostMessage(gc, k_EMsgGCStorePurchaseInitResponse, event,
+                &authorizationTransactionId)
+            && ParseHostProtobuf(event, initResponse)
+            && initResponse.result() == 1
+            && initResponse.txn_id() != 0
+            && authorizationTransactionId == initResponse.txn_id();
+
+        CMsgGCStorePurchaseFinalize finalize;
+        finalize.set_txn_id(initResponse.txn_id());
+        SendGCProtobuf(gc, k_EMsgGCStorePurchaseFinalize, finalize);
+        event = {};
+        CMsgGCStorePurchaseFinalizeResponse finalizeResponse;
+        valid &= WaitForHostMessage(gc, k_EMsgGCStorePurchaseFinalizeResponse, event)
+            && ParseHostProtobuf(event, finalizeResponse)
+            && finalizeResponse.result() == 1
+            && finalizeResponse.item_ids_size() == 1;
+        if (finalizeResponse.item_ids_size() == 1)
+        {
+            subscriptionItemId = finalizeResponse.item_ids(0);
+        }
+
+        SendGCProtobuf(gc, k_EMsgGCStorePurchaseInit, purchaseInit);
+        event = {};
+        initResponse.Clear();
+        valid &= WaitForHostMessage(gc, k_EMsgGCStorePurchaseInitResponse, event)
+            && ParseHostProtobuf(event, initResponse)
+            && initResponse.result() != 1
+            && initResponse.item_ids_size() == 0;
+    }
+
+    {
+        ClientGC gc{ SteamId };
+        CMsgGCStorePurchaseInit purchaseInit;
+        CGCStorePurchaseInit_LineItem *lineItem = purchaseInit.add_line_items();
+        lineItem->set_item_def_id(ItemSchema::ItemStatsSubscription);
+        lineItem->set_quantity(1);
+        SendGCProtobuf(gc, k_EMsgGCStorePurchaseInit, purchaseInit);
+
+        EventData event;
+        CMsgGCStorePurchaseInitResponse initResponse;
+        valid &= WaitForHostMessage(gc, k_EMsgGCStorePurchaseInitResponse, event)
+            && ParseHostProtobuf(event, initResponse)
+            && initResponse.result() != 1;
+    }
+
+    KeyValue persisted{ "inventory" };
+    valid &= subscriptionItemId
+        && persisted.ParseFromFile("csgo_gc/inventory.txt");
+    if (valid)
+    {
+        const KeyValue *items = persisted.GetSubkey("items");
+        size_t subscriptionCount = 0;
+        if (items)
+        {
+            for (const KeyValue &item : *items)
+            {
+                subscriptionCount += item.GetNumber<uint32_t>("def_index")
+                    == ItemSchema::ItemStatsSubscription;
+            }
+        }
+        valid &= items
+            && subscriptionCount == 1
+            && items->GetSubkey(std::to_string(subscriptionItemId >> 32));
     }
 
     RemoveStoreFixtures();
@@ -2327,6 +2497,7 @@ int main()
         { "PlayerProfileRequestsReturnMinimalProfiles",
             PlayerProfileRequestsReturnMinimalProfiles },
         { "InventoryPersistenceProtectsFiles", InventoryPersistenceProtectsFiles },
+        { "StatsSubscriptionDuplicatesKeepNewest", StatsSubscriptionDuplicatesKeepNewest },
         { "LoadoutStateTransitionsPreserveClassesAndSwapSlots",
             LoadoutStateTransitionsPreserveClassesAndSwapSlots },
         { "SOCacheVersionNegotiationAndRefresh", SOCacheVersionNegotiationAndRefresh },
@@ -2335,6 +2506,8 @@ int main()
         { "StatTrakSwapToolTwoPackCreatesTwoTools", StatTrakSwapToolTwoPackCreatesTwoTools },
         { "UnusualStatTrakKnivesCanSwapCounters", UnusualStatTrakKnivesCanSwapCounters },
         { "StorePurchasesFinalizeTransactionally", StorePurchasesFinalizeTransactionally },
+        { "StatsSubscriptionPurchasesRejectDuplicates",
+            StatsSubscriptionPurchasesRejectDuplicates },
         { "ServiceMedalsFollowBuildYearAndPersistPrestige",
             ServiceMedalsFollowBuildYearAndPersistPrestige },
         { "ViewerPassActivationCreatesAndPersistsJournal",

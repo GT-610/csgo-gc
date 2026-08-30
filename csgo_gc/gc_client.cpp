@@ -1851,12 +1851,18 @@ void ClientGC::StorePurchaseInit(GCMessageRead &messageRead)
     std::vector<PendingStoreLineItem> lineItems;
     lineItems.reserve(message.line_items_size());
     uint64_t itemCount = 0;
+    bool includesStatsSubscription = false;
     for (const CGCStorePurchaseInit_LineItem &item : message.line_items())
     {
         itemCount += item.quantity();
+        const bool isStatsSubscription
+            = item.item_def_id() == ItemSchema::ItemStatsSubscription;
         if (!item.has_item_def_id() || !item.quantity()
             || itemCount > MaxStorePurchaseItems
-            || !m_inventory.GetItemSchema().ItemInfoByDefIndex(item.item_def_id()))
+            || !m_inventory.GetItemSchema().ItemInfoByDefIndex(item.item_def_id())
+            || (isStatsSubscription
+                && (item.quantity() != 1 || includesStatsSubscription
+                    || m_inventory.HasItemDefinition(ItemSchema::ItemStatsSubscription))))
         {
             Platform::Print("StorePurchaseInit rejected line item: def %u, quantity %u, total %llu\n",
                 item.item_def_id(), item.quantity(), itemCount);
@@ -1865,6 +1871,7 @@ void ClientGC::StorePurchaseInit(GCMessageRead &messageRead)
             return;
         }
 
+        includesStatsSubscription |= isStatsSubscription;
         lineItems.push_back({ item.item_def_id(), item.quantity() });
     }
 

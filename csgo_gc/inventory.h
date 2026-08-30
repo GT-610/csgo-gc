@@ -218,6 +218,7 @@ public:
         std::string &error);
     size_t ItemCount() const { return m_items.size(); }
     const ItemMap &Items() const { return m_items; }
+    bool HasItemDefinition(uint32_t defIndex) const;
     const std::set<uint64_t> &EventFavorites() const { return m_eventFavorites; }
     bool SetEventFavorite(uint64_t eventId, bool favorite);
     bool Save() const { return WriteToFile(); }
@@ -235,6 +236,7 @@ private:
 
     void ReadFromFile();
     void ReadItem(const KeyValue &itemKey, CSOEconItem &item) const;
+    void DeduplicateStatsSubscriptions();
     void LogInventoryConsistency() const;
 
     bool WriteToFile() const;
