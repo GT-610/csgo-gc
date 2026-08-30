@@ -1001,6 +1001,14 @@ void ClientGC::HandleMessage(uint32_t type, const void *data, uint32_t size)
             ClientRequestPlayersProfile(messageRead);
             break;
 
+        case k_EMsgGCCStrike15_v2_SetEventFavorite:
+            SetEventFavorite(messageRead);
+            break;
+
+        case k_EMsgGCCStrike15_v2_GetEventFavorites_Request:
+            GetEventFavorites(messageRead);
+            break;
+
         case k_EMsgGCSetItemPositions:
             SetItemPositions(messageRead);
             break;
@@ -1158,6 +1166,51 @@ void ClientGC::ClientRequestPlayersProfile(GCMessageRead &messageRead)
     }
 
     SendMessageToGame(false, k_EMsgGCCStrike15_v2_PlayersProfile, response);
+}
+
+void ClientGC::SetEventFavorite(GCMessageRead &messageRead)
+{
+    CMsgGCCStrike15_v2_SetEventFavorite message;
+    if (!messageRead.ReadProtobuf(message))
+    {
+        Platform::Print("Parsing CMsgGCCStrike15_v2_SetEventFavorite failed, ignoring\n");
+        return;
+    }
+
+    m_inventory.SetEventFavorite(message.eventid(), message.is_favorite());
+}
+
+void ClientGC::GetEventFavorites(GCMessageRead &messageRead)
+{
+    CMsgGCCStrike15_v2_GetEventFavorites_Request request;
+    if (!messageRead.ReadProtobuf(request))
+    {
+        Platform::Print("Parsing CMsgGCCStrike15_v2_GetEventFavorites_Request failed, ignoring\n");
+        return;
+    }
+
+    std::ostringstream favorites;
+    favorites << '[';
+    bool first = true;
+    for (uint64_t eventId : m_inventory.EventFavorites())
+    {
+        if (!first)
+        {
+            favorites << ',';
+        }
+        first = false;
+        favorites << eventId;
+    }
+    favorites << ']';
+
+    CMsgGCCStrike15_v2_GetEventFavorites_Response response;
+    response.set_all_events(request.all_events());
+    response.set_json_favorites(favorites.str());
+    response.set_json_featured("[]");
+    SendMessageToGame(false,
+        k_EMsgGCCStrike15_v2_GetEventFavorites_Response,
+        response,
+        messageRead.JobId());
 }
 
 void ClientGC::SendMessageToGame(bool sendToGameServer, uint32_t type,

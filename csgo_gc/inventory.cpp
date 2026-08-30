@@ -423,6 +423,19 @@ void Inventory::ReadFromFile()
         }
     }
 
+    const KeyValue *eventFavoritesKey = inventoryKey.GetSubkey("event_favorites");
+    if (eventFavoritesKey)
+    {
+        for (const KeyValue &favoriteKey : *eventFavoritesKey)
+        {
+            const uint64_t eventId = FromString<uint64_t>(favoriteKey.Name());
+            if (eventId)
+            {
+                m_eventFavorites.insert(eventId);
+            }
+        }
+    }
+
     LogInventoryConsistency();
 }
 
@@ -519,6 +532,14 @@ bool Inventory::WriteToFile() const
         }
     }
 
+    {
+        KeyValue &eventFavoritesKey = inventoryKey.AddSubkey("event_favorites");
+        for (uint64_t eventId : m_eventFavorites)
+        {
+            eventFavoritesKey.AddNumber(std::to_string(eventId), 1);
+        }
+    }
+
     if (!inventoryKey.WriteToFile(InventoryFilePath))
     {
         Platform::Print("Inventory: failed to save %s; original file was preserved\n", InventoryFilePath);
@@ -526,6 +547,44 @@ bool Inventory::WriteToFile() const
     }
 
     return true;
+}
+
+bool Inventory::SetEventFavorite(uint64_t eventId, bool favorite)
+{
+    if (!eventId)
+    {
+        return false;
+    }
+
+    const bool wasFavorite = m_eventFavorites.contains(eventId);
+    if (wasFavorite == favorite)
+    {
+        return true;
+    }
+
+    if (favorite)
+    {
+        m_eventFavorites.insert(eventId);
+    }
+    else
+    {
+        m_eventFavorites.erase(eventId);
+    }
+
+    if (WriteToFile())
+    {
+        return true;
+    }
+
+    if (wasFavorite)
+    {
+        m_eventFavorites.insert(eventId);
+    }
+    else
+    {
+        m_eventFavorites.erase(eventId);
+    }
+    return false;
 }
 
 void Inventory::WriteItem(KeyValue &itemKey, const CSOEconItem &item) const

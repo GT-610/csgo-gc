@@ -218,6 +218,8 @@ public:
         std::string &error);
     size_t ItemCount() const { return m_items.size(); }
     const ItemMap &Items() const { return m_items; }
+    const std::set<uint64_t> &EventFavorites() const { return m_eventFavorites; }
+    bool SetEventFavorite(uint64_t eventId, bool favorite);
     bool Save() const { return WriteToFile(); }
 
 private:
@@ -294,5 +296,6 @@ private:
     uint32_t m_lastHighItemId{};
     ItemMap m_items;
     std::vector<CSOEconDefaultEquippedDefinitionInstanceClient> m_defaultEquips;
+    std::set<uint64_t> m_eventFavorites;
     bool m_saveEnabled{ true };
 };

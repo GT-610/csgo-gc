@@ -2201,6 +2201,72 @@ static bool ViewerPassTokenPacksUpdatePersistedJournal()
     return valid;
 }
 
+static bool RequestEventFavorites(ClientGC &gc, bool allEvents, uint64_t jobId,
+    std::string_view expectedFavorites)
+{
+    CMsgGCCStrike15_v2_GetEventFavorites_Request request;
+    request.set_all_events(allEvents);
+    if (!SendGCProtobufJob(gc,
+        k_EMsgGCCStrike15_v2_GetEventFavorites_Request, request, jobId))
+    {
+        return false;
+    }
+
+    EventData event;
+    CMsgGCCStrike15_v2_GetEventFavorites_Response response;
+    return WaitForHostMessage(gc,
+            k_EMsgGCCStrike15_v2_GetEventFavorites_Response, event)
+        && ParseHostJobProtobuf(event, jobId, response)
+        && response.all_events() == allEvents
+        && response.json_favorites() == expectedFavorites
+        && response.json_featured() == "[]";
+}
+
+static bool EventFavoritesPersistAndPreserveRequestJobs()
+{
+    constexpr uint64_t SteamId = 76561197960265729ull;
+    constexpr const char *InventoryPath = "csgo_gc/inventory.txt";
+    TestFilesystem::RemoveFile(InventoryPath);
+    if (!TestFilesystem::MakeDirectory("csgo_gc"))
+    {
+        return false;
+    }
+
+    bool valid = true;
+    {
+        ClientGC gc{ SteamId };
+        CMsgGCCStrike15_v2_SetEventFavorite favorite;
+        favorite.set_eventid(21);
+        favorite.set_is_favorite(true);
+        SendGCProtobuf(gc, k_EMsgGCCStrike15_v2_SetEventFavorite, favorite);
+
+        favorite.set_eventid(7);
+        SendGCProtobuf(gc, k_EMsgGCCStrike15_v2_SetEventFavorite, favorite);
+
+        valid &= RequestEventFavorites(gc, true, 7001, "[7,21]");
+    }
+
+    {
+        ClientGC gc{ SteamId };
+        valid &= RequestEventFavorites(gc, false, 7002, "[7,21]");
+
+        CMsgGCCStrike15_v2_SetEventFavorite favorite;
+        favorite.set_eventid(7);
+        favorite.set_is_favorite(false);
+        SendGCProtobuf(gc, k_EMsgGCCStrike15_v2_SetEventFavorite, favorite);
+        valid &= RequestEventFavorites(gc, true, 7003, "[21]");
+    }
+
+    {
+        Inventory persisted{ SteamId };
+        valid &= persisted.EventFavorites() == std::set<uint64_t>{ 21 };
+    }
+
+    TestFilesystem::RemoveFile(InventoryPath);
+    TestFilesystem::RemoveDirectory("csgo_gc");
+    return valid;
+}
+
 int main()
 {
     struct TestCase
@@ -2232,6 +2298,8 @@ int main()
             ViewerPassActivationCreatesAndPersistsJournal },
         { "ViewerPassTokenPacksUpdatePersistedJournal",
             ViewerPassTokenPacksUpdatePersistedJournal },
+        { "EventFavoritesPersistAndPreserveRequestJobs",
+            EventFavoritesPersistAndPreserveRequestJobs },
     };
 
     bool allPassed = true;
