@@ -9,6 +9,7 @@
 #include <cerrno>
 #include <cmath>
 #include <cstdlib>
+#include <ctime>
 
 namespace
 {
@@ -1051,6 +1052,46 @@ void ClientGC::HandleMessage(uint32_t type, const void *data, uint32_t size)
 
         case k_EMsgGCCStrike15_v2_ClientRequestSouvenir:
             HandleRequestSouvenir(messageRead);
+            break;
+
+        case k_EMsgGCCStrike15_v2_MatchmakingStart:
+            HandleMatchmakingStart(messageRead);
+            break;
+
+        case k_EMsgGCCStrike15_v2_MatchmakingStop:
+            HandleMatchmakingStop(messageRead);
+            break;
+
+        case k_EMsgGCCStrike15_v2_Party_Register:
+            HandlePartyRegister(messageRead);
+            break;
+
+        case k_EMsgGCCStrike15_v2_Party_Unregister:
+            HandlePartyUnregister(messageRead);
+            break;
+
+        case k_EMsgGCCStrike15_v2_Party_Search:
+            HandlePartySearch(messageRead);
+            break;
+
+        case k_EMsgGCCStrike15_v2_Account_RequestCoPlays:
+            HandleAccountRequestCoPlays(messageRead);
+            break;
+
+        case k_EMsgGCCStrike15_v2_AccountPrivacySettings:
+            HandleAccountPrivacySettings(messageRead);
+            break;
+
+        case k_EMsgGCCStrike15_v2_MatchListRequestCurrentLiveGames:
+            HandleMatchListRequestCurrentLiveGames(messageRead);
+            break;
+
+        case k_EMsgGCCStrike15_v2_MatchListRequestTournamentGames:
+            HandleMatchListRequestTournamentGames(messageRead);
+            break;
+
+        case k_EMsgGCCStrike15_v2_MatchListRequestTournamentPredictions:
+            HandleMatchListRequestTournamentPredictions(messageRead);
             break;
 
         default:
@@ -2424,4 +2465,146 @@ void ClientGC::HandleRequestSouvenir(GCMessageRead &messageRead)
 
         SendMessageToGame(false, k_EMsgGCItemCustomizationNotification, notification);
     }
+}
+
+void ClientGC::HandleMatchmakingStart(GCMessageRead &messageRead)
+{
+    CMsgGCCStrike15_v2_MatchmakingStart request;
+    if (!messageRead.ReadProtobuf(request))
+    {
+        Platform::Print("Parsing CMsgGCCStrike15_v2_MatchmakingStart failed, ignoring\n");
+        return;
+    }
+
+    // Offline GC has no central matchmaking (README: not planned).
+    // Silently handled to suppress unhandled-protobuf spam (issue #81).
+}
+
+void ClientGC::HandleMatchmakingStop(GCMessageRead &messageRead)
+{
+    CMsgGCCStrike15_v2_MatchmakingStop request;
+    if (!messageRead.ReadProtobuf(request))
+    {
+        Platform::Print("Parsing CMsgGCCStrike15_v2_MatchmakingStop failed, ignoring\n");
+        return;
+    }
+
+    // See HandleMatchmakingStart.
+}
+
+void ClientGC::HandlePartyRegister(GCMessageRead &messageRead)
+{
+    CMsgGCCStrike15_v2_Party_Register request;
+    if (!messageRead.ReadProtobuf(request))
+    {
+        Platform::Print("Parsing CMsgGCCStrike15_v2_Party_Register failed, ignoring\n");
+        return;
+    }
+
+    // Party system requires peer info; offline stub does nothing (issue #81).
+}
+
+void ClientGC::HandlePartyUnregister(GCMessageRead &messageRead)
+{
+    // No dedicated proto for Party_Unregister; it may reuse Register layout or be empty.
+    // Consume payload if present to keep stream valid, then silently ignore.
+    CMsgGCCStrike15_v2_Party_Register dummy;
+    messageRead.ReadProtobuf(dummy);
+    (void)dummy;
+}
+
+void ClientGC::HandlePartySearch(GCMessageRead &messageRead)
+{
+    CMsgGCCStrike15_v2_Party_Search request;
+    if (!messageRead.ReadProtobuf(request))
+    {
+        Platform::Print("Parsing CMsgGCCStrike15_v2_Party_Search failed, ignoring\n");
+        return;
+    }
+
+    // Return empty result list to satisfy client without spamming logs (issue #81).
+    CMsgGCCStrike15_v2_Party_SearchResults response;
+    SendMessageToGame(false, k_EMsgGCCStrike15_v2_Party_Search, response, messageRead.JobId());
+}
+
+void ClientGC::HandleAccountRequestCoPlays(GCMessageRead &messageRead)
+{
+    CMsgGCCStrike15_v2_Account_RequestCoPlays request;
+    if (!messageRead.ReadProtobuf(request))
+    {
+        Platform::Print("Parsing CMsgGCCStrike15_v2_Account_RequestCoPlays failed, ignoring\n");
+        return;
+    }
+
+    // Echo requested players with offline status and current servertime (empty-list-style stub).
+    CMsgGCCStrike15_v2_Account_RequestCoPlays response;
+    for (int i = 0; i < request.players_size(); ++i)
+    {
+        const auto &player = request.players(i);
+        auto *out = response.add_players();
+        out->set_accountid(player.accountid());
+        if (player.has_rtcoplay())
+        {
+            out->set_rtcoplay(player.rtcoplay());
+        }
+        out->set_online(false);
+    }
+    response.set_servertime(static_cast<uint32_t>(time(nullptr)));
+    SendMessageToGame(false, k_EMsgGCCStrike15_v2_Account_RequestCoPlays, response, messageRead.JobId());
+}
+
+void ClientGC::HandleAccountPrivacySettings(GCMessageRead &messageRead)
+{
+    CMsgGCCStrike15_v2_AccountPrivacySettings request;
+    if (!messageRead.ReadProtobuf(request))
+    {
+        Platform::Print("Parsing CMsgGCCStrike15_v2_AccountPrivacySettings failed, ignoring\n");
+        return;
+    }
+
+    // Privacy settings have no offline persistence; silently handled (issue #81).
+}
+
+void ClientGC::HandleMatchListRequestCurrentLiveGames(GCMessageRead &messageRead)
+{
+    CMsgGCCStrike15_v2_MatchListRequestCurrentLiveGames request;
+    if (!messageRead.ReadProtobuf(request))
+    {
+        Platform::Print("Parsing CMsgGCCStrike15_v2_MatchListRequestCurrentLiveGames failed, ignoring\n");
+        return;
+    }
+
+    CMsgGCCStrike15_v2_MatchList response;
+    response.set_accountid(AccountId());
+    response.set_servertime(static_cast<uint32_t>(time(nullptr)));
+    SendMessageToGame(false, k_EMsgGCCStrike15_v2_MatchList, response, messageRead.JobId());
+}
+
+void ClientGC::HandleMatchListRequestTournamentGames(GCMessageRead &messageRead)
+{
+    CMsgGCCStrike15_v2_MatchListRequestTournamentGames request;
+    if (!messageRead.ReadProtobuf(request))
+    {
+        Platform::Print("Parsing CMsgGCCStrike15_v2_MatchListRequestTournamentGames failed, ignoring\n");
+        return;
+    }
+
+    CMsgGCCStrike15_v2_MatchList response;
+    response.set_accountid(AccountId());
+    response.set_servertime(static_cast<uint32_t>(time(nullptr)));
+    SendMessageToGame(false, k_EMsgGCCStrike15_v2_MatchList, response, messageRead.JobId());
+}
+
+void ClientGC::HandleMatchListRequestTournamentPredictions(GCMessageRead &messageRead)
+{
+    // No defined request proto for TournamentPredictions (empty payload in practice).
+    // Still return an empty MatchList to provide the empty-list stub the client expects.
+    // Attempt to consume any bytes as unknown without failing the handler.
+    // We intentionally do not require a specific parse here.
+    (void)messageRead;
+
+    CMsgGCCStrike15_v2_MatchList response;
+    response.set_accountid(AccountId());
+    response.set_servertime(static_cast<uint32_t>(time(nullptr)));
+    SendMessageToGame(false, k_EMsgGCCStrike15_v2_MatchList, response, messageRead.JobId());
 }

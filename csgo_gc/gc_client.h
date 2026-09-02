@@ -94,6 +94,18 @@ private:
     void HandleRequestSouvenir(GCMessageRead &messageRead);
     void BroadcastSwapOutcome(const Inventory::CounterSwapResult &outcome);
 
+    // Silently handled / empty-stub handlers for matchmaking and party (issue #81)
+    void HandleMatchmakingStart(GCMessageRead &messageRead);
+    void HandleMatchmakingStop(GCMessageRead &messageRead);
+    void HandlePartyRegister(GCMessageRead &messageRead);
+    void HandlePartyUnregister(GCMessageRead &messageRead);
+    void HandlePartySearch(GCMessageRead &messageRead);
+    void HandleAccountRequestCoPlays(GCMessageRead &messageRead);
+    void HandleAccountPrivacySettings(GCMessageRead &messageRead);
+    void HandleMatchListRequestCurrentLiveGames(GCMessageRead &messageRead);
+    void HandleMatchListRequestTournamentGames(GCMessageRead &messageRead);
+    void HandleMatchListRequestTournamentPredictions(GCMessageRead &messageRead);
+
     void BuildMatchmakingHello(CMsgGCCStrike15_v2_MatchmakingGC2ClientHello &message);
     void BuildClientWelcome(CMsgClientWelcome &message, const CMsgClientHello &hello,
         const CMsgCStrike15Welcome &csWelcome,
