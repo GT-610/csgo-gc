@@ -964,6 +964,17 @@ std::string ClientGC::RconSaveInventory(const RconRequest &request)
 void ClientGC::HandleMessage(uint32_t type, const void *data, uint32_t size)
 {
     GCMessageRead messageRead{ type, data, size };
+    // Unconditional startup trace for flash-crash debugging (bypasses LogOutput config).
+    // File is always written so we get a trace even when gc_log.txt is disabled and tier0 ConColorMsg not yet ready.
+    {
+        FILE *tf = fopen("C:\\Temp\\gc_msg.log", "a");
+        if (tf)
+        {
+            fprintf(tf, "HandleMessage type=%u (%s) size=%u job=%llu valid=%d isProto=%d\n",
+                messageRead.TypeUnmasked(), MessageName(messageRead.TypeUnmasked()), size, (unsigned long long)messageRead.JobId(), (int)messageRead.IsValid(), (int)messageRead.IsProtobuf());
+            fclose(tf);
+        }
+    }
     if (!messageRead.IsValid())
     {
         Platform::Print("ClientGC::HandleMessage: invalid message\n");
@@ -2522,9 +2533,9 @@ void ClientGC::HandlePartySearch(GCMessageRead &messageRead)
         return;
     }
 
-    // Return empty result list to satisfy client without spamming logs (issue #81).
-    CMsgGCCStrike15_v2_Party_SearchResults response;
-    SendMessageToGame(false, k_EMsgGCCStrike15_v2_Party_Search, response, messageRead.JobId());
+    // Silent stub for now (issue #81 hotfix): previous empty SearchResults reply via
+    // same EMsg 9191 caused client-side parse mismatch and startup flash crash.
+    // TODO: re-enable after verifying correct GC->client EMsg for SearchResults.
 }
 
 void ClientGC::HandleAccountRequestCoPlays(GCMessageRead &messageRead)
@@ -2536,21 +2547,8 @@ void ClientGC::HandleAccountRequestCoPlays(GCMessageRead &messageRead)
         return;
     }
 
-    // Echo requested players with offline status and current servertime (empty-list-style stub).
-    CMsgGCCStrike15_v2_Account_RequestCoPlays response;
-    for (int i = 0; i < request.players_size(); ++i)
-    {
-        const auto &player = request.players(i);
-        auto *out = response.add_players();
-        out->set_accountid(player.accountid());
-        if (player.has_rtcoplay())
-        {
-            out->set_rtcoplay(player.rtcoplay());
-        }
-        out->set_online(false);
-    }
-    response.set_servertime(static_cast<uint32_t>(time(nullptr)));
-    SendMessageToGame(false, k_EMsgGCCStrike15_v2_Account_RequestCoPlays, response, messageRead.JobId());
+    // Silent stub hotfix: echoing 9193 with online=false still triggered flash crash on some builds.
+    // Keep silent to restore main's stability, then re-add empty reply behind flag.
 }
 
 void ClientGC::HandleAccountPrivacySettings(GCMessageRead &messageRead)
@@ -2574,10 +2572,7 @@ void ClientGC::HandleMatchListRequestCurrentLiveGames(GCMessageRead &messageRead
         return;
     }
 
-    CMsgGCCStrike15_v2_MatchList response;
-    response.set_accountid(AccountId());
-    response.set_servertime(static_cast<uint32_t>(time(nullptr)));
-    SendMessageToGame(false, k_EMsgGCCStrike15_v2_MatchList, response, messageRead.JobId());
+    // Hotfix silent: empty MatchList via 9139 still caused flash crash on startup sequence.
 }
 
 void ClientGC::HandleMatchListRequestTournamentGames(GCMessageRead &messageRead)
@@ -2589,22 +2584,11 @@ void ClientGC::HandleMatchListRequestTournamentGames(GCMessageRead &messageRead)
         return;
     }
 
-    CMsgGCCStrike15_v2_MatchList response;
-    response.set_accountid(AccountId());
-    response.set_servertime(static_cast<uint32_t>(time(nullptr)));
-    SendMessageToGame(false, k_EMsgGCCStrike15_v2_MatchList, response, messageRead.JobId());
+    // Hotfix silent.
 }
 
 void ClientGC::HandleMatchListRequestTournamentPredictions(GCMessageRead &messageRead)
 {
-    // No defined request proto for TournamentPredictions (empty payload in practice).
-    // Still return an empty MatchList to provide the empty-list stub the client expects.
-    // Attempt to consume any bytes as unknown without failing the handler.
-    // We intentionally do not require a specific parse here.
+    // Hotfix silent: previously sent empty MatchList and crashed.
     (void)messageRead;
-
-    CMsgGCCStrike15_v2_MatchList response;
-    response.set_accountid(AccountId());
-    response.set_servertime(static_cast<uint32_t>(time(nullptr)));
-    SendMessageToGame(false, k_EMsgGCCStrike15_v2_MatchList, response, messageRead.JobId());
 }
