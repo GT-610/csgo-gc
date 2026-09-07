@@ -2971,6 +2971,14 @@ static bool OfflineGCRequestsReceiveMinimalResponses()
         && !tournamentPredictions.has_event_id()
         && tournamentPredictions.group_match_team_picks_size() == 0;
 
+    constexpr uint8_t TruncatedTournamentGamesRequest[] = { 0x80 };
+    valid &= SendGCProtobufJobData(gc,
+            k_EMsgGCCStrike15_v2_MatchListRequestTournamentGames,
+            TruncatedTournamentGamesRequest,
+            sizeof(TruncatedTournamentGamesRequest),
+            8108)
+        && HostMessageNotReceived(gc, k_EMsgGCCStrike15_v2_MatchList);
+
     return valid
         && Platform::g_printCount.load(std::memory_order_relaxed) == printCountBefore;
 }

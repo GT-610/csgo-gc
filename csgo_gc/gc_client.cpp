@@ -1226,6 +1226,15 @@ void ClientGC::HandleMatchListRequest(GCMessageRead &messageRead)
         return;
     }
 
+    if (requestType == k_EMsgGCCStrike15_v2_MatchListRequestTournamentGames)
+    {
+        CMsgGCCStrike15_v2_MatchListRequestTournamentGames request;
+        if (!messageRead.ReadProtobuf(request))
+        {
+            return;
+        }
+    }
+
     CMsgGCCStrike15_v2_MatchList response;
     response.set_msgrequestid(requestType);
     response.set_accountid(AccountId());
