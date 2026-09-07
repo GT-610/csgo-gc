@@ -48,6 +48,7 @@ GCConfig::GCConfig()
     }
 
     m_destroyUsedItems = config.GetNumber("destroy_used_items", m_destroyUsedItems);
+    m_primeStatus = config.GetNumber("prime_status", m_primeStatus);
 
     const KeyValue *rarityWeights = config.GetSubkey("rarity_weights");
     if (rarityWeights)

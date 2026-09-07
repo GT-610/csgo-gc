@@ -281,7 +281,7 @@ bool Inventory::ClaimPrestigeMedal(uint32_t year, uint32_t expectedDefIndex,
 
     CSOPersonaDataPublic personaData;
     personaData.set_player_level(m_playerLevel);
-    personaData.set_elevated_state(true);
+    personaData.set_elevated_state(GetConfig().PrimeStatus());
     ToSingleObject(claim.personaData, SOTypePersonaDataPublic, personaData);
 
     if (!WriteToFile())
@@ -764,7 +764,7 @@ void Inventory::BuildCacheSubscription(CMsgSOCacheSubscribed &message, bool serv
     {
         CSOPersonaDataPublic personaData;
         personaData.set_player_level(m_playerLevel);
-        personaData.set_elevated_state(true);
+        personaData.set_elevated_state(GetConfig().PrimeStatus());
 
         CMsgSOCacheSubscribed_SubscribedType *object = message.add_objects();
         object->set_type_id(SOTypePersonaDataPublic);
@@ -788,7 +788,7 @@ void Inventory::BuildCacheSubscription(CMsgSOCacheSubscribed &message, bool serv
         accountClient.set_additional_backpack_slots(0);
         accountClient.set_bonus_xp_timestamp_refresh(static_cast<uint32_t>(time(nullptr)));
         accountClient.set_bonus_xp_usedflags(16); // caught cheater lobbies, overwatch bonus etc
-        accountClient.set_elevated_state(ElevatedStatePrime);
+        accountClient.set_elevated_state(GetConfig().PrimeStatus() ? ElevatedStatePrime : ElevatedStateNo);
 
         CMsgSOCacheSubscribed_SubscribedType *object = message.add_objects();
         object->set_type_id(SOTypeGameAccountClient);
