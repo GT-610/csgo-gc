@@ -1218,7 +1218,16 @@ void ClientGC::HandleMatchListRequest(GCMessageRead &messageRead)
         return;
     }
 
+    const uint32_t requestType = messageRead.TypeUnmasked();
+    if (requestType == k_EMsgGCCStrike15_v2_MatchListRequestTournamentPredictions)
+    {
+        CMsgGCCStrike15_v2_Predictions response;
+        SendMessageToGame(false, requestType, response, messageRead.JobId());
+        return;
+    }
+
     CMsgGCCStrike15_v2_MatchList response;
+    response.set_msgrequestid(requestType);
     response.set_accountid(AccountId());
     response.set_servertime(static_cast<uint32_t>(std::time(nullptr)));
     SendMessageToGame(false, k_EMsgGCCStrike15_v2_MatchList, response, messageRead.JobId());

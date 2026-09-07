@@ -2944,6 +2944,7 @@ static bool OfflineGCRequestsReceiveMinimalResponses()
         CMsgGCCStrike15_v2_MatchList matchList;
         return WaitForHostMessage(gc, k_EMsgGCCStrike15_v2_MatchList, event)
             && ParseHostJobProtobuf(event, jobId, matchList)
+            && matchList.msgrequestid() == requestType
             && matchList.accountid() == static_cast<uint32_t>(SteamId)
             && matchList.servertime() != 0
             && matchList.matches_size() == 0;
@@ -2959,8 +2960,16 @@ static bool OfflineGCRequestsReceiveMinimalResponses()
         && checkEmptyMatchList(k_EMsgGCCStrike15_v2_MatchListRequestTournamentGames,
             tournamentGamesData.data(), static_cast<uint32_t>(tournamentGamesData.size()), 8106);
 
-    valid &= checkEmptyMatchList(k_EMsgGCCStrike15_v2_MatchListRequestTournamentPredictions,
-        nullptr, 0, 8107);
+    constexpr uint64_t TournamentPredictionsJobId = 8107;
+    valid &= SendGCProtobufJobData(gc, k_EMsgGCCStrike15_v2_MatchListRequestTournamentPredictions,
+            nullptr, 0, TournamentPredictionsJobId);
+
+    event = {};
+    CMsgGCCStrike15_v2_Predictions tournamentPredictions;
+    valid &= WaitForHostMessage(gc, k_EMsgGCCStrike15_v2_MatchListRequestTournamentPredictions, event)
+        && ParseHostJobProtobuf(event, TournamentPredictionsJobId, tournamentPredictions)
+        && !tournamentPredictions.has_event_id()
+        && tournamentPredictions.group_match_team_picks_size() == 0;
 
     return valid
         && Platform::g_printCount.load(std::memory_order_relaxed) == printCountBefore;
