@@ -818,6 +818,7 @@ static bool SOCacheVersionNegotiationAndRefresh()
                 && subscription.owner_soid().id() == SteamId;
 
             bool foundAccount = false;
+            bool foundPersona = false;
             for (const CMsgSOCacheSubscribed_SubscribedType &type : subscription.objects())
             {
                 if (type.type_id() == SOTypeGameAccountClient && type.object_data_size() == 1)
@@ -825,9 +826,18 @@ static bool SOCacheVersionNegotiationAndRefresh()
                     CSOEconGameAccountClient account;
                     foundAccount = account.ParseFromString(type.object_data(0));
                     valid &= foundAccount && !account.has_elevated_timestamp();
+                    // no config.txt is present in the test environment, so the
+                    // default frozen prime state must be reported
+                    valid &= foundAccount && account.elevated_state() == ElevatedStatePrime;
+                }
+                else if (type.type_id() == SOTypePersonaDataPublic && type.object_data_size() == 1)
+                {
+                    CSOPersonaDataPublic personaData;
+                    foundPersona = personaData.ParseFromString(type.object_data(0));
+                    valid &= foundPersona && personaData.elevated_state();
                 }
             }
-            valid &= foundAccount;
+            valid &= foundAccount && foundPersona;
         }
 
         CMsgClientHello currentHello;

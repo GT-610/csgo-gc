@@ -42,6 +42,9 @@ public:
 
     bool DestroyUsedItems() const { return m_destroyUsedItems; }
 
+    // prime status shown to the game client, frozen at the configured value
+    bool PrimeStatus() const { return m_primeStatus; }
+
     bool AccountStatus() const { return m_vacBanned; }
     int CommendedFriendly() const { return m_commendedFriendly; }
     int CommendedTeaching() const { return m_commendedTeaching; }
@@ -71,6 +74,9 @@ private:
     int m_dangerZoneWins{ 0 };
 
     bool m_destroyUsedItems{ true };
+
+    // accounts default to prime so existing clients keep their current behavior
+    bool m_primeStatus{ true };
 
     bool m_vacBanned{ false };
     int m_commendedFriendly{ 0 };

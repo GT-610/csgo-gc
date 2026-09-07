@@ -16,6 +16,9 @@
 "player_level"	"39"
 "player_cur_xp"	"4999"
 
+// 1 reports the account as prime (unchanged behavior), 0 reports it as non-prime
+"prime_status"	"1"
+
 // these are the same weights valve uses
 "rarity_weights"
 {
