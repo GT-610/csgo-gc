@@ -133,6 +133,44 @@ if (BUILD_TESTING)
 
     add_test(NAME gc_message_tests COMMAND gc_message_tests)
 
+    add_executable(gc_message_non_prime_tests
+        appid.cpp
+        case_opening.cpp
+        config.cpp
+        gc_client.cpp
+        gc_shared.cpp
+        gc_message_non_prime_tests.cpp
+        gc_message.cpp
+        inventory.cpp
+        item_schema.cpp
+        item_utils.cpp
+        keyvalue.cpp
+        graffiti.cpp
+        networking_client.cpp
+        souvenir.cpp)
+
+    target_precompile_headers(gc_message_non_prime_tests PRIVATE stdafx.h)
+    target_link_libraries(gc_message_non_prime_tests PRIVATE
+        MbedTLS::mbedcrypto
+        csgo_gc_protobufs
+        steam_api
+        Threads::Threads)
+
+    if (MSVC)
+        target_compile_options(gc_message_non_prime_tests PRIVATE /W4 /wd4244 /wd4819)
+        target_compile_definitions(gc_message_non_prime_tests PRIVATE _CRT_SECURE_NO_WARNINGS)
+    else()
+        target_compile_options(gc_message_non_prime_tests PRIVATE -Wall -Wextra)
+    endif()
+
+    set(NON_PRIME_TEST_WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/gc_message_non_prime_test_workdir")
+    file(MAKE_DIRECTORY "${NON_PRIME_TEST_WORKING_DIRECTORY}/csgo_gc")
+    file(WRITE "${NON_PRIME_TEST_WORKING_DIRECTORY}/csgo_gc/config.txt"
+        "\"prime_status\"\t\t\"0\"\n")  # trailing newline required by the keyvalue parser
+    add_test(NAME gc_message_non_prime_tests COMMAND gc_message_non_prime_tests)
+    set_tests_properties(gc_message_non_prime_tests PROPERTIES
+        WORKING_DIRECTORY "${NON_PRIME_TEST_WORKING_DIRECTORY}")
+
     add_executable(item_schema_tests
         item_schema_tests.cpp
         item_schema.cpp
