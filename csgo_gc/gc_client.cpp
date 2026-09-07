@@ -9,6 +9,7 @@
 #include <cerrno>
 #include <cmath>
 #include <cstdlib>
+#include <ctime>
 
 namespace
 {
@@ -1057,6 +1058,40 @@ void ClientGC::HandleMessage(uint32_t type, const void *data, uint32_t size)
             HandleRequestSouvenir(messageRead);
             break;
 
+        case k_EMsgGCCStrike15_v2_MatchmakingStart:
+            IgnoreMatchmakingStart(messageRead);
+            break;
+
+        case k_EMsgGCCStrike15_v2_MatchmakingStop:
+            IgnoreMatchmakingStop(messageRead);
+            break;
+
+        case k_EMsgGCCStrike15_v2_Party_Register:
+            IgnorePartyRegister(messageRead);
+            break;
+
+        case k_EMsgGCCStrike15_v2_Party_Unregister:
+            IgnorePartyUnregister(messageRead);
+            break;
+
+        case k_EMsgGCCStrike15_v2_Party_Search:
+            HandlePartySearch(messageRead);
+            break;
+
+        case k_EMsgGCCStrike15_v2_Account_RequestCoPlays:
+            HandleAccountRequestCoPlays(messageRead);
+            break;
+
+        case k_EMsgGCCStrike15_v2_AccountPrivacySettings:
+            HandleAccountPrivacySettings(messageRead);
+            break;
+
+        case k_EMsgGCCStrike15_v2_MatchListRequestCurrentLiveGames:
+        case k_EMsgGCCStrike15_v2_MatchListRequestTournamentGames:
+        case k_EMsgGCCStrike15_v2_MatchListRequestTournamentPredictions:
+            HandleMatchListRequest(messageRead);
+            break;
+
         default:
             Platform::Print("ClientGC::HandleMessage: unhandled protobuf message %s\n",
                 MessageName(messageRead.TypeUnmasked()));
@@ -1097,6 +1132,114 @@ void ClientGC::HandleMessage(uint32_t type, const void *data, uint32_t size)
             break;
         }
     }
+}
+
+void ClientGC::IgnoreMatchmakingStart(GCMessageRead &messageRead)
+{
+    CMsgGCCStrike15_v2_MatchmakingStart request;
+    (void)messageRead.ReadProtobuf(request);
+}
+
+void ClientGC::IgnoreMatchmakingStop(GCMessageRead &messageRead)
+{
+    CMsgGCCStrike15_v2_MatchmakingStop request;
+    (void)messageRead.ReadProtobuf(request);
+}
+
+void ClientGC::IgnorePartyRegister(GCMessageRead &messageRead)
+{
+    CMsgGCCStrike15_v2_Party_Register request;
+    (void)messageRead.ReadProtobuf(request);
+}
+
+void ClientGC::IgnorePartyUnregister(GCMessageRead &messageRead)
+{
+    // Party_Unregister has no protobuf message definition.
+    (void)messageRead;
+}
+
+void ClientGC::HandlePartySearch(GCMessageRead &messageRead)
+{
+    CMsgGCCStrike15_v2_Party_Search request;
+    if (!messageRead.ReadProtobuf(request) || messageRead.JobId() == JobIdInvalid)
+    {
+        return;
+    }
+
+    // Party_SearchResults has no separate EMsg; it is a response to the request job.
+    CMsgGCCStrike15_v2_Party_SearchResults response;
+    SendMessageToGame(false, k_EMsgGCCStrike15_v2_Party_Search, response, messageRead.JobId());
+}
+
+void ClientGC::HandleAccountRequestCoPlays(GCMessageRead &messageRead)
+{
+    CMsgGCCStrike15_v2_Account_RequestCoPlays request;
+    if (!messageRead.ReadProtobuf(request) || messageRead.JobId() == JobIdInvalid)
+    {
+        return;
+    }
+
+    CMsgGCCStrike15_v2_Account_RequestCoPlays response;
+    for (int index = 0; index < request.players_size(); ++index)
+    {
+        const auto &player = request.players(index);
+        auto *responsePlayer = response.add_players();
+        responsePlayer->set_accountid(player.accountid());
+        if (player.has_rtcoplay())
+        {
+            responsePlayer->set_rtcoplay(player.rtcoplay());
+        }
+        responsePlayer->set_online(false);
+    }
+    response.set_servertime(static_cast<uint32_t>(std::time(nullptr)));
+
+    SendMessageToGame(false, k_EMsgGCCStrike15_v2_Account_RequestCoPlays,
+        response, messageRead.JobId());
+}
+
+void ClientGC::HandleAccountPrivacySettings(GCMessageRead &messageRead)
+{
+    CMsgGCCStrike15_v2_AccountPrivacySettings request;
+    if (!messageRead.ReadProtobuf(request) || messageRead.JobId() == JobIdInvalid)
+    {
+        return;
+    }
+
+    // The empty request used by the settings UI receives an empty default-setting list.
+    // Settings supplied by the client are echoed as the current session's values.
+    SendMessageToGame(false, k_EMsgGCCStrike15_v2_AccountPrivacySettings,
+        request, messageRead.JobId());
+}
+
+void ClientGC::HandleMatchListRequest(GCMessageRead &messageRead)
+{
+    if (messageRead.JobId() == JobIdInvalid)
+    {
+        return;
+    }
+
+    const uint32_t requestType = messageRead.TypeUnmasked();
+    if (requestType == k_EMsgGCCStrike15_v2_MatchListRequestTournamentPredictions)
+    {
+        CMsgGCCStrike15_v2_Predictions response;
+        SendMessageToGame(false, requestType, response, messageRead.JobId());
+        return;
+    }
+
+    if (requestType == k_EMsgGCCStrike15_v2_MatchListRequestTournamentGames)
+    {
+        CMsgGCCStrike15_v2_MatchListRequestTournamentGames request;
+        if (!messageRead.ReadProtobuf(request))
+        {
+            return;
+        }
+    }
+
+    CMsgGCCStrike15_v2_MatchList response;
+    response.set_msgrequestid(requestType);
+    response.set_accountid(AccountId());
+    response.set_servertime(static_cast<uint32_t>(std::time(nullptr)));
+    SendMessageToGame(false, k_EMsgGCCStrike15_v2_MatchList, response, messageRead.JobId());
 }
 
 void ClientGC::HandleNetMessage(const void *data, uint32_t size)

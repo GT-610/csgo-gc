@@ -79,6 +79,14 @@ private:
     void StoreGetUserData(GCMessageRead &messageRead);
     void StorePurchaseInit(GCMessageRead &messageRead);
     void StorePurchaseFinalize(GCMessageRead &messageRead);
+    void IgnoreMatchmakingStart(GCMessageRead &messageRead);
+    void IgnoreMatchmakingStop(GCMessageRead &messageRead);
+    void IgnorePartyRegister(GCMessageRead &messageRead);
+    void IgnorePartyUnregister(GCMessageRead &messageRead);
+    void HandlePartySearch(GCMessageRead &messageRead);
+    void HandleAccountRequestCoPlays(GCMessageRead &messageRead);
+    void HandleAccountPrivacySettings(GCMessageRead &messageRead);
+    void HandleMatchListRequest(GCMessageRead &messageRead);
 
     void DeleteItem(GCMessageRead &messageRead);
     void UnlockCrate(GCMessageRead &messageRead);

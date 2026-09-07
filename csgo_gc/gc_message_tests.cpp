@@ -11,8 +11,11 @@
 namespace Platform
 {
 
+static std::atomic<uint32_t> g_printCount{};
+
 void Print(const char *, ...)
 {
+    g_printCount.fetch_add(1, std::memory_order_relaxed);
 }
 
 bool UpdateGraffitiKey(std::string_view, const void *, const void *, size_t)
@@ -2848,6 +2851,138 @@ static bool EventFavoritesPersistAndPreserveRequestJobs()
     return valid;
 }
 
+static bool OfflineGCRequestsReceiveMinimalResponses()
+{
+    constexpr uint64_t SteamId = 76561197960265729ull;
+    ClientGC gc{ SteamId };
+
+    const uint32_t printCountBefore = Platform::g_printCount.load(std::memory_order_relaxed);
+    bool valid = true;
+
+    CMsgGCCStrike15_v2_MatchmakingStart matchmakingStart;
+    SendGCProtobuf(gc, k_EMsgGCCStrike15_v2_MatchmakingStart, matchmakingStart);
+
+    CMsgGCCStrike15_v2_MatchmakingStop matchmakingStop;
+    SendGCProtobuf(gc, k_EMsgGCCStrike15_v2_MatchmakingStop, matchmakingStop);
+
+    CMsgGCCStrike15_v2_Party_Register partyRegister;
+    SendGCProtobuf(gc, k_EMsgGCCStrike15_v2_Party_Register, partyRegister);
+
+    CMsgGCCStrike15_v2_MatchListRequestCurrentLiveGames emptyRequest;
+    SendGCProtobuf(gc, k_EMsgGCCStrike15_v2_Party_Unregister, emptyRequest);
+
+    CMsgGCCStrike15_v2_Party_Search partySearch;
+    partySearch.set_game_type(1234);
+    constexpr uint64_t PartySearchJobId = 8101;
+    valid &= SendGCProtobufJob(gc, k_EMsgGCCStrike15_v2_Party_Search,
+        partySearch, PartySearchJobId);
+
+    EventData event;
+    CMsgGCCStrike15_v2_Party_SearchResults partySearchResponse;
+    valid &= WaitForHostMessage(gc, k_EMsgGCCStrike15_v2_Party_Search, event)
+        && ParseHostJobProtobuf(event, PartySearchJobId, partySearchResponse)
+        && partySearchResponse.entries_size() == 0;
+
+    CMsgGCCStrike15_v2_Account_RequestCoPlays coPlays;
+    auto *firstPlayer = coPlays.add_players();
+    firstPlayer->set_accountid(123);
+    firstPlayer->set_rtcoplay(456);
+    auto *secondPlayer = coPlays.add_players();
+    secondPlayer->set_accountid(789);
+    constexpr uint64_t CoPlaysJobId = 8102;
+    valid &= SendGCProtobufJob(gc, k_EMsgGCCStrike15_v2_Account_RequestCoPlays,
+        coPlays, CoPlaysJobId);
+
+    event = {};
+    CMsgGCCStrike15_v2_Account_RequestCoPlays coPlaysResponse;
+    valid &= WaitForHostMessage(gc, k_EMsgGCCStrike15_v2_Account_RequestCoPlays, event)
+        && ParseHostJobProtobuf(event, CoPlaysJobId, coPlaysResponse)
+        && coPlaysResponse.players_size() == 2
+        && coPlaysResponse.players(0).accountid() == 123
+        && coPlaysResponse.players(0).rtcoplay() == 456
+        && !coPlaysResponse.players(0).online()
+        && coPlaysResponse.players(1).accountid() == 789
+        && !coPlaysResponse.players(1).has_rtcoplay()
+        && !coPlaysResponse.players(1).online()
+        && coPlaysResponse.servertime() != 0;
+
+    CMsgGCCStrike15_v2_AccountPrivacySettings privacySettings;
+    constexpr uint64_t PrivacySettingsJobId = 8103;
+    valid &= SendGCProtobufJob(gc, k_EMsgGCCStrike15_v2_AccountPrivacySettings,
+        privacySettings, PrivacySettingsJobId);
+
+    event = {};
+    CMsgGCCStrike15_v2_AccountPrivacySettings privacySettingsResponse;
+    valid &= WaitForHostMessage(gc, k_EMsgGCCStrike15_v2_AccountPrivacySettings, event)
+        && ParseHostJobProtobuf(event, PrivacySettingsJobId, privacySettingsResponse)
+        && privacySettingsResponse.settings_size() == 0;
+
+    auto *privacySetting = privacySettings.add_settings();
+    privacySetting->set_setting_type(1);
+    privacySetting->set_setting_value(3);
+    constexpr uint64_t PrivacySettingsUpdateJobId = 8104;
+    valid &= SendGCProtobufJob(gc, k_EMsgGCCStrike15_v2_AccountPrivacySettings,
+        privacySettings, PrivacySettingsUpdateJobId);
+
+    event = {};
+    privacySettingsResponse.Clear();
+    valid &= WaitForHostMessage(gc, k_EMsgGCCStrike15_v2_AccountPrivacySettings, event)
+        && ParseHostJobProtobuf(event, PrivacySettingsUpdateJobId, privacySettingsResponse)
+        && privacySettingsResponse.settings_size() == 1
+        && privacySettingsResponse.settings(0).setting_type() == 1
+        && privacySettingsResponse.settings(0).setting_value() == 3;
+
+    auto checkEmptyMatchList = [&gc, &event](uint32_t requestType,
+        const void *requestData, uint32_t requestSize, uint64_t jobId)
+    {
+        if (!SendGCProtobufJobData(gc, requestType, requestData, requestSize, jobId))
+        {
+            return false;
+        }
+
+        event = {};
+        CMsgGCCStrike15_v2_MatchList matchList;
+        return WaitForHostMessage(gc, k_EMsgGCCStrike15_v2_MatchList, event)
+            && ParseHostJobProtobuf(event, jobId, matchList)
+            && matchList.msgrequestid() == requestType
+            && matchList.accountid() == static_cast<uint32_t>(SteamId)
+            && matchList.servertime() != 0
+            && matchList.matches_size() == 0;
+    };
+
+    valid &= checkEmptyMatchList(k_EMsgGCCStrike15_v2_MatchListRequestCurrentLiveGames,
+        nullptr, 0, 8105);
+
+    CMsgGCCStrike15_v2_MatchListRequestTournamentGames tournamentGames;
+    tournamentGames.set_eventid(2023);
+    std::string tournamentGamesData;
+    valid &= tournamentGames.SerializeToString(&tournamentGamesData)
+        && checkEmptyMatchList(k_EMsgGCCStrike15_v2_MatchListRequestTournamentGames,
+            tournamentGamesData.data(), static_cast<uint32_t>(tournamentGamesData.size()), 8106);
+
+    constexpr uint64_t TournamentPredictionsJobId = 8107;
+    valid &= SendGCProtobufJobData(gc, k_EMsgGCCStrike15_v2_MatchListRequestTournamentPredictions,
+            nullptr, 0, TournamentPredictionsJobId);
+
+    event = {};
+    CMsgGCCStrike15_v2_Predictions tournamentPredictions;
+    valid &= WaitForHostMessage(gc, k_EMsgGCCStrike15_v2_MatchListRequestTournamentPredictions, event)
+        && ParseHostJobProtobuf(event, TournamentPredictionsJobId, tournamentPredictions)
+        && !tournamentPredictions.has_event_id()
+        && tournamentPredictions.group_match_team_picks_size() == 0;
+
+    constexpr uint8_t TruncatedTournamentGamesRequest[] = { 0x80 };
+    valid &= SendGCProtobufJobData(gc,
+            k_EMsgGCCStrike15_v2_MatchListRequestTournamentGames,
+            TruncatedTournamentGamesRequest,
+            sizeof(TruncatedTournamentGamesRequest),
+            8108)
+        && HostMessageNotReceived(gc, k_EMsgGCCStrike15_v2_MatchList);
+
+    return valid
+        && Platform::g_printCount.load(std::memory_order_relaxed) == printCountBefore;
+}
+
 int main()
 {
     struct TestCase
@@ -2890,6 +3025,8 @@ int main()
             SeasonalMissionCardSelectionValidatesAndPersists },
         { "EventFavoritesPersistAndPreserveRequestJobs",
             EventFavoritesPersistAndPreserveRequestJobs },
+        { "OfflineGCRequestsReceiveMinimalResponses",
+            OfflineGCRequestsReceiveMinimalResponses },
     };
 
     bool allPassed = true;
