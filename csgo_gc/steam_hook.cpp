@@ -1047,7 +1047,20 @@ public:
     {
         if (!AppId::IsOriginal())
         {
-            return m_store.ResetAllStats(achievementsToo);
+            if (!m_store.ResetAllStats(achievementsToo))
+            {
+                return false;
+            }
+
+            std::vector<std::string> storedAchievements;
+            bool success = m_store.Save(storedAchievements);
+            if (!success)
+            {
+                Platform::Print("Saving local user stats to %s failed\n",
+                    LocalUserStats::LocalPath);
+            }
+            QueueUserStatsStoredCallback(success ? k_EResultOK : k_EResultFail);
+            return success;
         }
         return original(achievementsToo);
     }

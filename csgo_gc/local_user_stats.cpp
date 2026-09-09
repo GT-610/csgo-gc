@@ -3,7 +3,13 @@
 #include "keyvalue.h"
 
 #include <bit>
-#include <filesystem>
+#include <cerrno>
+
+#ifdef _WIN32
+#include <direct.h>
+#else
+#include <sys/stat.h>
+#endif
 
 namespace LocalUserStats
 {
@@ -56,6 +62,23 @@ std::vector<std::string> SortedNames(const std::unordered_map<std::string, T> &v
     }
     std::sort(names.begin(), names.end());
     return names;
+}
+
+bool EnsureParentDirectoryExists(std::string_view path)
+{
+    size_t separator = path.find_last_of("/\\");
+    if (separator == std::string_view::npos)
+    {
+        return true;
+    }
+
+    std::string parent{ path.substr(0, separator) };
+#ifdef _WIN32
+    int result = _mkdir(parent.c_str());
+#else
+    int result = mkdir(parent.c_str(), 0755);
+#endif
+    return result == 0 || errno == EEXIST;
 }
 
 } // namespace
@@ -247,15 +270,9 @@ bool Store::Save(std::vector<std::string> &storedAchievements)
         return false;
     }
 
-    std::filesystem::path parent = std::filesystem::path{ m_path }.parent_path();
-    std::error_code error;
-    if (!parent.empty())
+    if (!EnsureParentDirectoryExists(m_path))
     {
-        std::filesystem::create_directories(parent, error);
-        if (error)
-        {
-            return false;
-        }
+        return false;
     }
 
     KeyValue root{ "user_stats" };

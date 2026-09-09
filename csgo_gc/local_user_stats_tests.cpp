@@ -1,8 +1,8 @@
 #include "stdafx.h"
 #include "local_user_stats.h"
+#include "test_filesystem.h"
 
 #include <cstdio>
-#include <filesystem>
 
 namespace
 {
@@ -23,15 +23,14 @@ bool Check(bool condition, const char *expression, int line)
 
 void ResetStorage()
 {
-    std::error_code error;
-    std::filesystem::remove_all(TestDirectory, error);
+    TestFilesystem::RemoveFile(TestPath);
+    TestFilesystem::RemoveDirectory(TestDirectory);
+    TestFilesystem::RemoveFile(TestDirectory);
 }
 
 bool WriteBytes(std::string_view data)
 {
-    std::error_code error;
-    std::filesystem::create_directories(TestDirectory, error);
-    if (error)
+    if (!TestFilesystem::MakeDirectory(TestDirectory))
     {
         return false;
     }
