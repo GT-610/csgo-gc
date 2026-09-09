@@ -32,6 +32,7 @@ add_library(csgo_gc SHARED
     item_schema.cpp
     item_utils.cpp
     keyvalue.cpp
+    local_user_stats.cpp
     main.cpp
     networking_client.cpp
     networking_server.cpp
@@ -274,4 +275,26 @@ if (BUILD_TESTING)
     add_test(NAME saved_item_shuffles_tests COMMAND saved_item_shuffles_tests)
     set_tests_properties(saved_item_shuffles_tests PROPERTIES
         WORKING_DIRECTORY "${SAVED_ITEM_SHUFFLES_TEST_WORKING_DIRECTORY}")
+
+    add_executable(local_user_stats_tests
+        keyvalue.cpp
+        local_user_stats.cpp
+        local_user_stats_tests.cpp)
+
+    target_precompile_headers(local_user_stats_tests PRIVATE stdafx.h)
+    target_link_libraries(local_user_stats_tests PRIVATE csgo_gc_protobufs)
+
+    if (MSVC)
+        target_compile_options(local_user_stats_tests PRIVATE /W4 /wd4244 /wd4819)
+        target_compile_definitions(local_user_stats_tests PRIVATE _CRT_SECURE_NO_WARNINGS)
+    else()
+        target_compile_options(local_user_stats_tests PRIVATE -Wall -Wextra)
+    endif()
+
+    set(LOCAL_USER_STATS_TEST_WORKING_DIRECTORY
+        "${CMAKE_CURRENT_BINARY_DIR}/local_user_stats_test_workdir")
+    file(MAKE_DIRECTORY "${LOCAL_USER_STATS_TEST_WORKING_DIRECTORY}")
+    add_test(NAME local_user_stats_tests COMMAND local_user_stats_tests)
+    set_tests_properties(local_user_stats_tests PROPERTIES
+        WORKING_DIRECTORY "${LOCAL_USER_STATS_TEST_WORKING_DIRECTORY}")
 endif()
