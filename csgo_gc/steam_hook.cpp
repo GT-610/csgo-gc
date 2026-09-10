@@ -14,10 +14,13 @@
 #include "appid.h"
 #include "gc_client.h"
 #include "gc_server.h"
+#include "local_user_stats.h"
 #include "platform.h"
 #include "rcon_server.h"
 #include "saved_item_shuffles.h"
 #include <funchook.h>
+#include <ctime>
+#include <limits>
 
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -844,29 +847,222 @@ public:
 };
 
 static std::vector<UserStatsReceived_t> s_userStatsReceivedCallbacks;
+static std::vector<UserStatsStored_t> s_userStatsStoredCallbacks;
+static std::vector<UserAchievementStored_t> s_userAchievementStoredCallbacks;
 
-static void QueueUserStatsCallback()
+static uint64 LocalUserStatsGameId()
+{
+    return CGameID(AppId::GetOverride()).ToUint64();
+}
+
+static void QueueUserStatsReceivedCallback(uint64 steamId, EResult result)
 {
     UserStatsReceived_t callback{};
-    // m_nGameID not used
-    callback.m_eResult = k_EResultOK;
-    // m_steamIDUser not used
+    callback.m_nGameID = LocalUserStatsGameId();
+    callback.m_eResult = result;
+    callback.m_steamIDUser = CSteamID{ steamId };
     s_userStatsReceivedCallbacks.push_back(callback);
+}
+
+static void QueueUserStatsStoredCallback(EResult result)
+{
+    UserStatsStored_t callback{};
+    callback.m_nGameID = LocalUserStatsGameId();
+    callback.m_eResult = result;
+    s_userStatsStoredCallbacks.push_back(callback);
+}
+
+static void QueueUserAchievementStoredCallback(const char *name,
+    uint32 currentProgress = 0, uint32 maxProgress = 0)
+{
+    UserAchievementStored_t callback{};
+    callback.m_nGameID = LocalUserStatsGameId();
+    snprintf(callback.m_rgchAchievementName,
+        sizeof(callback.m_rgchAchievementName), "%s", name);
+    callback.m_nCurProgress = currentProgress;
+    callback.m_nMaxProgress = maxProgress;
+    s_userAchievementStoredCallbacks.push_back(callback);
 }
 
 class SteamUserStatsProxy final
 {
 public:
+    SteamUserStatsProxy(HSteamPipe pipe, HSteamUser user)
+        : m_steamId{ GetUserSteamId(pipe, user) }
+        , m_store{ LocalUserStats::LocalPath }
+    {
+    }
+
     bool RequestCurrentStats(auto original)
     {
         if (!AppId::IsOriginal())
         {
             Platform::Print("Handling RequestCurrentStats for custom appid\n");
-            QueueUserStatsCallback();
+            LocalUserStats::LoadResult result = m_store.IsLoaded()
+                ? LocalUserStats::LoadResult::Success
+                : m_store.Load();
+            bool success = result == LocalUserStats::LoadResult::Success
+                || result == LocalUserStats::LoadResult::NotFound;
+            if (!success)
+            {
+                Platform::Print("Loading local user stats failed (%d)\n",
+                    static_cast<int>(result));
+            }
+            QueueUserStatsReceivedCallback(m_steamId,
+                success ? k_EResultOK : k_EResultFail);
             return true;
         }
 
         return original();
+    }
+
+    bool GetStat(auto original, const char *name, int32 *value)
+    {
+        if (!AppId::IsOriginal())
+        {
+            return name && value && m_store.GetStat(name, *value);
+        }
+        return original(name, value);
+    }
+
+    bool GetStat(auto original, const char *name, float *value)
+    {
+        if (!AppId::IsOriginal())
+        {
+            return name && value && m_store.GetStat(name, *value);
+        }
+        return original(name, value);
+    }
+
+    bool SetStat(auto original, const char *name, int32 value)
+    {
+        if (!AppId::IsOriginal())
+        {
+            return name && m_store.SetStat(name, value);
+        }
+        return original(name, value);
+    }
+
+    bool SetStat(auto original, const char *name, float value)
+    {
+        if (!AppId::IsOriginal())
+        {
+            return name && m_store.SetStat(name, value);
+        }
+        return original(name, value);
+    }
+
+    bool GetAchievement(auto original, const char *name, bool *achieved)
+    {
+        if (!AppId::IsOriginal())
+        {
+            uint32 unlockTime{};
+            return name && achieved
+                && m_store.GetAchievement(name, *achieved, unlockTime);
+        }
+        return original(name, achieved);
+    }
+
+    bool GetAchievementAndUnlockTime(auto original, const char *name,
+        bool *achieved, uint32 *unlockTime)
+    {
+        if (!AppId::IsOriginal())
+        {
+            return name && achieved && unlockTime
+                && m_store.GetAchievement(name, *achieved, *unlockTime);
+        }
+        return original(name, achieved, unlockTime);
+    }
+
+    bool SetAchievement(auto original, const char *name)
+    {
+        if (!AppId::IsOriginal())
+        {
+            std::time_t currentTime = std::time(nullptr);
+            uint32 unlockTime = currentTime > 0
+                && static_cast<uint64_t>(currentTime) <= std::numeric_limits<uint32>::max()
+                ? static_cast<uint32>(currentTime)
+                : 0;
+            return name && m_store.SetAchievement(name, unlockTime);
+        }
+        return original(name);
+    }
+
+    bool ClearAchievement(auto original, const char *name)
+    {
+        if (!AppId::IsOriginal())
+        {
+            return name && m_store.ClearAchievement(name);
+        }
+        return original(name);
+    }
+
+    bool StoreStats(auto original)
+    {
+        if (!AppId::IsOriginal())
+        {
+            if (!m_store.IsLoaded())
+            {
+                return false;
+            }
+
+            std::vector<std::string> storedAchievements;
+            bool success = m_store.Save(storedAchievements);
+            if (!success)
+            {
+                Platform::Print("Saving local user stats to %s failed\n",
+                    LocalUserStats::LocalPath);
+            }
+            QueueUserStatsStoredCallback(success ? k_EResultOK : k_EResultFail);
+            if (success)
+            {
+                for (const std::string &name : storedAchievements)
+                {
+                    QueueUserAchievementStoredCallback(name.c_str());
+                }
+            }
+            return true;
+        }
+        return original();
+    }
+
+    bool IndicateAchievementProgress(auto original, const char *name,
+        uint32 currentProgress, uint32 maxProgress)
+    {
+        if (!AppId::IsOriginal())
+        {
+            bool achieved{};
+            uint32 unlockTime{};
+            if (!name || !m_store.GetAchievement(name, achieved, unlockTime))
+            {
+                return false;
+            }
+            QueueUserAchievementStoredCallback(name, currentProgress, maxProgress);
+            return true;
+        }
+        return original(name, currentProgress, maxProgress);
+    }
+
+    bool ResetAllStats(auto original, bool achievementsToo)
+    {
+        if (!AppId::IsOriginal())
+        {
+            if (!m_store.ResetAllStats(achievementsToo))
+            {
+                return false;
+            }
+
+            std::vector<std::string> storedAchievements;
+            bool success = m_store.Save(storedAchievements);
+            if (!success)
+            {
+                Platform::Print("Saving local user stats to %s failed\n",
+                    LocalUserStats::LocalPath);
+            }
+            QueueUserStatsStoredCallback(success ? k_EResultOK : k_EResultFail);
+            return success;
+        }
+        return original(achievementsToo);
     }
 
     SteamAPICall_t RequestUserStats(auto original, CSteamID steamIDUser)
@@ -879,6 +1075,10 @@ public:
 
         return original(steamIDUser);
     }
+
+private:
+    uint64 m_steamId;
+    LocalUserStats::Store m_store;
 };
 
 class SteamGameServerProxy final
@@ -1202,10 +1402,10 @@ public:
 
         if (VersionNameIs(version, "STEAMUSERSTATS_INTERFACE_VERSION"))
         {
-            PROXY_INTERFACE(SteamUserStats, 009);
-            PROXY_INTERFACE(SteamUserStats, 010);
-            PROXY_INTERFACE(SteamUserStats, 011);
-            PROXY_INTERFACE(SteamUserStats, 012);
+            PROXY_INTERFACE(SteamUserStats, 009, m_steamPipe, m_steamUser);
+            PROXY_INTERFACE(SteamUserStats, 010, m_steamPipe, m_steamUser);
+            PROXY_INTERFACE(SteamUserStats, 011, m_steamPipe, m_steamUser);
+            PROXY_INTERFACE(SteamUserStats, 012, m_steamPipe, m_steamUser);
             Platform::Print("Can't hook %s\n", version);
             return nullptr;
         }
@@ -1434,7 +1634,10 @@ struct CallbackHook
 
 static bool ShouldHookCallback(int id)
 {
-    if (id == UserStatsReceived_t::k_iCallback && !AppId::IsOriginal())
+    if (!AppId::IsOriginal()
+        && (id == UserStatsReceived_t::k_iCallback
+            || id == UserStatsStored_t::k_iCallback
+            || id == UserAchievementStored_t::k_iCallback))
     {
         return true;
     }
@@ -1670,16 +1873,26 @@ static void Hk_SteamAPI_RunCallbacks()
             response.m_bAuthorized = 1;
             GetCallbackHooks().RunCallback(false, MicroTxnAuthorizationResponse_t::k_iCallback, &response);
         }
+    }
 
-        if (!s_userStatsReceivedCallbacks.empty())
-        {
-            for (UserStatsReceived_t &data : s_userStatsReceivedCallbacks)
-            {
-                GetCallbackHooks().RunCallback(false, UserStatsReceived_t::k_iCallback, &data);
-            }
+    std::vector<UserStatsReceived_t> receivedCallbacks;
+    std::vector<UserStatsStored_t> storedCallbacks;
+    std::vector<UserAchievementStored_t> achievementCallbacks;
+    receivedCallbacks.swap(s_userStatsReceivedCallbacks);
+    storedCallbacks.swap(s_userStatsStoredCallbacks);
+    achievementCallbacks.swap(s_userAchievementStoredCallbacks);
 
-            s_userStatsReceivedCallbacks.clear();
-        }
+    for (UserStatsReceived_t &data : receivedCallbacks)
+    {
+        GetCallbackHooks().RunCallback(false, UserStatsReceived_t::k_iCallback, &data);
+    }
+    for (UserStatsStored_t &data : storedCallbacks)
+    {
+        GetCallbackHooks().RunCallback(false, UserStatsStored_t::k_iCallback, &data);
+    }
+    for (UserAchievementStored_t &data : achievementCallbacks)
+    {
+        GetCallbackHooks().RunCallback(false, UserAchievementStored_t::k_iCallback, &data);
     }
 }
 
