@@ -94,6 +94,19 @@ bool ExistingFileIsAtomicallyReplaced()
         && input.GetNumber<int>("value") == 1729;
 }
 
+bool SubkeysCanBeRemoved()
+{
+    KeyValue key{ "test" };
+    key.AddNumber("first", 1);
+    key.AddNumber("second", 2);
+
+    return key.RemoveSubkey("first")
+        && !key.RemoveSubkey("missing")
+        && key.SubkeyCount() == 1
+        && !key.GetSubkey("first")
+        && key.GetNumber<int>("second") == 2;
+}
+
 } // namespace
 
 int main()
@@ -102,7 +115,8 @@ int main()
 
     bool success = DetailedFileResultsAreReported()
         && Utf8BomIsAccepted()
-        && ExistingFileIsAtomicallyReplaced();
+        && ExistingFileIsAtomicallyReplaced()
+        && SubkeysCanBeRemoved();
 
     RemoveTestFiles();
     return success ? 0 : 1;
