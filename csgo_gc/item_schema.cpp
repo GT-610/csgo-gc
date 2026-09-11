@@ -653,6 +653,35 @@ bool ItemSchema::CreateItemFromLootListItem(Random &random,
     return true;
 }
 
+bool ItemSchema::CanCreateItem(uint32_t defIndex) const
+{
+    auto itemSearch = m_itemInfo.find(defIndex);
+    if (itemSearch == m_itemInfo.end())
+    {
+        return false;
+    }
+
+    const ItemInfo &itemInfo = itemSearch->second;
+    if (!itemInfo.m_isCoupon)
+    {
+        return true;
+    }
+
+    auto lootListSearch = m_lootLists.find(itemInfo.m_lootListName);
+    if (lootListSearch == m_lootLists.end())
+    {
+        return false;
+    }
+
+    const LootList &lootList = lootListSearch->second;
+    return lootList.subLists.empty()
+        && lootList.items.size() == 1
+        && lootList.items.front().itemInfo
+        && !lootList.items.front().itemInfo->m_isCoupon
+        && !lootList.willProduceStatTrak
+        && !lootList.isUnusual;
+}
+
 bool ItemSchema::CreateItem(uint32_t defIndex, ItemOrigin origin, UnacknowledgedType unacknowledgedType, CSOEconItem &econItem) const
 {
     auto itemSearch = m_itemInfo.find(defIndex);
@@ -667,17 +696,14 @@ bool ItemSchema::CreateItem(uint32_t defIndex, ItemOrigin origin, Unacknowledged
     // urgh wtf is this crap
     if (itemInfo.m_isCoupon)
     {
-        assert(itemInfo.m_lootListName.size());
-        auto lootListSearch = m_lootLists.find(itemInfo.m_lootListName);
-        if (lootListSearch == m_lootLists.end())
+        if (!CanCreateItem(defIndex))
         {
             assert(false);
             return false;
         }
 
+        auto lootListSearch = m_lootLists.find(itemInfo.m_lootListName);
         const LootList &lootList = lootListSearch->second;
-        assert(lootList.subLists.size() == 0 && lootList.items.size() == 1);
-        assert(lootList.willProduceStatTrak == false && lootList.isUnusual == false);
 
         Random random;
 

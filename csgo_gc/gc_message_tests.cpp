@@ -1426,8 +1426,22 @@ static bool WriteStoreFixtures()
     KeyValue &crate = items.AddSubkey("8");
     crate.AddString("name", "crate_test");
     crate.AddString("loot_list_name", "crate_test");
+    KeyValue &coupon = items.AddSubkey("9");
+    coupon.AddString("name", "coupon_test");
+    coupon.AddString("item_type", "coupon");
+    coupon.AddString("loot_list_name", "coupon_test_loot");
+    KeyValue &unavailableCoupon = items.AddSubkey("10");
+    unavailableCoupon.AddString("name", "coupon_unavailable");
+    unavailableCoupon.AddString("item_type", "coupon");
+    unavailableCoupon.AddString("loot_list_name", "coupon_missing_loot");
+    KeyValue &fallbackCoupon = items.AddSubkey("11");
+    fallbackCoupon.AddString("name", "coupon_fallback");
+    fallbackCoupon.AddString("item_type", "coupon");
+    fallbackCoupon.AddString("loot_list_name", "coupon_test_loot");
     items.AddSubkey(std::to_string(ItemSchema::ItemStatsSubscription))
         .AddString("name", "subscription1");
+    KeyValue &lootLists = itemsGame.AddSubkey("client_loot_lists");
+    lootLists.AddSubkey("coupon_test_loot").AddNumber("weapon_ak47", 1);
 
     KeyValue unusualLootLists{ "unusual_loot_lists" };
     unusualLootLists.AddSubkey("empty");
@@ -1437,12 +1451,23 @@ static bool WriteStoreFixtures()
     store.AddNumber("featured_item_index", 7);
     KeyValue &bannerLayout = store.AddSubkey("store_banner_layout");
     bannerLayout.AddSubkey("8").AddNumber("market_link", 1);
+    KeyValue &couponBanner = bannerLayout.AddSubkey("9");
+    couponBanner.AddString("custom_format", "coupon");
+    couponBanner.AddNumber("linked_coupon", 10);
+    bannerLayout.AddSubkey("10").AddString("custom_format", "coupon");
+    bannerLayout.AddSubkey("11").AddString("custom_format", "coupon");
+    bannerLayout.AddSubkey("9999").AddString("custom_format", "double");
     KeyValue &entries = store.AddSubkey("entries");
     KeyValue &priceTemplate = entries.AddSubkey("offline_price_template");
     priceTemplate.AddString("item_link", "weapon_ak47");
     KeyValue &prices = priceTemplate.AddSubkey("prices");
     prices.AddNumber("USD", 99);
     prices.AddNumber("CNY", 700);
+    KeyValue &couponEntry = entries.AddSubkey("coupon_test");
+    couponEntry.AddString("item_link", "coupon_test");
+    KeyValue &couponPrices = couponEntry.AddSubkey("prices");
+    couponPrices.AddNumber("USD", 123);
+    couponPrices.AddNumber("CNY", 888);
 
     return schema.WriteToFile("csgo/scripts/items/items_game.txt")
         && unusualLootLists.WriteToFile("csgo_gc/unusual_loot_lists.txt")
@@ -1612,6 +1637,134 @@ static bool StorePurchasesFinalizeTransactionally()
         valid &= WaitForHostMessage(gc, k_EMsgGCStorePurchaseFinalizeResponse, event)
             && ParseHostProtobuf(event, finalizeResponse)
             && finalizeResponse.result() != 1;
+    }
+
+    RemoveStoreFixtures();
+    return valid;
+}
+
+static bool LegacyStorePriceSheetMatchesClientSchema()
+{
+    constexpr uint64_t SteamId = 76561197960265729ull;
+    RemoveStoreFixtures();
+    if (!WriteStoreFixtures())
+    {
+        RemoveStoreFixtures();
+        return false;
+    }
+
+    bool valid = true;
+    {
+        ClientGC gc{ SteamId };
+
+        CMsgStoreGetUserData storeData;
+        storeData.set_price_sheet_version(0);
+        SendGCProtobuf(gc, k_EMsgGCStoreGetUserData, storeData);
+
+        EventData event;
+        CMsgStoreGetUserDataResponse response;
+        constexpr std::string_view UnavailableCouponBanner{
+            "\0" "10\0" "\1" "custom_format\0" "coupon\0",
+            sizeof("\0" "10\0" "\1" "custom_format\0" "coupon\0") - 1
+        };
+        constexpr std::string_view UnknownBanner{
+            "\0" "9999\0" "\1" "custom_format\0" "double\0",
+            sizeof("\0" "9999\0" "\1" "custom_format\0" "double\0") - 1
+        };
+        constexpr std::string_view LinkedCoupon{
+            "linked_coupon\0" "10\0",
+            sizeof("linked_coupon\0" "10\0") - 1
+        };
+        constexpr std::string_view ExistingCouponPrice{
+            "\0" "coupon_test\0"
+            "\1" "item_link\0" "coupon_test\0"
+            "\0" "prices\0"
+            "\1" "USD\0" "123\0"
+            "\1" "CNY\0" "888\0",
+            sizeof("\0" "coupon_test\0"
+                "\1" "item_link\0" "coupon_test\0"
+                "\0" "prices\0"
+                "\1" "USD\0" "123\0"
+                "\1" "CNY\0" "888\0") - 1
+        };
+        constexpr std::string_view FallbackCouponPrice{
+            "\0" "coupon_fallback\0"
+            "\1" "item_link\0" "coupon_fallback\0"
+            "\1" "category_tags\0" "Misc\0"
+            "\0" "prices\0"
+            "\1" "USD\0" "99\0"
+            "\1" "CNY\0" "700\0",
+            sizeof("\0" "coupon_fallback\0"
+                "\1" "item_link\0" "coupon_fallback\0"
+                "\1" "category_tags\0" "Misc\0"
+                "\0" "prices\0"
+                "\1" "USD\0" "99\0"
+                "\1" "CNY\0" "700\0") - 1
+        };
+        valid &= WaitForHostMessage(gc, k_EMsgGCStoreGetUserDataResponse, event)
+            && ParseHostProtobuf(event, response)
+            && response.result() == 1
+            && response.price_sheet().find(UnavailableCouponBanner) == std::string::npos
+            && response.price_sheet().find(UnknownBanner) == std::string::npos
+            && response.price_sheet().find(LinkedCoupon) == std::string::npos
+            && response.price_sheet().find(ExistingCouponPrice) != std::string::npos
+            && response.price_sheet().find(FallbackCouponPrice) != std::string::npos;
+
+        CMsgGCStorePurchaseInit invalidPurchase;
+        CGCStorePurchaseInit_LineItem *lineItem = invalidPurchase.add_line_items();
+        lineItem->set_item_def_id(10);
+        lineItem->set_quantity(1);
+        SendGCProtobuf(gc, k_EMsgGCStorePurchaseInit, invalidPurchase);
+        event = {};
+        CMsgGCStorePurchaseInitResponse initResponse;
+        valid &= WaitForHostMessage(gc, k_EMsgGCStorePurchaseInitResponse, event)
+            && ParseHostProtobuf(event, initResponse)
+            && initResponse.result() != 1;
+
+        CMsgGCStorePurchaseInit purchase;
+        lineItem = purchase.add_line_items();
+        lineItem->set_item_def_id(9);
+        lineItem->set_quantity(1);
+        SendGCProtobuf(gc, k_EMsgGCStorePurchaseInit, purchase);
+        event = {};
+        initResponse.Clear();
+        valid &= WaitForHostMessage(gc, k_EMsgGCStorePurchaseInitResponse, event)
+            && ParseHostProtobuf(event, initResponse)
+            && initResponse.result() == 1
+            && initResponse.txn_id() != 0;
+
+        CMsgGCStorePurchaseFinalize finalize;
+        finalize.set_txn_id(initResponse.txn_id());
+        SendGCProtobuf(gc, k_EMsgGCStorePurchaseFinalize, finalize);
+
+        std::vector<EventData> finalizeEvents;
+        CMsgGCStorePurchaseFinalizeResponse finalizeResponse;
+        CMsgSOSingleObject create;
+        CSOEconItem purchasedItem;
+        bool foundFinalize = false;
+        bool foundCreate = false;
+        valid &= WaitForHostMessagesUntil(gc,
+            k_EMsgGCStorePurchaseFinalizeResponse, finalizeEvents);
+        for (const EventData &finalizeEvent : finalizeEvents)
+        {
+            uint32_t type = static_cast<uint32_t>(finalizeEvent.id) & ~ProtobufMask;
+            if (type == k_ESOMsg_Create)
+            {
+                foundCreate = ParseHostProtobuf(finalizeEvent, create)
+                    && ParseItemObject(create, purchasedItem);
+            }
+            else if (type == k_EMsgGCStorePurchaseFinalizeResponse)
+            {
+                foundFinalize = ParseHostProtobuf(finalizeEvent, finalizeResponse);
+            }
+        }
+
+        valid &= foundFinalize
+            && foundCreate
+            && finalizeResponse.result() == 1
+            && finalizeResponse.item_ids_size() == 1
+            && purchasedItem.id() == finalizeResponse.item_ids(0)
+            && purchasedItem.def_index() == 7;
     }
 
     RemoveStoreFixtures();
@@ -3019,6 +3172,8 @@ int main()
         { "StatTrakSwapToolTwoPackCreatesTwoTools", StatTrakSwapToolTwoPackCreatesTwoTools },
         { "UnusualStatTrakKnivesCanSwapCounters", UnusualStatTrakKnivesCanSwapCounters },
         { "StorePurchasesFinalizeTransactionally", StorePurchasesFinalizeTransactionally },
+        { "LegacyStorePriceSheetMatchesClientSchema",
+            LegacyStorePriceSheetMatchesClientSchema },
         { "StatsSubscriptionPurchasesRejectDuplicates",
             StatsSubscriptionPurchasesRejectDuplicates },
         { "ServiceMedalsFollowBuildYearAndPersistPrestige",

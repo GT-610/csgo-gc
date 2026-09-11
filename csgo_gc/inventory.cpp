@@ -2677,9 +2677,9 @@ Inventory::CounterSwapResult Inventory::PerformCounterSwap(uint64_t toolId, uint
 
 uint64_t Inventory::PurchaseItem(uint32_t defIndex, std::vector<CMsgSOSingleObject> &update)
 {
-    if (!m_itemSchema.ItemInfoByDefIndex(defIndex))
+    if (!m_itemSchema.CanCreateItem(defIndex))
     {
-        Platform::Print("PurchaseItem: unknown def_index %u\n", defIndex);
+        Platform::Print("PurchaseItem: unavailable def_index %u\n", defIndex);
         return 0;
     }
 

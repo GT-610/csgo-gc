@@ -200,6 +200,7 @@ public:
         CSOEconItem &item) const;
 
     // item creation: id and account id not set, needs to be done by the caller
+    bool CanCreateItem(uint32_t defIndex) const;
     bool CreateItem(uint32_t defIndex, ItemOrigin origin, UnacknowledgedType unacknowledgedType, CSOEconItem &econItem) const;
 
     // trade-up helpers
