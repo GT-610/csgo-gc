@@ -674,12 +674,18 @@ bool ItemSchema::CanCreateItem(uint32_t defIndex) const
     }
 
     const LootList &lootList = lootListSearch->second;
-    return lootList.subLists.empty()
-        && lootList.items.size() == 1
-        && lootList.items.front().itemInfo
-        && !lootList.items.front().itemInfo->m_isCoupon
-        && !lootList.willProduceStatTrak
-        && !lootList.isUnusual;
+    if (!lootList.subLists.empty() || lootList.items.size() != 1
+        || lootList.willProduceStatTrak || lootList.isUnusual)
+    {
+        return false;
+    }
+
+    const LootListItem &lootListItem = lootList.items.front();
+    return lootListItem.itemInfo
+        && !lootListItem.itemInfo->m_isCoupon
+        && (!itemInfo.m_willProduceStatTrak
+            || lootListItem.type == LootListItemMusicKit
+            || lootListItem.type == LootListItemPaintable);
 }
 
 bool ItemSchema::CreateItem(uint32_t defIndex, ItemOrigin origin, UnacknowledgedType unacknowledgedType, CSOEconItem &econItem) const

@@ -289,6 +289,80 @@ public:
             && schema.m_missionCardsBySeason.find(12) == schema.m_missionCardsBySeason.end();
     }
 
+    bool ValidateCouponStatTrakTargets()
+    {
+        auto addUint32Attribute = [&](uint32_t defIndex)
+        {
+            KeyValue attribute{ std::to_string(defIndex) };
+            attribute.AddString("attribute_type", "uint32");
+            schema.m_attributeInfo.emplace(defIndex, AttributeInfo{ attribute });
+        };
+        addUint32Attribute(ItemSchema::AttributeTexturePrefab);
+        addUint32Attribute(ItemSchema::AttributeTextureSeed);
+        addUint32Attribute(ItemSchema::AttributeTextureWear);
+        addUint32Attribute(ItemSchema::AttributeKillEater);
+        addUint32Attribute(ItemSchema::AttributeKillEaterScoreType);
+
+        ItemInfo &target = schema.m_itemInfo.try_emplace(100, 100).first->second;
+        target.m_name = "weapon_test";
+
+        ItemInfo &validCoupon = schema.m_itemInfo.try_emplace(200, 200).first->second;
+        validCoupon.m_name = "coupon_stattrak_valid";
+        validCoupon.m_isCoupon = true;
+        validCoupon.m_lootListName = "stattrak_valid";
+        validCoupon.m_willProduceStatTrak = true;
+
+        ItemInfo &invalidCoupon = schema.m_itemInfo.try_emplace(201, 201).first->second;
+        invalidCoupon.m_name = "coupon_stattrak_invalid";
+        invalidCoupon.m_isCoupon = true;
+        invalidCoupon.m_lootListName = "stattrak_invalid";
+        invalidCoupon.m_willProduceStatTrak = true;
+
+        KeyValue paintKitKey{ "1" };
+        paintKitKey.AddString("name", "paint_test");
+        auto paintKit = schema.m_paintKitInfo.emplace("paint_test",
+            PaintKitInfo{ paintKitKey, 0.0f, 1.0f });
+
+        const ItemInfo *targetInfo = schema.ItemInfoByDefIndex(100);
+        LootListItem validLootItem;
+        validLootItem.itemInfo = targetInfo;
+        validLootItem.type = LootListItemPaintable;
+        validLootItem.paintKitInfo = &paintKit.first->second;
+        validLootItem.rarity = ItemSchema::RarityCommon;
+        validLootItem.quality = ItemSchema::QualityUnique;
+        schema.m_lootLists["stattrak_valid"].items.push_back(validLootItem);
+
+        LootListItem invalidLootItem;
+        invalidLootItem.itemInfo = targetInfo;
+        invalidLootItem.type = LootListItemNoAttribute;
+        invalidLootItem.rarity = ItemSchema::RarityCommon;
+        invalidLootItem.quality = ItemSchema::QualityUnique;
+        schema.m_lootLists["stattrak_invalid"].items.push_back(invalidLootItem);
+
+        if (!schema.CanCreateItem(200) || schema.CanCreateItem(201))
+        {
+            return false;
+        }
+
+        CSOEconItem created;
+        if (!schema.CreateItem(200, ItemOriginPurchased, UnacknowledgedPurchased, created)
+            || created.quality() != ItemSchema::QualityStrange)
+        {
+            return false;
+        }
+
+        bool hasKillEater = false;
+        bool hasWeaponScoreType = false;
+        for (const CSOEconItemAttribute &attribute : created.attribute())
+        {
+            hasKillEater |= attribute.def_index() == ItemSchema::AttributeKillEater;
+            hasWeaponScoreType |= attribute.def_index() == ItemSchema::AttributeKillEaterScoreType
+                && schema.AttributeUint32(&attribute) == 0;
+        }
+
+        return hasKillEater && hasWeaponScoreType;
+    }
+
     ItemSchema schema;
 };
 
@@ -350,6 +424,12 @@ static bool SeasonalOperationUsesSchemaPassCoinAndMissionCards()
     return fixture.ParseSeasonalOperationData();
 }
 
+static bool CouponStatTrakValidationMatchesTargetType()
+{
+    ItemSchemaTestFixture fixture;
+    return fixture.ValidateCouponStatTrakTargets();
+}
+
 int main()
 {
     if (!TournamentStickerCapsuleIsNotSouvenir())
@@ -385,6 +465,11 @@ int main()
     if (!SeasonalOperationUsesSchemaPassCoinAndMissionCards())
     {
         return 7;
+    }
+
+    if (!CouponStatTrakValidationMatchesTargetType())
+    {
+        return 8;
     }
 
     return 0;
