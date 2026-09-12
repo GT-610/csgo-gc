@@ -70,6 +70,7 @@ public:
 
     // writing helpers
     KeyValue &AddSubkey(std::string_view name);
+    bool RemoveSubkey(std::string_view name);
     void AddString(std::string_view name, std::string_view value);
     void SetString(std::string_view name, std::string_view value);
 

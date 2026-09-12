@@ -495,6 +495,19 @@ KeyValue &KeyValue::AddSubkey(std::string_view name)
     return m_subkeys.emplace_back(name);
 }
 
+bool KeyValue::RemoveSubkey(std::string_view name)
+{
+    auto it = std::find_if(m_subkeys.begin(), m_subkeys.end(),
+        [name](const KeyValue &subkey) { return subkey.m_name == name; });
+    if (it == m_subkeys.end())
+    {
+        return false;
+    }
+
+    m_subkeys.erase(it);
+    return true;
+}
+
 void KeyValue::AddString(std::string_view name, std::string_view value)
 {
     KeyValue &subkey = AddSubkey(name);

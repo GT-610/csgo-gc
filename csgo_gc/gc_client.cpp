@@ -1378,17 +1378,61 @@ constexpr uint32_t MakeAddress(uint32_t v1, uint32_t v2, uint32_t v3, uint32_t v
     return v4 | (v3 << 8) | (v2 << 16) | (v1 << 24);
 }
 
-constexpr uint32_t PriceSheetVersion = 1680057677;
+constexpr uint32_t PriceSheetVersion = 1789084800;
 constexpr int32_t StoreResultOK = 1;
 constexpr int32_t StoreResultInvalid = 2;
 constexpr uint32_t MaxStorePurchaseItems = 1024;
 
 static bool IsStoreCrate(const ItemInfo &item)
 {
-    return item.m_supplyCrateSeries || !item.m_lootListName.empty();
+    return !item.m_isCoupon
+        && (item.m_supplyCrateSeries || !item.m_lootListName.empty());
 }
 
-static void EnableOfflineStoreCrates(KeyValue &priceSheet, const ItemSchema &itemSchema)
+static bool EnsureStoreEntry(KeyValue &entries, const ItemInfo &item,
+    const KeyValue *priceTemplate)
+{
+    if (item.m_name.empty())
+    {
+        return false;
+    }
+
+    KeyValue *entry = entries.GetSubkey(item.m_name);
+    if (!entry)
+    {
+        if (!priceTemplate)
+        {
+            return false;
+        }
+
+        entry = &entries.AddSubkey(item.m_name);
+        entry->AddString("item_link", item.m_name);
+        entry->AddString("category_tags", "Misc");
+    }
+
+    entry->SetString("item_link", item.m_name);
+    KeyValue *prices = entry->GetSubkey("prices");
+    if (!prices || !prices->SubkeyCount())
+    {
+        if (!priceTemplate)
+        {
+            return false;
+        }
+
+        if (prices)
+        {
+            *prices = *priceTemplate;
+        }
+        else
+        {
+            entry->AddSubkey("prices") = *priceTemplate;
+        }
+    }
+
+    return true;
+}
+
+static void AdaptStorePriceSheet(KeyValue &priceSheet, const ItemSchema &itemSchema)
 {
     KeyValue *store = priceSheet.GetSubkey("store");
     if (!store)
@@ -1414,23 +1458,20 @@ static void EnableOfflineStoreCrates(KeyValue &priceSheet, const ItemSchema &ite
         }
     }
 
-    if (!templatePrices)
-    {
-        Platform::Print("Store price sheet has no price template for offline crates\n");
-        return;
-    }
-
     // Adding entries can reallocate the entries vector, so preserve the price
     // tree before iterating the banner layout.
-    KeyValue priceTemplate{ *templatePrices };
+    std::optional<KeyValue> priceTemplate;
+    if (templatePrices)
+    {
+        priceTemplate.emplace(*templatePrices);
+    }
+
     size_t enabledCount = 0;
+    size_t removedCount = 0;
+    size_t removedLinkedCount = 0;
+    std::vector<std::string> removeBannerEntries;
     for (KeyValue &bannerEntry : *bannerLayout)
     {
-        if (!bannerEntry.GetNumber("market_link", false))
-        {
-            continue;
-        }
-
         uint32_t defIndex{};
         if (!TryParseNumber(bannerEntry.Name(), defIndex))
         {
@@ -1438,33 +1479,65 @@ static void EnableOfflineStoreCrates(KeyValue &priceSheet, const ItemSchema &ite
         }
 
         const ItemInfo *item = itemSchema.ItemInfoByDefIndex(defIndex);
-        if (!item || !IsStoreCrate(*item))
+        if (!item || !itemSchema.CanCreateItem(defIndex))
+        {
+            removeBannerEntries.emplace_back(bannerEntry.Name());
+            continue;
+        }
+
+        bool marketLink = bannerEntry.GetNumber("market_link", false);
+        if (marketLink && IsStoreCrate(*item))
+        {
+            bannerEntry.SetString("market_link", "0");
+            marketLink = false;
+            ++enabledCount;
+        }
+
+        if (!marketLink && !EnsureStoreEntry(*entries, *item,
+                priceTemplate ? &*priceTemplate : nullptr))
+        {
+            removeBannerEntries.emplace_back(bannerEntry.Name());
+            continue;
+        }
+
+        KeyValue *linkedCoupon = bannerEntry.GetSubkey("linked_coupon");
+        if (!linkedCoupon)
         {
             continue;
         }
 
-        bannerEntry.SetString("market_link", "0");
-
-        KeyValue *entry = entries->GetSubkey(item->m_name);
-        if (!entry)
+        uint32_t linkedDefIndex{};
+        const ItemInfo *linkedItem = nullptr;
+        if (TryParseNumber(linkedCoupon->String(), linkedDefIndex))
         {
-            entry = &entries->AddSubkey(item->m_name);
-            entry->AddString("item_link", item->m_name);
-            entry->AddString("category_tags", "Misc");
+            linkedItem = itemSchema.ItemInfoByDefIndex(linkedDefIndex);
         }
 
-        if (!entry->GetSubkey("prices"))
+        if (!linkedItem || !linkedItem->m_isCoupon
+            || !itemSchema.CanCreateItem(linkedDefIndex)
+            || !EnsureStoreEntry(*entries, *linkedItem,
+                priceTemplate ? &*priceTemplate : nullptr))
         {
-            entry->AddSubkey("prices") = priceTemplate;
+            bannerEntry.RemoveSubkey("linked_coupon");
+            ++removedLinkedCount;
         }
+    }
 
-        ++enabledCount;
+    for (const std::string &name : removeBannerEntries)
+    {
+        removedCount += bannerLayout->RemoveSubkey(name);
     }
 
     if (enabledCount)
     {
         Platform::Print("Enabled %zu market crate%s for offline store purchase\n", enabledCount,
             enabledCount == 1 ? "" : "s");
+    }
+    if (removedCount || removedLinkedCount)
+    {
+        Platform::Print("Removed %zu unavailable store banner entr%s and %zu linked coupon%s\n",
+            removedCount, removedCount == 1 ? "y" : "ies",
+            removedLinkedCount, removedLinkedCount == 1 ? "" : "s");
     }
 }
 
@@ -1988,7 +2061,7 @@ void ClientGC::StoreGetUserData(GCMessageRead &messageRead)
         return;
     }
 
-    EnableOfflineStoreCrates(priceSheet, m_inventory.GetItemSchema());
+    AdaptStorePriceSheet(priceSheet, m_inventory.GetItemSchema());
 
     std::string binaryString;
     binaryString.reserve(1 << 17);
@@ -2031,7 +2104,7 @@ void ClientGC::StorePurchaseInit(GCMessageRead &messageRead)
             = item.item_def_id() == ItemSchema::ItemStatsSubscription;
         if (!item.has_item_def_id() || !item.quantity()
             || itemCount > MaxStorePurchaseItems
-            || !m_inventory.GetItemSchema().ItemInfoByDefIndex(item.item_def_id())
+            || !m_inventory.GetItemSchema().CanCreateItem(item.item_def_id())
             || (isStatsSubscription
                 && (item.quantity() != 1 || includesStatsSubscription
                     || m_inventory.HasItemDefinition(ItemSchema::ItemStatsSubscription))))
