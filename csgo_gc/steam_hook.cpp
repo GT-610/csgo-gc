@@ -1925,7 +1925,7 @@ static void Hk_SteamGameServer_RunCallbacks()
                 break;
 
             case HostEvent::NetMessage:
-                s_serverGC->m_networking.SendMessage(static_cast<uint32_t>(event.id), event.buffer.data(), static_cast<uint32_t>(event.buffer.size()));
+                s_serverGC->m_networking.SendHostEvent(event);
                 break;
 
             default:

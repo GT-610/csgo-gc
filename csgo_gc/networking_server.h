@@ -3,6 +3,7 @@
 #include "networking_shared.h"
 
 class GCMessageWrite;
+struct EventData;
 
 // this wrapper type is useless now, but i can't be bothered to inline it
 class ClientSet
@@ -40,6 +41,7 @@ public:
     void ClientDisconnected(uint64_t steamId);
 
     void SendMessage(uint64_t steamId, const void *data, uint32_t size);
+    void SendHostEvent(const EventData &event);
 
 private:
     ISteamNetworkingMessages *const m_networkingMessages;
