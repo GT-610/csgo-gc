@@ -64,6 +64,8 @@ private:
     void SOCacheSubscriptionRefresh(GCMessageRead &messageRead);
     void AdjustItemEquippedState(GCMessageRead &messageRead);
     void ClientPlayerDecalSign(GCMessageRead &messageRead);
+    void PlayerOverwatchCaseUpdate(GCMessageRead &messageRead);
+    void PlayerOverwatchCaseStatus(GCMessageRead &messageRead);
     void UseItemRequest(GCMessageRead &messageRead);
     void ClientRequestNewMission(GCMessageRead &messageRead);
     void ClientRequestJoinServerData(GCMessageRead &messageRead);
@@ -107,6 +109,7 @@ private:
     void BuildClientWelcome(CMsgClientWelcome &message, const CMsgClientHello &hello,
         const CMsgCStrike15Welcome &csWelcome,
         const CMsgGCCStrike15_v2_MatchmakingGC2ClientHello &matchmakingHello);
+    void SendOverwatchCaseAssignment();
     void SendRankUpdate();
 
     uint32_t AccountId() const { return m_steamId & 0xffffffff; }

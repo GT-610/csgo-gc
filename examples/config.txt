@@ -43,6 +43,10 @@
 // only show servers with the "csgo_gc" tag in the server browser
 "show_csgo_gc_servers_only"	"1"
 
+// make the final CS:GO client show its built-in Overwatch tab with a simulated case
+// this enables the tab UI only; evidence download and verdict submission are not implemented
+"overwatch_enabled"	"0"
+
 // local Source RCON. keep bind_address on localhost unless you use a password.
 // empty password accepts any Source RCON password.
 "rcon"

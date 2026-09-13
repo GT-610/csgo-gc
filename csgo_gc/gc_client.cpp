@@ -14,6 +14,8 @@
 namespace
 {
 
+constexpr uint32_t OverwatchCaseReasonAssign = 1;
+
 struct RconCommand
 {
     explicit RconCommand(std::string command_)
@@ -990,6 +992,14 @@ void ClientGC::HandleMessage(uint32_t type, const void *data, uint32_t size)
             ClientPlayerDecalSign(messageRead);
             break;
 
+        case k_EMsgGCCStrike15_v2_PlayerOverwatchCaseUpdate:
+            PlayerOverwatchCaseUpdate(messageRead);
+            break;
+
+        case k_EMsgGCCStrike15_v2_PlayerOverwatchCaseStatus:
+            PlayerOverwatchCaseStatus(messageRead);
+            break;
+
         case k_EMsgGCUseItemRequest:
             UseItemRequest(messageRead);
             break;
@@ -1621,6 +1631,27 @@ void ClientGC::BuildClientWelcome(CMsgClientWelcome &message, const CMsgClientHe
     message.set_txn_country_code("FI"); // finland
 }
 
+void ClientGC::SendOverwatchCaseAssignment()
+{
+    if (!GetConfig().OverwatchEnabled())
+    {
+        return;
+    }
+
+    // This is a UI-only simulated case. The native client owns the tab and
+    // accepts this normal assignment message without any client-side hook.
+    CMsgGCCStrike15_v2_PlayerOverwatchCaseAssignment assignment;
+    assignment.set_caseid(0x4353474f00000001ull);
+    assignment.set_suspectid(1);
+    assignment.set_fractionid(1);
+    assignment.set_numrounds(1);
+    assignment.set_fractionrounds(1);
+    assignment.set_timestamp(static_cast<uint32_t>(std::time(nullptr)));
+    assignment.set_reason(OverwatchCaseReasonAssign);
+
+    SendMessageToGame(false, k_EMsgGCCStrike15_v2_PlayerOverwatchCaseAssignment, assignment);
+}
+
 void ClientGC::SendRankUpdate()
 {
     CMsgGCCStrike15_v2_ClientGCRankUpdate message;
@@ -1674,6 +1705,8 @@ void ClientGC::OnClientHello(GCMessageRead &messageRead)
 
     // send all ranks here as well, it's a bit back and forth with real gc
     SendRankUpdate();
+
+    SendOverwatchCaseAssignment();
 }
 
 void ClientGC::SOCacheSubscriptionRefresh(GCMessageRead &messageRead)
@@ -1738,6 +1771,30 @@ void ClientGC::ClientPlayerDecalSign(GCMessageRead &messageRead)
     }
 
     SendMessageToGame(false, k_EMsgGCCStrike15_v2_ClientPlayerDecalSign, message);
+}
+
+void ClientGC::PlayerOverwatchCaseUpdate(GCMessageRead &messageRead)
+{
+    CMsgGCCStrike15_v2_PlayerOverwatchCaseUpdate request;
+    if (!messageRead.ReadProtobuf(request))
+    {
+        Platform::Print("Parsing CMsgGCCStrike15_v2_PlayerOverwatchCaseUpdate failed, ignoring\n");
+        return;
+    }
+
+    if (GetConfig().OverwatchEnabled() && !request.has_caseid())
+    {
+        SendOverwatchCaseAssignment();
+    }
+}
+
+void ClientGC::PlayerOverwatchCaseStatus(GCMessageRead &messageRead)
+{
+    CMsgGCCStrike15_v2_PlayerOverwatchCaseStatus status;
+    if (!messageRead.ReadProtobuf(status))
+    {
+        Platform::Print("Parsing CMsgGCCStrike15_v2_PlayerOverwatchCaseStatus failed, ignoring\n");
+    }
 }
 
 void ClientGC::UseItemRequest(GCMessageRead &messageRead)

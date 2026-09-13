@@ -134,6 +134,44 @@ if (BUILD_TESTING)
 
     add_test(NAME gc_message_tests COMMAND gc_message_tests)
 
+    add_executable(overwatch_tests
+        appid.cpp
+        case_opening.cpp
+        config.cpp
+        gc_client.cpp
+        gc_shared.cpp
+        graffiti.cpp
+        gc_message.cpp
+        inventory.cpp
+        item_schema.cpp
+        item_utils.cpp
+        keyvalue.cpp
+        networking_client.cpp
+        overwatch_tests.cpp
+        souvenir.cpp)
+
+    target_precompile_headers(overwatch_tests PRIVATE stdafx.h)
+    target_link_libraries(overwatch_tests PRIVATE
+        MbedTLS::mbedcrypto
+        csgo_gc_protobufs
+        steam_api
+        Threads::Threads)
+
+    if (MSVC)
+        target_compile_options(overwatch_tests PRIVATE /W4 /wd4244 /wd4819)
+        target_compile_definitions(overwatch_tests PRIVATE _CRT_SECURE_NO_WARNINGS)
+    else()
+        target_compile_options(overwatch_tests PRIVATE -Wall -Wextra)
+    endif()
+
+    set(OVERWATCH_TEST_WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/overwatch_test_workdir")
+    file(MAKE_DIRECTORY "${OVERWATCH_TEST_WORKING_DIRECTORY}/csgo_gc")
+    file(WRITE "${OVERWATCH_TEST_WORKING_DIRECTORY}/csgo_gc/config.txt"
+        "\"overwatch_enabled\"\t\"1\"\n")
+    add_test(NAME overwatch_tests COMMAND overwatch_tests)
+    set_tests_properties(overwatch_tests PROPERTIES
+        WORKING_DIRECTORY "${OVERWATCH_TEST_WORKING_DIRECTORY}")
+
     add_executable(gc_message_non_prime_tests
         appid.cpp
         case_opening.cpp
