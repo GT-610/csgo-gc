@@ -509,6 +509,12 @@
 			"custom_format"		"coupon"
 			"w"		"0.048937"
 		}
+		"20192"
+		{
+			"custom_format"		"coupon"
+			"w"		"0.042696263641119"
+			"linked_coupon"		"20191"
+		}
 		"20075"
 		{
 			"custom_format"		"coupon"
