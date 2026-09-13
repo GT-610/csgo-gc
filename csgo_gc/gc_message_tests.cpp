@@ -3,6 +3,7 @@
 #include "gc_message.h"
 #include "keyvalue.h"
 #include "networking_client.h"
+#include "networking_server.h"
 #include "test_filesystem.h"
 
 #include <cstring>
@@ -153,9 +154,12 @@ static bool BasicStructHeaderSerializationIsUnchanged()
 class TestSteamNetworkingMessages final : public ISteamNetworkingMessages
 {
 public:
-    EResult SendMessageToUser(const SteamNetworkingIdentity &, const void *, uint32,
+    EResult SendMessageToUser(const SteamNetworkingIdentity &identity, const void *data, uint32 size,
         int, int) override
     {
+        sentSteamIds.push_back(identity.GetSteamID64());
+        const auto *bytes = static_cast<const uint8_t *>(data);
+        sentPayloads.emplace_back(bytes, bytes + size);
         return k_EResultOK;
     }
 
@@ -188,6 +192,8 @@ public:
     }
 
     int receiveCalls{};
+    std::vector<uint64_t> sentSteamIds;
+    std::vector<std::vector<uint8_t>> sentPayloads;
 };
 
 static bool NetworkingClientRefreshesInterfacesAndSkipsIdlePolling()
@@ -207,6 +213,26 @@ static bool NetworkingClientRefreshesInterfacesAndSkipsIdlePolling()
     networking.Update(nullptr);
 
     return first.receiveCalls == 1 && second.receiveCalls == 1;
+}
+
+static bool NetworkingServerPreservesHostEventSteamId()
+{
+    TestSteamNetworkingMessages messages;
+    NetworkingServer networking{ &messages };
+
+    constexpr uint64_t SteamId = 76561198083722517ull;
+    constexpr uint8_t Ticket = 1;
+    networking.ClientConnected(SteamId, &Ticket, sizeof(Ticket));
+
+    EventData event;
+    event.type = static_cast<int>(HostEvent::NetMessage);
+    event.id = SteamId;
+    event.buffer = { 1, 2, 3, 4 };
+    networking.SendHostEvent(event);
+
+    return messages.sentSteamIds.size() == 2
+        && messages.sentSteamIds.back() == SteamId
+        && messages.sentPayloads.back() == event.buffer;
 }
 
 static bool WaitForHostMessage(ClientGC &gc, uint32_t type, EventData &result,
@@ -3160,6 +3186,8 @@ int main()
         { "BasicStructHeaderSerializationIsUnchanged", BasicStructHeaderSerializationIsUnchanged },
         { "NetworkingClientRefreshesInterfacesAndSkipsIdlePolling",
             NetworkingClientRefreshesInterfacesAndSkipsIdlePolling },
+        { "NetworkingServerPreservesHostEventSteamId",
+            NetworkingServerPreservesHostEventSteamId },
         { "PlayerProfileRequestsReturnMinimalProfiles",
             PlayerProfileRequestsReturnMinimalProfiles },
         { "InventoryPersistenceProtectsFiles", InventoryPersistenceProtectsFiles },

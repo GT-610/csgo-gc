@@ -1,6 +1,7 @@
 #include "stdafx.h"
 #include "networking_server.h"
 #include "gc_message.h"
+#include "gc_shared.h"
 
 NetworkingServer::NetworkingServer(ISteamNetworkingMessages *networkingMessages)
     : m_networkingMessages{ networkingMessages }
@@ -104,6 +105,12 @@ void NetworkingServer::SendMessage(uint64_t steamId, const void *data, uint32_t 
     }
 
     SendMessageToUser(m_networkingMessages, steamId, data, size);
+}
+
+void NetworkingServer::SendHostEvent(const EventData &event)
+{
+    assert(event.type == static_cast<int>(HostEvent::NetMessage));
+    SendMessage(event.id, event.buffer.data(), static_cast<uint32_t>(event.buffer.size()));
 }
 
 void NetworkingServer::OnSessionRequest(SteamNetworkingMessagesSessionRequest_t *param)
