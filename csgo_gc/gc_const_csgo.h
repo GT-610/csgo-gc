@@ -73,6 +73,7 @@ enum SOTypeId : uint32_t
     SOTypePersonaDataPublic = 2,
     SOTypeEquipSlot = 3,
     SOTypeGameAccountClient = 7,
+    SOTypeAccountRecurringSubscription = 39,
     SOTypeAccountSeasonalOperation = 41,
     SOTypeDefaultEquippedDefinitionInstanceClient = 43
 };

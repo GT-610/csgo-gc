@@ -89,6 +89,8 @@ private:
     void HandleAccountRequestCoPlays(GCMessageRead &messageRead);
     void HandleAccountPrivacySettings(GCMessageRead &messageRead);
     void HandleMatchListRequest(GCMessageRead &messageRead);
+    void HandleStatsSubscriptionStatus(GCMessageRead &messageRead);
+    void HandleClientDeepStats(GCMessageRead &messageRead);
 
     void DeleteItem(GCMessageRead &messageRead);
     void UnlockCrate(GCMessageRead &messageRead);
@@ -110,6 +112,9 @@ private:
         const CMsgCStrike15Welcome &csWelcome,
         const CMsgGCCStrike15_v2_MatchmakingGC2ClientHello &matchmakingHello);
     void SendOverwatchCaseAssignment();
+    void SendStatsSubscriptionStatus(uint64_t jobId = JobIdInvalid);
+    void SendEmptyDeepStats(const CMsgGCCStrike15_ClientDeepStats &request,
+        uint64_t jobId = JobIdInvalid);
     void SendRankUpdate();
 
     uint32_t AccountId() const { return m_steamId & 0xffffffff; }

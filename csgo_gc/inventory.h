@@ -223,6 +223,15 @@ public:
     size_t ItemCount() const { return m_items.size(); }
     const ItemMap &Items() const { return m_items; }
     bool HasItemDefinition(uint32_t defIndex) const;
+
+    struct StatsSubscriptionState
+    {
+        uint64_t itemId{};
+        uint32_t timeInitiated{};
+        uint32_t timeNextCycle{};
+    };
+
+    std::optional<StatsSubscriptionState> GetStatsSubscription() const;
     const CSOAccountSeasonalOperation *GetSeasonalOperation(uint32_t seasonValue) const;
     const std::set<uint64_t> &EventFavorites() const { return m_eventFavorites; }
     bool SetEventFavorite(uint64_t eventId, bool favorite);
@@ -304,6 +313,7 @@ private:
     Random m_random;
     uint32_t m_lastHighItemId{};
     ItemMap m_items;
+    uint32_t m_statsSubscriptionTimeInitiated{};
     std::unordered_map<uint32_t, CSOAccountSeasonalOperation> m_seasonalOperations;
     std::vector<CSOEconDefaultEquippedDefinitionInstanceClient> m_defaultEquips;
     std::set<uint64_t> m_eventFavorites;
