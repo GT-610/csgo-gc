@@ -300,6 +300,8 @@ public:
         AttributeKillEater = 80,
         AttributeKillEaterScoreType = 81,
 
+        AttributeCustomName = 111,
+
         // ugh
         AttributeStickerId0 = 113,
         AttributeStickerWear0 = 114,

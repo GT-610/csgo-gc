@@ -953,6 +953,8 @@ static bool WriteCustomizationFixtures()
         .AddString("attribute_type", "float");
     attributes.AddSubkey(std::to_string(ItemSchema::AttributeStickerRotation0))
         .AddString("attribute_type", "float");
+    attributes.AddSubkey(std::to_string(ItemSchema::AttributeCustomName))
+        .AddString("attribute_type", "string");
 
     KeyValue &items = itemsGame.AddSubkey("items");
     KeyValue &weapon = items.AddSubkey("7");
@@ -1074,8 +1076,9 @@ static bool ScrapeStickerUntilRemoved(Inventory &inventory, uint64_t itemId,
                 && ParseItemObject(update, updatedItem)
                 && !destroy.has_object_data()
                 && updatedItem.id() == itemId
-                && updatedItem.custom_name() == expectedName
-                && updatedItem.attribute_size() == 0
+                && inventory.GetCustomName(updatedItem) == expectedName
+                && HasAttribute(updatedItem, ItemSchema::AttributeCustomName)
+                && updatedItem.attribute_size() == 1
                 && notification.request() == k_EGCItemCustomizationNotification_RemoveSticker
                 && notification.item_id_size() == 1
                 && notification.item_id(0) == itemId;
@@ -1166,7 +1169,7 @@ static bool BaseItemCustomizationsPreserveRemainingState()
         const CSOEconItem *unnamedClone = inventory.GetItem(nameClone.id());
         CSOEconItem updatedUnnamedClone;
         valid &= unnamedClone
-            && unnamedClone->custom_name().empty()
+            && inventory.GetCustomName(*unnamedClone).empty()
             && HasAttribute(*unnamedClone, ItemSchema::AttributeStickerId0)
             && ParseItemObject(secondRemoveNameUpdate, updatedUnnamedClone)
             && !secondRemoveNameDestroy.has_object_data();

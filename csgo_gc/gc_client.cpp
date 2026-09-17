@@ -184,6 +184,19 @@ std::string ItemName(const ItemSchema &schema, const CSOEconItem &item)
     return "Unknown Item";
 }
 
+std::string ItemCustomName(const ItemSchema &schema, const CSOEconItem &item)
+{
+    for (const CSOEconItemAttribute &attribute : item.attribute())
+    {
+        if (attribute.def_index() == ItemSchema::AttributeCustomName)
+        {
+            return schema.AttributeString(&attribute);
+        }
+    }
+
+    return item.custom_name();
+}
+
 std::string ItemSummary(const ItemSchema &schema, const CSOEconItem &item)
 {
     std::ostringstream response;
@@ -194,9 +207,10 @@ std::string ItemSummary(const ItemSchema &schema, const CSOEconItem &item)
              << " rarity=" << item.rarity()
              << " level=" << item.level();
 
-    if (!item.custom_name().empty())
+    std::string customName = ItemCustomName(schema, item);
+    if (!customName.empty())
     {
-        response << " custom_name=" << QuoteRconValue(item.custom_name());
+        response << " custom_name=" << QuoteRconValue(customName);
     }
 
     return response.str();
@@ -226,7 +240,7 @@ bool ItemMatchesText(const ItemSchema &schema, const CSOEconItem &item, std::str
 {
     std::string loweredQuery = ToLower(std::string{ query });
     std::string loweredName = ToLower(ItemName(schema, item));
-    std::string loweredCustomName = ToLower(item.custom_name());
+    std::string loweredCustomName = ToLower(ItemCustomName(schema, item));
 
     return loweredName.find(loweredQuery) != std::string::npos
         || loweredCustomName.find(loweredQuery) != std::string::npos;

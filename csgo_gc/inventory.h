@@ -202,6 +202,7 @@ public:
 
     const CSOEconItem *GetItem(uint64_t itemId) const;
     const ItemSchema &GetItemSchema() const { return m_itemSchema; }
+    std::string GetCustomName(const CSOEconItem &item) const;
 
     // Trade-up contract: craft 10 items of same rarity into 1 item of next rarity
     // Returns true on success, false on validation failure

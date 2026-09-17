@@ -104,6 +104,9 @@ static CSOEconItemAttribute *FindOrAddAttribute(CSOEconItem &item, uint32_t defI
     return attribute;
 }
 
+static void SetCustomNameAttribute(const ItemSchema &itemSchema, CSOEconItem &item, std::string_view name);
+static std::string GetCustomNameAttribute(const ItemSchema &itemSchema, const CSOEconItem &item);
+
 uint32_t StickerIdAttribute(size_t slot)
 {
     return ItemSchema::AttributeStickerId0 + static_cast<uint32_t>(slot) * 4;
@@ -207,6 +210,12 @@ const CSOEconItem *Inventory::GetItem(uint64_t itemId) const
     }
 
     return &it->second;
+}
+
+std::string Inventory::GetCustomName(const CSOEconItem &item) const
+{
+    std::string name = GetCustomNameAttribute(m_itemSchema, item);
+    return name.empty() ? item.custom_name() : name;
 }
 
 bool Inventory::HasItemDefinition(uint32_t defIndex) const
@@ -599,6 +608,43 @@ void Inventory::DeduplicateStatsSubscriptions()
     }
 }
 
+static void SetCustomNameAttribute(const ItemSchema &itemSchema, CSOEconItem &item, std::string_view name)
+{
+    // go over all of them just in case...
+    for (auto attrib = item.mutable_attribute()->begin(); attrib != item.mutable_attribute()->end();)
+    {
+        if (attrib->def_index() == ItemSchema::AttributeCustomName)
+        {
+            attrib = item.mutable_attribute()->erase(attrib);
+        }
+        else
+        {
+            attrib++;
+        }
+    }
+
+    if (name.size())
+    {
+        CSOEconItemAttribute *nameAttribute = item.add_attribute();
+        nameAttribute->set_def_index(ItemSchema::AttributeCustomName);
+        itemSchema.SetAttributeString(nameAttribute, name);
+    }
+}
+
+static std::string GetCustomNameAttribute(const ItemSchema &itemSchema, const CSOEconItem &item)
+{
+    for (int i = 0; i < item.attribute_size(); i++)
+    {
+        const CSOEconItemAttribute &attrib = item.attribute(i);
+        if (attrib.def_index() == ItemSchema::AttributeCustomName)
+        {
+            return itemSchema.AttributeString(&attrib);
+        }
+    }
+
+    return {};
+}
+
 void Inventory::ReadItem(const KeyValue &itemKey, CSOEconItem &item) const
 {
     // id and account_id were set by CreateItem
@@ -609,12 +655,6 @@ void Inventory::ReadItem(const KeyValue &itemKey, CSOEconItem &item) const
     item.set_quality(itemKey.GetNumber<uint32_t>("quality"));
     item.set_flags(itemKey.GetNumber<uint32_t>("flags"));
     item.set_origin(itemKey.GetNumber<uint32_t>("origin"));
-
-    std::string_view name = itemKey.GetString("custom_name");
-    if (name.size())
-    {
-        item.set_custom_name(std::string{ name });
-    }
 
     item.set_in_use(itemKey.GetNumber<int>("in_use"));
     item.set_rarity(itemKey.GetNumber<uint32_t>("rarity"));
@@ -629,6 +669,16 @@ void Inventory::ReadItem(const KeyValue &itemKey, CSOEconItem &item) const
             uint32_t defIndex = FromString<uint32_t>(attributeKey.Name());
             attribute->set_def_index(defIndex);
             m_itemSchema.SetAttributeString(attribute, attributeKey.String());
+        }
+    }
+
+    // Migrate inventories written before custom names were stored as attributes.
+    if (GetCustomNameAttribute(m_itemSchema, item).empty())
+    {
+        std::string_view name = itemKey.GetString("custom_name");
+        if (name.size())
+        {
+            SetCustomNameAttribute(m_itemSchema, item, name);
         }
     }
 
@@ -793,8 +843,6 @@ void Inventory::WriteItem(KeyValue &itemKey, const CSOEconItem &item) const
     itemKey.AddNumber("quality", item.quality());
     itemKey.AddNumber("flags", item.flags());
     itemKey.AddNumber("origin", item.origin());
-
-    itemKey.AddString("custom_name", item.custom_name());
 
     itemKey.AddNumber("in_use", item.in_use());
     itemKey.AddNumber("rarity", item.rarity());
@@ -1519,7 +1567,7 @@ void Inventory::ItemToPreviewDataBlock(const CSOEconItem &item, CEconItemPreview
     block.set_defindex(item.def_index());
     block.set_rarity(item.rarity());
     block.set_quality(item.quality());
-    block.set_customname(item.custom_name());
+    block.set_customname(GetCustomNameAttribute(m_itemSchema, item));
     block.set_inventory(item.inventory());
     block.set_origin(item.origin());
 
@@ -2126,16 +2174,18 @@ bool Inventory::NameItem(uint64_t nameTagId,
         }
     }
 
-    it->second.mutable_custom_name()->assign(name);
+    CSOEconItem &item = it->second;
 
-    ToSingleObject(update, it->second);
+    SetCustomNameAttribute(m_itemSchema, item, name);
+
+    ToSingleObject(update, item);
 
     if (GetConfig().DestroyUsedItems() && tag != m_items.end())
     {
         DestroyItem(tag, destroy);
     }
 
-    notification.add_item_id(it->second.id());
+    notification.add_item_id(item.id());
     notification.set_request(k_EGCItemCustomizationNotification_NameItem);
 
     return true;
@@ -2173,7 +2223,7 @@ bool Inventory::NameBaseItem(uint64_t nameTagId,
     CSOEconItem &item = CreateItem(defIndex, ItemOriginBaseItem, UnacknowledgedInvalid);
     item.set_rarity(ItemSchema::RarityDefault);
 
-    item.mutable_custom_name()->assign(name);
+    SetCustomNameAttribute(m_itemSchema, item, name);
 
     ToSingleObject(create, item);
 
@@ -2200,7 +2250,7 @@ bool Inventory::RemoveItemName(uint64_t itemId,
         return false;
     }
 
-    it->second.mutable_custom_name()->clear();
+    SetCustomNameAttribute(m_itemSchema, it->second, std::string_view{});
 
     if (IsUncustomizedBaseItemClone(it->second))
     {
@@ -2862,7 +2912,7 @@ uint64_t Inventory::CreateRconItem(uint32_t defIndex,
 
     if (options.customName && !options.customName->empty())
     {
-        item.set_custom_name(*options.customName);
+        SetCustomNameAttribute(m_itemSchema, item, *options.customName);
     }
 
     if (options.paint)
