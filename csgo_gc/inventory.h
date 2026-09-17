@@ -71,7 +71,8 @@ public:
     bool EquipItem(uint64_t itemId, uint32_t classId, uint32_t slotId, bool swap,
         CMsgSOMultipleObjects &update);
 
-    bool RemoveItem(uint64_t itemId, CMsgSOSingleObject &destroy);
+    bool RemoveItem(uint64_t itemId, CMsgSOSingleObject &destroy,
+        CMsgSOSingleObject *recurringSubscriptionDestroy = nullptr);
 
     enum class UseItemChange
     {

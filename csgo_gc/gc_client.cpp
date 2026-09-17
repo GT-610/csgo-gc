@@ -931,13 +931,25 @@ std::string ClientGC::RconRemoveItem(const RconRequest &request)
     }
 
     CMsgSOSingleObject destroyed;
-    if (!m_inventory.RemoveItem(itemId, destroyed))
+    CMsgSOSingleObject recurringSubscriptionDestroy;
+    if (!m_inventory.RemoveItem(itemId, destroyed, &recurringSubscriptionDestroy))
     {
         return "ERR item not found";
     }
 
-    SendMessageToGame(true, k_ESOMsg_Destroy, destroyed);
+    PublishItemRemoval(destroyed, recurringSubscriptionDestroy);
     return "OK removed";
+}
+
+void ClientGC::PublishItemRemoval(const CMsgSOSingleObject &itemDestroy,
+    const CMsgSOSingleObject &recurringSubscriptionDestroy)
+{
+    SendMessageToGame(true, k_ESOMsg_Destroy, itemDestroy);
+    if (recurringSubscriptionDestroy.has_type_id())
+    {
+        SendMessageToGame(false, k_ESOMsg_Destroy, recurringSubscriptionDestroy);
+        SendStatsSubscriptionStatus();
+    }
 }
 
 std::string ClientGC::RconRefreshInventory(const RconRequest &request)
@@ -2379,10 +2391,10 @@ void ClientGC::DeleteItem(GCMessageRead &messageRead)
     }
 
     CMsgSOSingleObject destroyed;
-    if (m_inventory.RemoveItem(itemId, destroyed))
+    CMsgSOSingleObject recurringSubscriptionDestroy;
+    if (m_inventory.RemoveItem(itemId, destroyed, &recurringSubscriptionDestroy))
     {
-        // server needs to know about item destruction for validation
-        SendMessageToGame(true, k_ESOMsg_Destroy, destroyed);
+        PublishItemRemoval(destroyed, recurringSubscriptionDestroy);
     }
     else
     {

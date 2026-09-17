@@ -55,6 +55,8 @@ private:
     std::string RconRemoveItem(const RconRequest &request);
     std::string RconRefreshInventory(const RconRequest &request);
     std::string RconSaveInventory(const RconRequest &request);
+    void PublishItemRemoval(const CMsgSOSingleObject &itemDestroy,
+        const CMsgSOSingleObject &recurringSubscriptionDestroy);
 
     // send to the local game and the game server we're connected to (if we're connected)
     void SendMessageToGame(bool sendToGameServer, uint32_t type,

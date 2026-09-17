@@ -1082,7 +1082,8 @@ bool Inventory::EquipItem(uint64_t itemId, uint32_t classId, uint32_t slotId, bo
     }
 }
 
-bool Inventory::RemoveItem(uint64_t itemId, CMsgSOSingleObject &response)
+bool Inventory::RemoveItem(uint64_t itemId, CMsgSOSingleObject &response,
+    CMsgSOSingleObject *recurringSubscriptionDestroy)
 {
     auto it = m_items.find(itemId);
     if (it == m_items.end())
@@ -1091,7 +1092,16 @@ bool Inventory::RemoveItem(uint64_t itemId, CMsgSOSingleObject &response)
         return false;
     }
 
+    const bool removesStatsSubscription
+        = it->second.def_index() == ItemSchema::ItemStatsSubscription;
     DestroyItem(it, response);
+
+    if (removesStatsSubscription && recurringSubscriptionDestroy)
+    {
+        CSOAccountRecurringSubscription subscription;
+        ToSingleObject(*recurringSubscriptionDestroy,
+            SOTypeAccountRecurringSubscription, subscription);
+    }
     return true;
 }
 

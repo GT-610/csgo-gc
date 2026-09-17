@@ -2054,6 +2054,83 @@ static bool StatsSubscriptionPurchasesRejectDuplicates()
             && items->GetSubkey(std::to_string(subscriptionItemId >> 32));
     }
 
+    {
+        ClientGC gc{ SteamId };
+        GCMessageWrite deleteRequest{ k_EMsgGCDelete };
+        deleteRequest.WriteUint64(subscriptionItemId);
+        gc.PostToGC(GCEvent::Message, deleteRequest.TypeMasked(),
+            deleteRequest.Data(), deleteRequest.Size());
+
+        std::vector<EventData> deleteEvents;
+        valid &= WaitForHostMessagesUntil(gc,
+            k_EMsgGCRecurringSubscriptionStatus, deleteEvents);
+
+        bool foundItemDestroy = false;
+        bool foundSubscriptionDestroy = false;
+        bool foundInactiveStatus = false;
+        size_t itemDestroyIndex = SIZE_MAX;
+        size_t subscriptionDestroyIndex = SIZE_MAX;
+        size_t statusIndex = SIZE_MAX;
+        for (size_t i = 0; i < deleteEvents.size(); ++i)
+        {
+            const EventData &deleteEvent = deleteEvents[i];
+            const uint32_t type = static_cast<uint32_t>(deleteEvent.id) & ~ProtobufMask;
+            if (type == k_ESOMsg_Destroy)
+            {
+                CMsgSOSingleObject object;
+                if (!ParseHostProtobuf(deleteEvent, object))
+                {
+                    valid = false;
+                    continue;
+                }
+
+                CSOEconItem item;
+                CSOAccountRecurringSubscription subscription;
+                if (ParseItemObject(object, item))
+                {
+                    foundItemDestroy = item.id() == subscriptionItemId;
+                    itemDestroyIndex = i;
+                }
+                else if (ParseRecurringSubscriptionObject(object, subscription))
+                {
+                    foundSubscriptionDestroy = true;
+                    subscriptionDestroyIndex = i;
+                }
+            }
+            else if (type == k_EMsgGCRecurringSubscriptionStatus)
+            {
+                CMsgGCHRecurringSubscriptionStatusChange status;
+                foundInactiveStatus = ParseHostProtobuf(deleteEvent, status)
+                    && status.steamid() == SteamId
+                    && status.agreementid() == 0
+                    && !status.active();
+                statusIndex = i;
+            }
+        }
+
+        valid &= foundItemDestroy
+            && foundSubscriptionDestroy
+            && foundInactiveStatus
+            && itemDestroyIndex < subscriptionDestroyIndex
+            && subscriptionDestroyIndex < statusIndex;
+    }
+
+    KeyValue afterDelete{ "inventory" };
+    valid &= afterDelete.ParseFromFile("csgo_gc/inventory.txt")
+        && !afterDelete.GetSubkey("stats_subscription");
+    if (valid)
+    {
+        const KeyValue *items = afterDelete.GetSubkey("items");
+        if (items)
+        {
+            for (const KeyValue &item : *items)
+            {
+                valid &= item.GetNumber<uint32_t>("def_index")
+                    != ItemSchema::ItemStatsSubscription;
+            }
+        }
+    }
+
     RemoveStoreFixtures();
     return valid;
 }
