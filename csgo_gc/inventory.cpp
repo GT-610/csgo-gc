@@ -9,6 +9,34 @@
 #include "souvenir.h"
 
 constexpr const char *InventoryFilePath = "csgo_gc/inventory.txt";
+constexpr uint64_t StatsSubscriptionCycleSeconds = 30ull * 24 * 60 * 60;
+
+static uint32_t CurrentUnixTime()
+{
+    const time_t now = time(nullptr);
+    if (now <= 0)
+    {
+        return 1;
+    }
+
+    return static_cast<uint64_t>(now) > UINT32_MAX
+        ? UINT32_MAX
+        : static_cast<uint32_t>(now);
+}
+
+static uint32_t NextStatsSubscriptionCycle(uint32_t timeInitiated)
+{
+    const uint64_t now = CurrentUnixTime();
+    uint64_t nextCycle = static_cast<uint64_t>(timeInitiated) + StatsSubscriptionCycleSeconds;
+    if (nextCycle <= now)
+    {
+        const uint64_t elapsed = now - timeInitiated;
+        nextCycle = static_cast<uint64_t>(timeInitiated)
+            + (elapsed / StatsSubscriptionCycleSeconds + 1) * StatsSubscriptionCycleSeconds;
+    }
+
+    return nextCycle > UINT32_MAX ? UINT32_MAX : static_cast<uint32_t>(nextCycle);
+}
 
 static uint64_t InitialInventoryVersion()
 {
@@ -186,6 +214,28 @@ bool Inventory::HasItemDefinition(uint32_t defIndex) const
     return std::any_of(m_items.begin(), m_items.end(), [defIndex](const auto &pair) {
         return pair.second.def_index() == defIndex;
     });
+}
+
+std::optional<Inventory::StatsSubscriptionState> Inventory::GetStatsSubscription() const
+{
+    if (!m_statsSubscriptionTimeInitiated)
+    {
+        return std::nullopt;
+    }
+
+    for (const auto &[itemId, item] : m_items)
+    {
+        if (item.def_index() == ItemSchema::ItemStatsSubscription)
+        {
+            return StatsSubscriptionState{
+                itemId,
+                m_statsSubscriptionTimeInitiated,
+                NextStatsSubscriptionCycle(m_statsSubscriptionTimeInitiated)
+            };
+        }
+    }
+
+    return std::nullopt;
 }
 
 const CSOAccountSeasonalOperation *Inventory::GetSeasonalOperation(uint32_t seasonValue) const
@@ -423,6 +473,24 @@ void Inventory::ReadFromFile()
         DeduplicateStatsSubscriptions();
     }
 
+    if (HasItemDefinition(ItemSchema::ItemStatsSubscription))
+    {
+        const KeyValue *subscriptionKey = inventoryKey.GetSubkey("stats_subscription");
+        if (subscriptionKey)
+        {
+            m_statsSubscriptionTimeInitiated
+                = subscriptionKey->GetNumber<uint32_t>("time_initiated");
+        }
+
+        // Inventories written before recurring-subscription SO support only
+        // contain item 4748. Migrate them once and persist the start time on
+        // the next normal inventory save.
+        if (!m_statsSubscriptionTimeInitiated)
+        {
+            m_statsSubscriptionTimeInitiated = CurrentUnixTime();
+        }
+    }
+
     const KeyValue *seasonalOperationsKey = inventoryKey.GetSubkey("seasonal_operations");
     if (seasonalOperationsKey)
     {
@@ -613,6 +681,12 @@ bool Inventory::WriteToFile() const
         }
     }
 
+    if (GetStatsSubscription())
+    {
+        KeyValue &subscriptionKey = inventoryKey.AddSubkey("stats_subscription");
+        subscriptionKey.AddNumber("time_initiated", m_statsSubscriptionTimeInitiated);
+    }
+
     {
         KeyValue &seasonalOperationsKey = inventoryKey.AddSubkey("seasonal_operations");
         for (const auto &[seasonValue, operation] : m_seasonalOperations)
@@ -784,6 +858,17 @@ void Inventory::BuildCacheSubscription(CMsgSOCacheSubscribed &message, bool serv
 
     if (!server)
     {
+        if (std::optional<StatsSubscriptionState> subscription = GetStatsSubscription())
+        {
+            CSOAccountRecurringSubscription recurringSubscription;
+            recurringSubscription.set_time_initiated(subscription->timeInitiated);
+            recurringSubscription.set_time_next_cycle(subscription->timeNextCycle);
+
+            CMsgSOCacheSubscribed_SubscribedType *object = message.add_objects();
+            object->set_type_id(SOTypeAccountRecurringSubscription);
+            object->add_object_data(recurringSubscription.SerializeAsString());
+        }
+
         CSOEconGameAccountClient accountClient;
         accountClient.set_additional_backpack_slots(0);
         accountClient.set_bonus_xp_timestamp_refresh(static_cast<uint32_t>(time(nullptr)));
@@ -997,7 +1082,8 @@ bool Inventory::EquipItem(uint64_t itemId, uint32_t classId, uint32_t slotId, bo
     }
 }
 
-bool Inventory::RemoveItem(uint64_t itemId, CMsgSOSingleObject &response)
+bool Inventory::RemoveItem(uint64_t itemId, CMsgSOSingleObject &response,
+    CMsgSOSingleObject *recurringSubscriptionDestroy)
 {
     auto it = m_items.find(itemId);
     if (it == m_items.end())
@@ -1006,7 +1092,16 @@ bool Inventory::RemoveItem(uint64_t itemId, CMsgSOSingleObject &response)
         return false;
     }
 
+    const bool removesStatsSubscription
+        = it->second.def_index() == ItemSchema::ItemStatsSubscription;
     DestroyItem(it, response);
+
+    if (removesStatsSubscription && recurringSubscriptionDestroy)
+    {
+        CSOAccountRecurringSubscription subscription;
+        ToSingleObject(*recurringSubscriptionDestroy,
+            SOTypeAccountRecurringSubscription, subscription);
+    }
     return true;
 }
 
@@ -2694,6 +2789,20 @@ uint64_t Inventory::PurchaseItem(uint32_t defIndex, std::vector<CMsgSOSingleObje
     CMsgSOSingleObject &single = update.emplace_back();
     ToSingleObject(single, item);
 
+    if (defIndex == ItemSchema::ItemStatsSubscription)
+    {
+        m_statsSubscriptionTimeInitiated = CurrentUnixTime();
+
+        CSOAccountRecurringSubscription recurringSubscription;
+        recurringSubscription.set_time_initiated(m_statsSubscriptionTimeInitiated);
+        recurringSubscription.set_time_next_cycle(
+            NextStatsSubscriptionCycle(m_statsSubscriptionTimeInitiated));
+
+        CMsgSOSingleObject &subscriptionCreate = update.emplace_back();
+        ToSingleObject(subscriptionCreate, SOTypeAccountRecurringSubscription,
+            recurringSubscription);
+    }
+
     return item.id();
 }
 
@@ -3000,6 +3109,11 @@ void Inventory::UnequipSlotForClass(uint32_t classId, uint32_t slotId,
 
 void Inventory::DestroyItem(ItemMap::iterator iterator, CMsgSOSingleObject &message)
 {
+    if (iterator->second.def_index() == ItemSchema::ItemStatsSubscription)
+    {
+        m_statsSubscriptionTimeInitiated = 0;
+    }
+
     CSOEconItem item;
     item.set_id(iterator->second.id());
 

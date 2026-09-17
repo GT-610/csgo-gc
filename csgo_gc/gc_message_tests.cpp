@@ -570,12 +570,18 @@ static bool StatsSubscriptionDuplicatesKeepNewest()
     {
         Inventory inventory{ SteamId };
         const CSOEconItem *newSubscription = inventory.GetItem(NewSubscriptionId);
+        std::optional<Inventory::StatsSubscriptionState> subscription
+            = inventory.GetStatsSubscription();
         valid &= inventory.ItemCount() == 2
             && !inventory.GetItem(OldSubscriptionId)
             && newSubscription
             && newSubscription->def_index() == ItemSchema::ItemStatsSubscription
             && newSubscription->inventory() == 90
-            && inventory.GetItem(OtherItemId);
+            && inventory.GetItem(OtherItemId)
+            && subscription
+            && subscription->itemId == NewSubscriptionId
+            && subscription->timeInitiated != 0
+            && subscription->timeNextCycle > subscription->timeInitiated;
     }
 
     KeyValue persisted{ "inventory" };
@@ -584,12 +590,15 @@ static bool StatsSubscriptionDuplicatesKeepNewest()
     if (valid)
     {
         persistedItems = persisted.GetSubkey("items");
+        const KeyValue *subscription = persisted.GetSubkey("stats_subscription");
         valid &= persistedItems
             && persistedItems->SubkeyCount() == 2
             && !persistedItems->GetSubkey("3")
             && persistedItems->GetSubkey("6")
             && persistedItems->GetSubkey("9")
-            && persistedItems->GetSubkey("9")->GetNumber<uint32_t>("inventory") == 90;
+            && persistedItems->GetSubkey("9")->GetNumber<uint32_t>("inventory") == 90
+            && subscription
+            && subscription->GetNumber<uint32_t>("time_initiated") != 0;
     }
 
     TestFilesystem::RemoveFile(InventoryPath);
@@ -993,6 +1002,13 @@ static bool WriteCustomizationFixtures()
 static bool ParseItemObject(const CMsgSOSingleObject &object, CSOEconItem &item)
 {
     return object.type_id() == SOTypeItem && item.ParseFromString(object.object_data());
+}
+
+static bool ParseRecurringSubscriptionObject(const CMsgSOSingleObject &object,
+    CSOAccountRecurringSubscription &subscription)
+{
+    return object.type_id() == SOTypeAccountRecurringSubscription
+        && subscription.ParseFromString(object.object_data());
 }
 
 static bool HasAttribute(const CSOEconItem &item, uint32_t defIndex)
@@ -1842,16 +1858,77 @@ static bool StatsSubscriptionPurchasesRejectDuplicates()
         CMsgGCStorePurchaseFinalize finalize;
         finalize.set_txn_id(initResponse.txn_id());
         SendGCProtobuf(gc, k_EMsgGCStorePurchaseFinalize, finalize);
-        event = {};
+
+        std::vector<EventData> finalizeEvents;
         CMsgGCStorePurchaseFinalizeResponse finalizeResponse;
-        valid &= WaitForHostMessage(gc, k_EMsgGCStorePurchaseFinalizeResponse, event)
-            && ParseHostProtobuf(event, finalizeResponse)
+        CSOEconItem purchasedItem;
+        CSOAccountRecurringSubscription recurringSubscription;
+        CMsgGCHRecurringSubscriptionStatusChange status;
+        bool foundItemCreate = false;
+        bool foundSubscriptionCreate = false;
+        bool foundFinalize = false;
+        bool foundStatus = false;
+        size_t itemCreateIndex = SIZE_MAX;
+        size_t subscriptionCreateIndex = SIZE_MAX;
+        size_t finalizeIndex = SIZE_MAX;
+        size_t statusIndex = SIZE_MAX;
+        valid &= WaitForHostMessagesUntil(gc,
+            k_EMsgGCRecurringSubscriptionStatus, finalizeEvents);
+        for (size_t i = 0; i < finalizeEvents.size(); i++)
+        {
+            const EventData &finalizeEvent = finalizeEvents[i];
+            const uint32_t type = static_cast<uint32_t>(finalizeEvent.id) & ~ProtobufMask;
+            if (type == k_ESOMsg_Create)
+            {
+                CMsgSOSingleObject create;
+                if (!ParseHostProtobuf(finalizeEvent, create))
+                {
+                    valid = false;
+                }
+                else if (ParseItemObject(create, purchasedItem))
+                {
+                    foundItemCreate = true;
+                    itemCreateIndex = i;
+                }
+                else if (ParseRecurringSubscriptionObject(create, recurringSubscription))
+                {
+                    foundSubscriptionCreate = true;
+                    subscriptionCreateIndex = i;
+                }
+            }
+            else if (type == k_EMsgGCStorePurchaseFinalizeResponse)
+            {
+                foundFinalize = ParseHostProtobuf(finalizeEvent, finalizeResponse);
+                finalizeIndex = i;
+            }
+            else if (type == k_EMsgGCRecurringSubscriptionStatus)
+            {
+                foundStatus = ParseHostProtobuf(finalizeEvent, status);
+                statusIndex = i;
+            }
+        }
+
+        valid &= foundItemCreate
+            && foundSubscriptionCreate
+            && foundFinalize
+            && foundStatus
+            && itemCreateIndex < subscriptionCreateIndex
+            && subscriptionCreateIndex < finalizeIndex
+            && finalizeIndex < statusIndex
             && finalizeResponse.result() == 1
             && finalizeResponse.item_ids_size() == 1;
         if (finalizeResponse.item_ids_size() == 1)
         {
             subscriptionItemId = finalizeResponse.item_ids(0);
         }
+        valid &= subscriptionItemId
+            && purchasedItem.id() == subscriptionItemId
+            && purchasedItem.def_index() == ItemSchema::ItemStatsSubscription
+            && recurringSubscription.time_initiated() != 0
+            && recurringSubscription.time_next_cycle() > recurringSubscription.time_initiated()
+            && status.steamid() == SteamId
+            && status.agreementid() == subscriptionItemId
+            && status.active();
 
         SendGCProtobuf(gc, k_EMsgGCStorePurchaseInit, purchaseInit);
         event = {};
@@ -1864,13 +1941,93 @@ static bool StatsSubscriptionPurchasesRejectDuplicates()
 
     {
         ClientGC gc{ SteamId };
+
+        CMsgClientHello hello;
+        SendGCProtobuf(gc, k_EMsgGCClientHello, hello);
+
+        std::vector<EventData> helloEvents;
+        CMsgClientWelcome welcome;
+        CMsgGCHRecurringSubscriptionStatusChange status;
+        CMsgGCCStrike15_ClientDeepStats deepStats;
+        bool foundWelcome = false;
+        bool foundCachedSubscription = false;
+        uint32_t cachedTimeInitiated = 0;
+        valid &= WaitForHostMessagesUntil(gc,
+            k_EMsgGCCStrike15_v2_ClientGCRankUpdate, helloEvents);
+        for (const EventData &helloEvent : helloEvents)
+        {
+            const uint32_t type = static_cast<uint32_t>(helloEvent.id) & ~ProtobufMask;
+            if (type == k_EMsgGCClientWelcome)
+            {
+                foundWelcome = ParseHostProtobuf(helloEvent, welcome);
+                if (foundWelcome && welcome.outofdate_subscribed_caches_size() == 1)
+                {
+                    for (const CMsgSOCacheSubscribed_SubscribedType &objects
+                        : welcome.outofdate_subscribed_caches(0).objects())
+                    {
+                        if (objects.type_id() != SOTypeAccountRecurringSubscription
+                            || objects.object_data_size() != 1)
+                        {
+                            continue;
+                        }
+
+                        CSOAccountRecurringSubscription cachedSubscription;
+                        foundCachedSubscription
+                            = cachedSubscription.ParseFromString(objects.object_data(0));
+                        if (foundCachedSubscription)
+                        {
+                            cachedTimeInitiated = cachedSubscription.time_initiated();
+                            valid &= cachedTimeInitiated != 0
+                                && cachedSubscription.time_next_cycle() > cachedTimeInitiated;
+                        }
+                    }
+                }
+            }
+        }
+
+        valid &= foundWelcome
+            && foundCachedSubscription
+            && HostMessageNotReceived(gc, k_EMsgGCRecurringSubscriptionStatus)
+            && HostMessageNotReceived(gc, k_EMsgGCCStrike15_ClientDeepStats);
+
+        constexpr uint64_t SubscriptionStatusJobId = 4748001;
+        CMsgGCHRecurringSubscriptionStatusChange statusRequest;
+        valid &= SendGCProtobufJob(gc, k_EMsgGCRecurringSubscriptionStatus,
+            statusRequest, SubscriptionStatusJobId);
+        EventData event;
+        status.Clear();
+        valid &= WaitForHostMessage(gc, k_EMsgGCRecurringSubscriptionStatus, event)
+            && ParseHostJobProtobuf(event, SubscriptionStatusJobId, status)
+            && status.steamid() == SteamId
+            && status.agreementid() == subscriptionItemId
+            && status.active();
+
+        constexpr uint64_t DeepStatsJobId = 4748002;
+        CMsgGCCStrike15_ClientDeepStats deepStatsRequest;
+        deepStatsRequest.set_account_id(SteamId & UINT32_MAX);
+        deepStatsRequest.mutable_range()->set_begin(cachedTimeInitiated);
+        deepStatsRequest.mutable_range()->set_end(cachedTimeInitiated + 100);
+        deepStatsRequest.mutable_range()->set_frozen(false);
+        valid &= SendGCProtobufJob(gc, k_EMsgGCCStrike15_ClientDeepStats,
+            deepStatsRequest, DeepStatsJobId);
+        event = {};
+        deepStats.Clear();
+        valid &= WaitForHostMessage(gc, k_EMsgGCCStrike15_ClientDeepStats, event)
+            && ParseHostJobProtobuf(event, DeepStatsJobId, deepStats)
+            && deepStats.account_id() == (SteamId & UINT32_MAX)
+            && deepStats.has_range()
+            && deepStats.range().begin() == cachedTimeInitiated
+            && deepStats.range().end() == cachedTimeInitiated + 100
+            && deepStats.range().frozen()
+            && deepStats.matches_size() == 0;
+
         CMsgGCStorePurchaseInit purchaseInit;
         CGCStorePurchaseInit_LineItem *lineItem = purchaseInit.add_line_items();
         lineItem->set_item_def_id(ItemSchema::ItemStatsSubscription);
         lineItem->set_quantity(1);
         SendGCProtobuf(gc, k_EMsgGCStorePurchaseInit, purchaseInit);
 
-        EventData event;
+        event = {};
         CMsgGCStorePurchaseInitResponse initResponse;
         valid &= WaitForHostMessage(gc, k_EMsgGCStorePurchaseInitResponse, event)
             && ParseHostProtobuf(event, initResponse)
@@ -1895,6 +2052,83 @@ static bool StatsSubscriptionPurchasesRejectDuplicates()
         valid &= items
             && subscriptionCount == 1
             && items->GetSubkey(std::to_string(subscriptionItemId >> 32));
+    }
+
+    {
+        ClientGC gc{ SteamId };
+        GCMessageWrite deleteRequest{ k_EMsgGCDelete };
+        deleteRequest.WriteUint64(subscriptionItemId);
+        gc.PostToGC(GCEvent::Message, deleteRequest.TypeMasked(),
+            deleteRequest.Data(), deleteRequest.Size());
+
+        std::vector<EventData> deleteEvents;
+        valid &= WaitForHostMessagesUntil(gc,
+            k_EMsgGCRecurringSubscriptionStatus, deleteEvents);
+
+        bool foundItemDestroy = false;
+        bool foundSubscriptionDestroy = false;
+        bool foundInactiveStatus = false;
+        size_t itemDestroyIndex = SIZE_MAX;
+        size_t subscriptionDestroyIndex = SIZE_MAX;
+        size_t statusIndex = SIZE_MAX;
+        for (size_t i = 0; i < deleteEvents.size(); ++i)
+        {
+            const EventData &deleteEvent = deleteEvents[i];
+            const uint32_t type = static_cast<uint32_t>(deleteEvent.id) & ~ProtobufMask;
+            if (type == k_ESOMsg_Destroy)
+            {
+                CMsgSOSingleObject object;
+                if (!ParseHostProtobuf(deleteEvent, object))
+                {
+                    valid = false;
+                    continue;
+                }
+
+                CSOEconItem item;
+                CSOAccountRecurringSubscription subscription;
+                if (ParseItemObject(object, item))
+                {
+                    foundItemDestroy = item.id() == subscriptionItemId;
+                    itemDestroyIndex = i;
+                }
+                else if (ParseRecurringSubscriptionObject(object, subscription))
+                {
+                    foundSubscriptionDestroy = true;
+                    subscriptionDestroyIndex = i;
+                }
+            }
+            else if (type == k_EMsgGCRecurringSubscriptionStatus)
+            {
+                CMsgGCHRecurringSubscriptionStatusChange status;
+                foundInactiveStatus = ParseHostProtobuf(deleteEvent, status)
+                    && status.steamid() == SteamId
+                    && status.agreementid() == 0
+                    && !status.active();
+                statusIndex = i;
+            }
+        }
+
+        valid &= foundItemDestroy
+            && foundSubscriptionDestroy
+            && foundInactiveStatus
+            && itemDestroyIndex < subscriptionDestroyIndex
+            && subscriptionDestroyIndex < statusIndex;
+    }
+
+    KeyValue afterDelete{ "inventory" };
+    valid &= afterDelete.ParseFromFile("csgo_gc/inventory.txt")
+        && !afterDelete.GetSubkey("stats_subscription");
+    if (valid)
+    {
+        const KeyValue *items = afterDelete.GetSubkey("items");
+        if (items)
+        {
+            for (const KeyValue &item : *items)
+            {
+                valid &= item.GetNumber<uint32_t>("def_index")
+                    != ItemSchema::ItemStatsSubscription;
+            }
+        }
     }
 
     RemoveStoreFixtures();
@@ -3141,6 +3375,13 @@ static bool OfflineGCRequestsReceiveMinimalResponses()
 
     valid &= checkEmptyMatchList(k_EMsgGCCStrike15_v2_MatchListRequestCurrentLiveGames,
         nullptr, 0, 8105);
+
+    CMsgGCCStrike15_v2_MatchListRequestRecentUserGames recentGames;
+    recentGames.set_accountid(static_cast<uint32_t>(SteamId));
+    std::string recentGamesData;
+    valid &= recentGames.SerializeToString(&recentGamesData)
+        && checkEmptyMatchList(k_EMsgGCCStrike15_v2_MatchListRequestRecentUserGames,
+            recentGamesData.data(), static_cast<uint32_t>(recentGamesData.size()), 8109);
 
     CMsgGCCStrike15_v2_MatchListRequestTournamentGames tournamentGames;
     tournamentGames.set_eventid(2023);

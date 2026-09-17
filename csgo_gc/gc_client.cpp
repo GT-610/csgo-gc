@@ -931,13 +931,25 @@ std::string ClientGC::RconRemoveItem(const RconRequest &request)
     }
 
     CMsgSOSingleObject destroyed;
-    if (!m_inventory.RemoveItem(itemId, destroyed))
+    CMsgSOSingleObject recurringSubscriptionDestroy;
+    if (!m_inventory.RemoveItem(itemId, destroyed, &recurringSubscriptionDestroy))
     {
         return "ERR item not found";
     }
 
-    SendMessageToGame(true, k_ESOMsg_Destroy, destroyed);
+    PublishItemRemoval(destroyed, recurringSubscriptionDestroy);
     return "OK removed";
+}
+
+void ClientGC::PublishItemRemoval(const CMsgSOSingleObject &itemDestroy,
+    const CMsgSOSingleObject &recurringSubscriptionDestroy)
+{
+    SendMessageToGame(true, k_ESOMsg_Destroy, itemDestroy);
+    if (recurringSubscriptionDestroy.has_type_id())
+    {
+        SendMessageToGame(false, k_ESOMsg_Destroy, recurringSubscriptionDestroy);
+        SendStatsSubscriptionStatus();
+    }
 }
 
 std::string ClientGC::RconRefreshInventory(const RconRequest &request)
@@ -1096,6 +1108,15 @@ void ClientGC::HandleMessage(uint32_t type, const void *data, uint32_t size)
             HandleAccountPrivacySettings(messageRead);
             break;
 
+        case k_EMsgGCRecurringSubscriptionStatus:
+            HandleStatsSubscriptionStatus(messageRead);
+            break;
+
+        case k_EMsgGCCStrike15_ClientDeepStats:
+            HandleClientDeepStats(messageRead);
+            break;
+
+        case k_EMsgGCCStrike15_v2_MatchListRequestRecentUserGames:
         case k_EMsgGCCStrike15_v2_MatchListRequestCurrentLiveGames:
         case k_EMsgGCCStrike15_v2_MatchListRequestTournamentGames:
         case k_EMsgGCCStrike15_v2_MatchListRequestTournamentPredictions:
@@ -1236,7 +1257,20 @@ void ClientGC::HandleMatchListRequest(GCMessageRead &messageRead)
         return;
     }
 
-    if (requestType == k_EMsgGCCStrike15_v2_MatchListRequestTournamentGames)
+    uint32_t responseAccountId = AccountId();
+    if (requestType == k_EMsgGCCStrike15_v2_MatchListRequestRecentUserGames)
+    {
+        CMsgGCCStrike15_v2_MatchListRequestRecentUserGames request;
+        if (!messageRead.ReadProtobuf(request))
+        {
+            return;
+        }
+        if (request.has_accountid())
+        {
+            responseAccountId = request.accountid();
+        }
+    }
+    else if (requestType == k_EMsgGCCStrike15_v2_MatchListRequestTournamentGames)
     {
         CMsgGCCStrike15_v2_MatchListRequestTournamentGames request;
         if (!messageRead.ReadProtobuf(request))
@@ -1247,9 +1281,31 @@ void ClientGC::HandleMatchListRequest(GCMessageRead &messageRead)
 
     CMsgGCCStrike15_v2_MatchList response;
     response.set_msgrequestid(requestType);
-    response.set_accountid(AccountId());
+    response.set_accountid(responseAccountId);
     response.set_servertime(static_cast<uint32_t>(std::time(nullptr)));
     SendMessageToGame(false, k_EMsgGCCStrike15_v2_MatchList, response, messageRead.JobId());
+}
+
+void ClientGC::HandleStatsSubscriptionStatus(GCMessageRead &messageRead)
+{
+    CMsgGCHRecurringSubscriptionStatusChange request;
+    if (!messageRead.ReadProtobuf(request))
+    {
+        return;
+    }
+
+    SendStatsSubscriptionStatus(messageRead.JobId());
+}
+
+void ClientGC::HandleClientDeepStats(GCMessageRead &messageRead)
+{
+    CMsgGCCStrike15_ClientDeepStats request;
+    if (!messageRead.ReadProtobuf(request))
+    {
+        return;
+    }
+
+    SendEmptyDeepStats(request, messageRead.JobId());
 }
 
 void ClientGC::HandleNetMessage(const void *data, uint32_t size)
@@ -1650,6 +1706,55 @@ void ClientGC::SendOverwatchCaseAssignment()
     assignment.set_reason(OverwatchCaseReasonAssign);
 
     SendMessageToGame(false, k_EMsgGCCStrike15_v2_PlayerOverwatchCaseAssignment, assignment);
+}
+
+void ClientGC::SendStatsSubscriptionStatus(uint64_t jobId)
+{
+    std::optional<Inventory::StatsSubscriptionState> subscription
+        = m_inventory.GetStatsSubscription();
+
+    // The final client keeps the agreement id separately from item 4748. A
+    // stable synthetic id prevents it from offering another purchase and lets
+    // the native UI represent the locally restored subscription as active.
+    CMsgGCHRecurringSubscriptionStatusChange status;
+    status.set_steamid(m_steamId);
+    status.set_appid(AppId::GetOverride());
+    status.set_agreementid(subscription ? subscription->itemId : 0);
+    status.set_active(subscription.has_value());
+    SendMessageToGame(false, k_EMsgGCRecurringSubscriptionStatus, status, jobId);
+}
+
+void ClientGC::SendEmptyDeepStats(const CMsgGCCStrike15_ClientDeepStats &request,
+    uint64_t jobId)
+{
+    std::optional<Inventory::StatsSubscriptionState> subscription
+        = m_inventory.GetStatsSubscription();
+
+    // Match history is not available to this GC. Complete the client's pending
+    // DeepStats load with an honest empty frozen range instead of leaving the
+    // CS:GO 360 page waiting for a backend that no longer exists.
+    CMsgGCCStrike15_ClientDeepStats deepStats;
+    deepStats.set_account_id(request.has_account_id()
+        ? request.account_id()
+        : AccountId());
+    CMsgGCCStrike15_ClientDeepStats_DeepStatsRange *range = deepStats.mutable_range();
+    const time_t now = time(nullptr);
+    const uint32_t currentTime = now > 0 && static_cast<uint64_t>(now) <= UINT32_MAX
+        ? static_cast<uint32_t>(now)
+        : 0;
+    const uint32_t defaultBegin = subscription
+        ? subscription->timeInitiated
+        : currentTime;
+    const uint32_t rangeBegin = request.has_range() && request.range().has_begin()
+        ? request.range().begin()
+        : defaultBegin;
+    const uint32_t requestedEnd = request.has_range() && request.range().has_end()
+        ? request.range().end()
+        : currentTime;
+    range->set_begin(rangeBegin);
+    range->set_end(std::max(rangeBegin, requestedEnd));
+    range->set_frozen(true);
+    SendMessageToGame(false, k_EMsgGCCStrike15_ClientDeepStats, deepStats, jobId);
 }
 
 void ClientGC::SendRankUpdate()
@@ -2220,6 +2325,11 @@ void ClientGC::StorePurchaseFinalize(GCMessageRead &messageRead)
         return;
     }
 
+    const bool includesStatsSubscription = std::any_of(m_transactionLineItems.begin(),
+        m_transactionLineItems.end(), [](const PendingStoreLineItem &lineItem) {
+            return lineItem.defIndex == ItemSchema::ItemStatsSubscription;
+        });
+
     std::vector<CMsgSOSingleObject> inventoryUpdate;
     std::vector<uint64_t> itemIds;
     for (const PendingStoreLineItem &lineItem : m_transactionLineItems)
@@ -2260,6 +2370,11 @@ void ClientGC::StorePurchaseFinalize(GCMessageRead &messageRead)
         m_transactionId, static_cast<uint64_t>(itemIds.size()));
     SendMessageToGame(false, k_EMsgGCStorePurchaseFinalizeResponse, response, messageRead.JobId());
 
+    if (includesStatsSubscription)
+    {
+        SendStatsSubscriptionStatus();
+    }
+
     // done with this one
     m_transactionId = 0;
     m_transactionLineItems.clear();
@@ -2276,10 +2391,10 @@ void ClientGC::DeleteItem(GCMessageRead &messageRead)
     }
 
     CMsgSOSingleObject destroyed;
-    if (m_inventory.RemoveItem(itemId, destroyed))
+    CMsgSOSingleObject recurringSubscriptionDestroy;
+    if (m_inventory.RemoveItem(itemId, destroyed, &recurringSubscriptionDestroy))
     {
-        // server needs to know about item destruction for validation
-        SendMessageToGame(true, k_ESOMsg_Destroy, destroyed);
+        PublishItemRemoval(destroyed, recurringSubscriptionDestroy);
     }
     else
     {

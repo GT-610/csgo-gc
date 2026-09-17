@@ -55,6 +55,8 @@ private:
     std::string RconRemoveItem(const RconRequest &request);
     std::string RconRefreshInventory(const RconRequest &request);
     std::string RconSaveInventory(const RconRequest &request);
+    void PublishItemRemoval(const CMsgSOSingleObject &itemDestroy,
+        const CMsgSOSingleObject &recurringSubscriptionDestroy);
 
     // send to the local game and the game server we're connected to (if we're connected)
     void SendMessageToGame(bool sendToGameServer, uint32_t type,
@@ -89,6 +91,8 @@ private:
     void HandleAccountRequestCoPlays(GCMessageRead &messageRead);
     void HandleAccountPrivacySettings(GCMessageRead &messageRead);
     void HandleMatchListRequest(GCMessageRead &messageRead);
+    void HandleStatsSubscriptionStatus(GCMessageRead &messageRead);
+    void HandleClientDeepStats(GCMessageRead &messageRead);
 
     void DeleteItem(GCMessageRead &messageRead);
     void UnlockCrate(GCMessageRead &messageRead);
@@ -110,6 +114,9 @@ private:
         const CMsgCStrike15Welcome &csWelcome,
         const CMsgGCCStrike15_v2_MatchmakingGC2ClientHello &matchmakingHello);
     void SendOverwatchCaseAssignment();
+    void SendStatsSubscriptionStatus(uint64_t jobId = JobIdInvalid);
+    void SendEmptyDeepStats(const CMsgGCCStrike15_ClientDeepStats &request,
+        uint64_t jobId = JobIdInvalid);
     void SendRankUpdate();
 
     uint32_t AccountId() const { return m_steamId & 0xffffffff; }
