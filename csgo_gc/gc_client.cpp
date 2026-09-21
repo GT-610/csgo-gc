@@ -1,9 +1,11 @@
 #include "stdafx.h"
 #include "gc_client.h"
 #include "appid.h"
+#include "game_types.h"
 #include "graffiti.h"
 #include "item_utils.h"
 #include "keyvalue.h"
+#include "music_kit.h"
 #include "networking_shared.h"
 
 #include <cerrno>
@@ -331,10 +333,9 @@ ClientGC::ClientGC(uint64_t steamId)
 
     // The inventory exists before the worker thread starts, so seed the
     // round_mvp event cache here and keep later refreshes on the worker thread.
-    if (m_inventory.EquippedMusicKitItemId(true))
-    {
-        m_cachedMusicKitMVPs.store(static_cast<int32_t>(m_inventory.EquippedMusicKitMVPCount(false)));
-    }
+    // This only mirrors the inventory; whether the value is published is decided
+    // later, once we know which server we are connected to.
+    m_cachedMusicKitMVPs.store(CachedMusicKitMVPsFromInventory());
 
     StartThread();
 
@@ -347,8 +348,18 @@ ClientGC::~ClientGC()
     Platform::Print("ClientGC destroyed\n");
 }
 
+bool ClientGC::MusicKitStatTrakActive() const
+{
+    return MusicKit::ShouldTrackStatTrak(GetConfig().MusicKitStatTrakGate());
+}
+
 uint32_t ClientGC::LocalPlayerMusicKitMVPsForRoundMVPEvent() const
 {
+    if (!MusicKitStatTrakActive())
+    {
+        return 0;
+    }
+
     // round_mvp is observed before the worker-thread inventory mirror applies
     // the local increment, so expose the post-MVP value here.
     int32_t cachedMVPs = m_cachedMusicKitMVPs.load();
@@ -373,16 +384,20 @@ std::string ClientGC::RunRconCommand(std::string command)
     return response.get();
 }
 
-void ClientGC::RefreshCachedMusicKitMVPs()
+int32_t ClientGC::CachedMusicKitMVPsFromInventory() const
 {
-    if (!m_inventory.EquippedMusicKitItemId(true))
+    uint64_t itemId = m_inventory.EquippedStatTrakMusicKitItemId();
+    if (!itemId)
     {
-        m_cachedMusicKitMVPs.store(-1);
-        SendMusicKitMVPStateToGameServer();
-        return;
+        return -1;
     }
 
-    m_cachedMusicKitMVPs.store(static_cast<int32_t>(m_inventory.EquippedMusicKitMVPCount(false)));
+    return static_cast<int32_t>(m_inventory.MusicKitMVPCount(itemId));
+}
+
+void ClientGC::RefreshCachedMusicKitMVPs()
+{
+    m_cachedMusicKitMVPs.store(CachedMusicKitMVPsFromInventory());
     SendMusicKitMVPStateToGameServer();
 }
 
@@ -396,18 +411,35 @@ void ClientGC::SendMusicKitMVPStateToGameServer()
 
     GCMessageWrite messageWrite{ k_EMsgNetworkMusicKitMVPState };
 
+    // The gate is applied when the value is published rather than when it is
+    // cached, so switching servers or modes cannot leave a stale value behind.
     int32_t cachedMVPs = m_cachedMusicKitMVPs.load();
-    uint32_t currentMVPs = cachedMVPs >= 0 ? static_cast<uint32_t>(cachedMVPs) : 0;
-    uint32_t hasEquippedStatTrakMusicKit = cachedMVPs >= 0 ? 1u : 0u;
+    bool gateActive = MusicKitStatTrakActive();
+    bool active = gateActive && cachedMVPs >= 0;
+    uint32_t currentMVPs = active ? static_cast<uint32_t>(cachedMVPs) : 0;
+    uint32_t hasEquippedStatTrakMusicKit = active ? 1u : 0u;
 
     messageWrite.WriteUint32(static_cast<uint32_t>(userId));
     messageWrite.WriteUint32(hasEquippedStatTrakMusicKit);
     messageWrite.WriteUint32(currentMVPs);
 
-    Platform::Print("ClientGC: syncing music kit MVP state to server: userid=%d haskit=%u mvps=%u\n",
-        userId,
-        hasEquippedStatTrakMusicKit,
-        currentMVPs);
+    if (active)
+    {
+        Platform::Print("ClientGC: syncing music kit MVP state to server: userid=%d mvps=%u\n",
+            userId,
+            currentMVPs);
+    }
+    else
+    {
+        Platform::Print("ClientGC: clearing music kit MVP state on server: userid=%d "
+            "(gated=%d cached=%d gametype=%d gamemode=%d)\n",
+            userId,
+            gateActive ? 1 : 0,
+            cachedMVPs,
+            GameTypes::CurrentGameType(),
+            GameTypes::CurrentGameMode());
+    }
+
     PostToHost(HostEvent::NetMessage, 0, messageWrite.Data(), messageWrite.Size());
 }
 
@@ -418,14 +450,18 @@ void ClientGC::SyncLocalPlayerMusicKitState(int userId)
         return;
     }
 
+    // Always resync, even when the userid is unchanged. The userid alone does not
+    // identify a server, and the new server may be a different game mode or may
+    // never have received this player's state at all.
     int32_t previousUserId = m_localUserId.exchange(userId);
     if (previousUserId != userId)
     {
         Platform::Print("ClientGC: local userid changed from %d to %d, syncing music kit state\n",
             previousUserId,
             userId);
-        SendMusicKitMVPStateToGameServer();
     }
+
+    SendMusicKitMVPStateToGameServer();
 }
 
 void ClientGC::HandleEvent(GCEvent type, uint64_t id, const std::vector<uint8_t> &buffer)
@@ -2061,7 +2097,20 @@ void ClientGC::LocalPlayerRoundMVP()
 {
     // Music kit StatTrak progress is not driven by the retired official GC path,
     // so mirror the increment locally when the client observes a local round_mvp.
-    uint64_t itemId = m_inventory.EquippedMusicKitItemId(true);
+    //
+    // The official backend only ever advanced the counter on official matchmaking
+    // servers, which were competitive. Gate the increment the same way rather than
+    // inflating the counter in game modes that never counted.
+    if (!MusicKitStatTrakActive())
+    {
+        Platform::Print("LocalPlayerRoundMVP: music kit StatTrak inactive for this mode "
+            "(gametype=%d gamemode=%d), not counting\n",
+            GameTypes::CurrentGameType(),
+            GameTypes::CurrentGameMode());
+        return;
+    }
+
+    uint64_t itemId = m_inventory.EquippedStatTrakMusicKitItemId();
     if (!itemId)
     {
         Platform::Print("LocalPlayerRoundMVP: local MVP without equipped StatTrak music kit\n");

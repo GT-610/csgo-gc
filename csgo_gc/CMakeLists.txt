@@ -23,6 +23,7 @@ add_library(csgo_gc SHARED
     appid.cpp
     case_opening.cpp
     config.cpp
+    game_types.cpp
     gc_client.cpp
     gc_message.cpp
     gc_server.cpp
@@ -34,6 +35,7 @@ add_library(csgo_gc SHARED
     keyvalue.cpp
     local_user_stats.cpp
     main.cpp
+    music_kit.cpp
     networking_client.cpp
     networking_server.cpp
     rcon_server.cpp
@@ -112,6 +114,8 @@ if (BUILD_TESTING)
         gc_message_tests.cpp
         gc_message.cpp
         inventory.cpp
+        music_kit.cpp
+        game_types.cpp
         item_schema.cpp
         item_utils.cpp
         keyvalue.cpp
@@ -144,6 +148,8 @@ if (BUILD_TESTING)
         graffiti.cpp
         gc_message.cpp
         inventory.cpp
+        music_kit.cpp
+        game_types.cpp
         item_schema.cpp
         item_utils.cpp
         keyvalue.cpp
@@ -182,6 +188,8 @@ if (BUILD_TESTING)
         gc_message_non_prime_tests.cpp
         gc_message.cpp
         inventory.cpp
+        music_kit.cpp
+        game_types.cpp
         item_schema.cpp
         item_utils.cpp
         keyvalue.cpp
@@ -336,4 +344,37 @@ if (BUILD_TESTING)
     add_test(NAME local_user_stats_tests COMMAND local_user_stats_tests)
     set_tests_properties(local_user_stats_tests PROPERTIES
         WORKING_DIRECTORY "${LOCAL_USER_STATS_TEST_WORKING_DIRECTORY}")
+
+    add_executable(game_types_tests
+        game_types.cpp
+        game_types_tests.cpp)
+
+    target_precompile_headers(game_types_tests PRIVATE stdafx.h)
+    target_link_libraries(game_types_tests PRIVATE csgo_gc_protobufs)
+
+    if (MSVC)
+        target_compile_options(game_types_tests PRIVATE /W4 /wd4244 /wd4819)
+        target_compile_definitions(game_types_tests PRIVATE _CRT_SECURE_NO_WARNINGS)
+    else()
+        target_compile_options(game_types_tests PRIVATE -Wall -Wextra)
+    endif()
+
+    add_test(NAME game_types_tests COMMAND game_types_tests)
+
+    add_executable(music_kit_tests
+        game_types.cpp
+        music_kit.cpp
+        music_kit_tests.cpp)
+
+    target_precompile_headers(music_kit_tests PRIVATE stdafx.h)
+    target_link_libraries(music_kit_tests PRIVATE csgo_gc_protobufs)
+
+    if (MSVC)
+        target_compile_options(music_kit_tests PRIVATE /W4 /wd4244 /wd4819)
+        target_compile_definitions(music_kit_tests PRIVATE _CRT_SECURE_NO_WARNINGS)
+    else()
+        target_compile_options(music_kit_tests PRIVATE -Wall -Wextra)
+    endif()
+
+    add_test(NAME music_kit_tests COMMAND music_kit_tests)
 endif()

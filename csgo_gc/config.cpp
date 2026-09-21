@@ -51,6 +51,24 @@ GCConfig::GCConfig()
     m_destroyUsedItems = config.GetNumber("destroy_used_items", m_destroyUsedItems);
     m_primeStatus = config.GetNumber("prime_status", m_primeStatus);
 
+    std::string_view musicKitStatTrak =
+        config.GetString("music_kit_stattrak", std::string_view{});
+    if (musicKitStatTrak == "always")
+    {
+        m_musicKitStatTrakGate = MusicKit::StatTrakGate::Always;
+    }
+    else if (musicKitStatTrak == "competitive" || musicKitStatTrak.empty())
+    {
+        m_musicKitStatTrakGate = MusicKit::StatTrakGate::CompetitiveRuleset;
+    }
+    else
+    {
+        Platform::Print("config: unknown music_kit_stattrak value '%.*s', using competitive\n",
+            static_cast<int>(musicKitStatTrak.size()),
+            musicKitStatTrak.data());
+        m_musicKitStatTrakGate = MusicKit::StatTrakGate::CompetitiveRuleset;
+    }
+
     const KeyValue *rarityWeights = config.GetSubkey("rarity_weights");
     if (rarityWeights)
     {
