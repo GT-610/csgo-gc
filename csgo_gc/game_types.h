@@ -9,6 +9,9 @@
 // starting with 'Q'). That signal has no meaning anymore, so mode gating uses the
 // game's own replicated game_type/game_mode values instead. They are
 // FCVAR_REPLICATED, so a client sees the values of the server it is connected to.
+//
+// GetCurrentGameType and GetCurrentGameMode are the vtable indices 8 and 9 of
+// IGameTypes, which is the byte offsets 0x20 and 0x24 in the shipped binaries.
 namespace GameTypes
 {
 

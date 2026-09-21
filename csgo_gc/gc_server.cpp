@@ -178,7 +178,12 @@ void ServerGC::TrackMusicKitFromNetMessage(uint64_t steamId, const void *data, u
 
     case k_ESOMsg_Create:
     case k_ESOMsg_Update:
+    case k_ESOMsg_Destroy:
     {
+        // A destroy carries only the item id, so the item parses with no equipped
+        // state and no attributes. TrackMusicKitFromItem treats that as "this is no
+        // longer an equipped StatTrak music kit" and drops the tracked counter when
+        // the id matches, which is what destroys the stale value.
         CMsgSOSingleObject message;
         if (messageRead.ReadProtobuf(message) && message.type_id() == SOTypeItem)
         {
