@@ -56,8 +56,10 @@ bool IsAvailable();
 int CurrentGameType();
 int CurrentGameMode();
 
-// Drop the cached interface pointer. Called when a module unloads so a stale
-// pointer is never reused. Safe to call at any time.
+// Forget the cached interface pointer so the next query resolves it again.
+// A failed lookup is not cached in the first place, so this exists for callers
+// that want to force a fresh resolution; the tests use it to put the module back
+// into a known state. Safe to call at any time.
 void Reset();
 
 } // namespace GameTypes
