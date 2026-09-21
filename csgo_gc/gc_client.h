@@ -9,7 +9,13 @@ class ClientGC final : public SharedGC
 public:
     ClientGC(uint64_t steamId);
     ~ClientGC();
+    // The number of music kit MVPs to publish in the local player's round_mvp
+    // event, or 0 when nothing should be published. Returns 0 when the StatTrak
+    // gate is inactive for the current game type and mode.
     uint32_t LocalPlayerMusicKitMVPsForRoundMVPEvent() const;
+    // Whether music kit StatTrak is active right now. Evaluated on every call
+    // rather than cached, because a server can change its game mode mid-session.
+    bool MusicKitStatTrakActive() const;
     std::string RunRconCommand(std::string command);
     static std::string RconCommandUsageList();
 
@@ -39,6 +45,9 @@ private:
     void HandleMessage(uint32_t type, const void *data, uint32_t size);
     void HandleNetMessage(const void *data, uint32_t size);
     void HandleSOCacheRequest();
+    // The inventory's music kit MVP count, or -1 when no StatTrak music kit is
+    // equipped. Independent of the StatTrak gate, which is applied on publish.
+    int32_t CachedMusicKitMVPsFromInventory() const;
     void RefreshCachedMusicKitMVPs();
     void SyncLocalPlayerMusicKitState(int userId);
     void SendMusicKitMVPStateToGameServer();

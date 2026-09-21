@@ -1,8 +1,12 @@
 #include "stdafx.h"
 #include "gc_server.h"
+#include "config.h"
+#include "game_types.h"
 #include "gc_const.h"
 #include "gc_const_csgo.h"
 #include "graffiti.h"
+#include "item_schema.h"
+#include "music_kit.h"
 #include "networking_shared.h"
 
 // yuck!! needed for CSteamID (construct full id from account id)
@@ -26,6 +30,13 @@ ServerGC::~ServerGC()
 
 bool ServerGC::RoundMVPMusicKitCountForUserId(int userId, int &musickitmvps) const
 {
+    // Evaluate the gate at publish time. A server can change its game mode between
+    // rounds, so a value cached at connect time would go stale.
+    if (!MusicKit::ShouldTrackStatTrak(GetConfig().MusicKitStatTrakGate()))
+    {
+        return false;
+    }
+
     std::lock_guard<std::mutex> lock{ m_musicKitMVPStateMutex };
 
     auto it = m_musicKitMVPStateByUserId.find(userId);
@@ -36,6 +47,175 @@ bool ServerGC::RoundMVPMusicKitCountForUserId(int userId, int &musickitmvps) con
 
     musickitmvps = static_cast<int>(it->second.currentMVPs + 1);
     return true;
+}
+
+// Stores a player's music kit state, keeping both indexes consistent and removing
+// the player entirely when no StatTrak music kit is equipped. Callers must hold the
+// mutex.
+void ServerGC::StoreMusicKitStateLocked(uint64_t steamId, int userId, uint64_t itemId,
+    uint32_t currentMVPs, bool hasEquippedStatTrakMusicKit)
+{
+    if (!hasEquippedStatTrakMusicKit)
+    {
+        ForgetMusicKitStateLocked(steamId);
+        return;
+    }
+
+    MusicKitMVPState state;
+    state.userId = userId;
+    state.itemId = itemId;
+    state.currentMVPs = currentMVPs;
+    state.hasEquippedStatTrakMusicKit = true;
+
+    auto &slot = m_musicKitMVPStateBySteamId[steamId];
+
+    // Drop the previous user id index entry when this player's user id changed, so
+    // a new server session cannot leave a stale lookup behind.
+    if (slot.userId > 0 && slot.userId != state.userId)
+    {
+        m_musicKitMVPStateByUserId.erase(slot.userId);
+    }
+
+    slot = state;
+
+    if (state.userId > 0)
+    {
+        m_musicKitMVPStateByUserId[state.userId] = state;
+    }
+}
+
+void ServerGC::ForgetMusicKitStateLocked(uint64_t steamId)
+{
+    auto stateIt = m_musicKitMVPStateBySteamId.find(steamId);
+    if (stateIt == m_musicKitMVPStateBySteamId.end())
+    {
+        return;
+    }
+
+    if (stateIt->second.userId > 0)
+    {
+        m_musicKitMVPStateByUserId.erase(stateIt->second.userId);
+    }
+
+    m_musicKitMVPStateBySteamId.erase(stateIt);
+}
+
+void ServerGC::TrackMusicKitFromItem(uint64_t steamId, const CSOEconItem &item)
+{
+    if (!item.has_id())
+    {
+        return;
+    }
+
+    bool isEquippedMusicKit = MusicKit::IsEquippedMusicKit(item, ItemSchema::LoadoutSlotMusicKit);
+    MusicKit::AttributeValues values = isEquippedMusicKit
+        ? MusicKit::ReadAttributeValues(item)
+        : MusicKit::AttributeValues{};
+
+    std::lock_guard<std::mutex> lock{ m_musicKitMVPStateMutex };
+
+    if (!isEquippedMusicKit || !MusicKit::IsStatTrak(values))
+    {
+        // The tracked kit is no longer an equipped StatTrak music kit: it was
+        // unequipped, destroyed, or replaced. The old counter no longer applies.
+        auto stateIt = m_musicKitMVPStateBySteamId.find(steamId);
+        if (stateIt != m_musicKitMVPStateBySteamId.end() && stateIt->second.itemId == item.id())
+        {
+            ForgetMusicKitStateLocked(steamId);
+        }
+        return;
+    }
+
+    // Keep whatever user id we already know; it arrives on a separate message.
+    auto stateIt = m_musicKitMVPStateBySteamId.find(steamId);
+    int userId = stateIt != m_musicKitMVPStateBySteamId.end() ? stateIt->second.userId : 0;
+
+    StoreMusicKitStateLocked(steamId, userId, item.id(), values.killEater, true);
+}
+
+void ServerGC::TrackMusicKitFromCache(uint64_t steamId, const CMsgSOCacheSubscribed &message)
+{
+    for (const CMsgSOCacheSubscribed_SubscribedType &object : message.objects())
+    {
+        if (object.type_id() != SOTypeItem)
+        {
+            continue;
+        }
+
+        for (const std::string &objectData : object.object_data())
+        {
+            CSOEconItem item;
+            if (item.ParseFromString(objectData))
+            {
+                TrackMusicKitFromItem(steamId, item);
+            }
+        }
+    }
+}
+
+void ServerGC::TrackMusicKitFromNetMessage(uint64_t steamId, const void *data, uint32_t size)
+{
+    // Parsed from the raw buffer because the validators above consume their own
+    // GCMessageRead. A message that cannot be re-read simply carries no music kit
+    // state; it has already been validated, so nothing else depends on this.
+    GCMessageRead messageRead{ 0, data, size };
+    if (!messageRead.IsValid() || !messageRead.IsProtobuf())
+    {
+        return;
+    }
+
+    switch (messageRead.TypeUnmasked())
+    {
+    case k_ESOMsg_CacheSubscribed:
+    {
+        CMsgSOCacheSubscribed message;
+        if (messageRead.ReadProtobuf(message))
+        {
+            TrackMusicKitFromCache(steamId, message);
+        }
+        break;
+    }
+
+    case k_ESOMsg_Create:
+    case k_ESOMsg_Update:
+    {
+        CMsgSOSingleObject message;
+        if (messageRead.ReadProtobuf(message) && message.type_id() == SOTypeItem)
+        {
+            CSOEconItem item;
+            if (item.ParseFromString(message.object_data()))
+            {
+                TrackMusicKitFromItem(steamId, item);
+            }
+        }
+        break;
+    }
+
+    case k_ESOMsg_UpdateMultiple:
+    {
+        CMsgSOMultipleObjects message;
+        if (messageRead.ReadProtobuf(message))
+        {
+            for (const CMsgSOMultipleObjects_SingleObject &object : message.objects_modified())
+            {
+                if (object.type_id() != SOTypeItem)
+                {
+                    continue;
+                }
+
+                CSOEconItem item;
+                if (item.ParseFromString(object.object_data()))
+                {
+                    TrackMusicKitFromItem(steamId, item);
+                }
+            }
+        }
+        break;
+    }
+
+    default:
+        break;
+    }
 }
 
 void ServerGC::HandleEvent(GCEvent type, uint64_t id, const std::vector<uint8_t> &buffer)
@@ -99,12 +279,7 @@ void ServerGC::HandleClientSOCacheUnsubscribe(uint64_t steamId)
 
     {
         std::lock_guard<std::mutex> lock{ m_musicKitMVPStateMutex };
-        auto stateIt = m_musicKitMVPStateBySteamId.find(steamId);
-        if (stateIt != m_musicKitMVPStateBySteamId.end())
-        {
-            m_musicKitMVPStateByUserId.erase(stateIt->second.userId);
-            m_musicKitMVPStateBySteamId.erase(stateIt);
-        }
+        ForgetMusicKitStateLocked(steamId);
     }
 
     CMsgSOCacheUnsubscribed message;
@@ -263,6 +438,10 @@ void ServerGC::HandleNetMessage(uint64_t steamId, const void *data, uint32_t siz
         return;
     }
 
+    // The validated message is parsed again here so the music kit counter can be
+    // tracked from the client's own inventory, which is its authoritative copy.
+    TrackMusicKitFromNetMessage(steamId, data, size);
+
     if (!m_sentWelcome)
     {
         // FIXME: ideally we'd sent this on steam logon, instead of on demand...
@@ -293,22 +472,17 @@ void ServerGC::UpdateMusicKitMVPState(uint64_t steamId, GCMessageRead &messageRe
         return;
     }
 
-    MusicKitMVPState state;
-    state.userId = static_cast<int>(userId);
-    state.currentMVPs = currentMVPs;
-    state.hasEquippedStatTrakMusicKit = hasEquippedStatTrakMusicKit != 0;
+    bool hasKit = hasEquippedStatTrakMusicKit != 0;
 
     {
         std::lock_guard<std::mutex> lock{ m_musicKitMVPStateMutex };
 
-        auto &slot = m_musicKitMVPStateBySteamId[steamId];
-        if (slot.userId > 0 && slot.userId != state.userId)
-        {
-            m_musicKitMVPStateByUserId.erase(slot.userId);
-        }
+        // Preserve the tracked item id so a later item update can still invalidate
+        // this value, and so this message cannot clear state for a different kit.
+        auto stateIt = m_musicKitMVPStateBySteamId.find(steamId);
+        uint64_t itemId = stateIt != m_musicKitMVPStateBySteamId.end() ? stateIt->second.itemId : 0;
 
-        slot = state;
-        m_musicKitMVPStateByUserId[state.userId] = state;
+        StoreMusicKitStateLocked(steamId, static_cast<int>(userId), itemId, currentMVPs, hasKit);
     }
 
     Platform::Print("ServerGC: updated music kit MVP state from %llu: userid=%u haskit=%u mvps=%u\n",

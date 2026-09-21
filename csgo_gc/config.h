@@ -2,6 +2,7 @@
 
 #include "gc_const_csgo.h"
 #include "item_schema.h" // rarity constants
+#include "music_kit.h"
 
 struct RarityWeight
 {
@@ -43,6 +44,8 @@ public:
 
     bool DestroyUsedItems() const { return m_destroyUsedItems; }
 
+    MusicKit::StatTrakGate MusicKitStatTrakGate() const { return m_musicKitStatTrakGate; }
+
     // prime status shown to the game client, frozen at the configured value
     bool PrimeStatus() const { return m_primeStatus; }
 
@@ -76,6 +79,10 @@ private:
     int m_dangerZoneWins{ 0 };
 
     bool m_destroyUsedItems{ true };
+
+    // Music kit StatTrak follows competitive rules by default, matching the only
+    // scope the official backend ever supported.
+    MusicKit::StatTrakGate m_musicKitStatTrakGate{ MusicKit::StatTrakGate::CompetitiveRuleset };
 
     // accounts default to prime so existing clients keep their current behavior
     bool m_primeStatus{ true };
