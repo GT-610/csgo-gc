@@ -128,8 +128,15 @@ public:
         CMsgSOSingleObject &destroy,
         CMsgGCItemCustomizationNotification &notification);
 
-    uint64_t EquippedMusicKitItemId(bool statTrakOnly) const;
-    uint32_t EquippedMusicKitMVPCount(bool incrementForLocalMVP) const;
+    // The equipped StatTrak music kit, or 0 when none is equipped. Music kits are
+    // not StatTrak in the same way weapons are: the counter is gated on the kill
+    // eater score type being the music kit value.
+    uint64_t EquippedStatTrakMusicKitItemId() const;
+
+    // The "kill eater" counter of the given music kit, or 0 when the item is
+    // absent or has no counter.
+    uint32_t MusicKitMVPCount(uint64_t musicKitItemId) const;
+
     bool IncrementKillCountAttribute(uint64_t itemId, uint32_t amount, CMsgSOSingleObject &update);
 
     bool NameItem(uint64_t nameTagId,

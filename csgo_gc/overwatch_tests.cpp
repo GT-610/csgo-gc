@@ -12,6 +12,13 @@ void Print(const char *, ...)
 {
 }
 
+void *ModuleFactory(std::string_view)
+{
+    // Tests run without the game, so the gametypes interface must resolve to
+    // nothing. This keeps the music kit gate on its conservative path.
+    return nullptr;
+}
+
 bool UpdateGraffitiKey(std::string_view, const void *, const void *, size_t)
 {
     return true;

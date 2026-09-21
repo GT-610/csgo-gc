@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "inventory.h"
+#include "music_kit.h"
 #include "case_opening.h"
 #include "config.h"
 #include "gc_const.h"
@@ -1991,46 +1992,74 @@ bool Inventory::IncrementKillCountAttribute(uint64_t itemId, uint32_t amount, CM
     }
 
     CSOEconItem &item = it->second;
-    bool incremented = false;
+    CSOEconItemAttribute *killEaterAttribute = nullptr;
 
     for (int i = 0; i < item.attribute_size(); i++)
     {
         CSOEconItemAttribute *attribute = item.mutable_attribute(i);
         if (attribute->def_index() == ItemSchema::AttributeKillEater)
         {
-            int value = m_itemSchema.AttributeUint32(attribute) + amount;
-            m_itemSchema.SetAttributeUint32(attribute, value);
-            incremented = true;
+            killEaterAttribute = attribute;
             break;
         }
     }
 
-    if (incremented)
+    if (!killEaterAttribute)
     {
-        ToSingleObject(update, item);
+        assert(false);
+        return false;
+    }
+
+    // Counters are only worth anything if they survive, so persist the new value
+    // before reporting success. Round MVP is a normal part of every match, and a
+    // crash, kill or power loss before the next save used to lose the increment.
+    const uint64_t previousVersion = m_version;
+    const uint32_t previousCount = m_itemSchema.AttributeUint32(killEaterAttribute);
+
+    m_itemSchema.SetAttributeUint32(killEaterAttribute, previousCount + amount);
+    ToSingleObject(update, item);
+
+    if (WriteToFile())
+    {
         return true;
     }
 
-    assert(false);
+    m_itemSchema.SetAttributeUint32(killEaterAttribute, previousCount);
+    m_version = previousVersion;
+    update.Clear();
     return false;
 }
 
 static bool IsEquippedMusicKitItem(const CSOEconItem &item)
 {
-    // Music kits live in the shared no-team loadout.
-    for (const CSOEconItemEquipped &equipped : item.equipped_state())
+    return MusicKit::IsEquippedMusicKit(item, ItemSchema::LoadoutSlotMusicKit);
+}
+
+// Decodes the kill eater attributes of an item through the schema, which knows
+// whether each attribute is stored as an integer, a float or a string.
+static MusicKit::AttributeValues ReadKillEaterAttributes(const ItemSchema &itemSchema,
+    const CSOEconItem &item)
+{
+    MusicKit::AttributeValues values;
+
+    for (const CSOEconItemAttribute &attribute : item.attribute())
     {
-        if (equipped.new_class() == 0
-            && equipped.new_slot() == ItemSchema::LoadoutSlotMusicKit)
+        if (attribute.def_index() == ItemSchema::AttributeKillEater)
         {
-            return true;
+            values.hasKillEater = true;
+            values.killEater = itemSchema.AttributeUint32(&attribute);
+        }
+        else if (attribute.def_index() == ItemSchema::AttributeKillEaterScoreType)
+        {
+            values.hasKillEaterScoreType = true;
+            values.killEaterScoreType = itemSchema.AttributeUint32(&attribute);
         }
     }
 
-    return false;
+    return values;
 }
 
-uint64_t Inventory::EquippedMusicKitItemId(bool statTrakOnly) const
+uint64_t Inventory::EquippedStatTrakMusicKitItemId() const
 {
     for (const auto &pair : m_items)
     {
@@ -2040,33 +2069,7 @@ uint64_t Inventory::EquippedMusicKitItemId(bool statTrakOnly) const
             continue;
         }
 
-        bool hasKillEater = false;
-        bool isMusicKitScoreType = false;
-
-        for (const CSOEconItemAttribute &attribute : item.attribute())
-        {
-            if (attribute.def_index() == ItemSchema::AttributeKillEater)
-            {
-                hasKillEater = true;
-            }
-            else if (attribute.def_index() == ItemSchema::AttributeKillEaterScoreType
-                && m_itemSchema.AttributeUint32(&attribute) == 1)
-            {
-                isMusicKitScoreType = true;
-            }
-        }
-
-        if (!hasKillEater)
-        {
-            if (statTrakOnly)
-            {
-                continue;
-            }
-
-            return item.id();
-        }
-
-        if (isMusicKitScoreType)
+        if (MusicKit::IsStatTrak(ReadKillEaterAttributes(m_itemSchema, item)))
         {
             return item.id();
         }
@@ -2075,15 +2078,9 @@ uint64_t Inventory::EquippedMusicKitItemId(bool statTrakOnly) const
     return 0;
 }
 
-uint32_t Inventory::EquippedMusicKitMVPCount(bool incrementForLocalMVP) const
+uint32_t Inventory::MusicKitMVPCount(uint64_t musicKitItemId) const
 {
-    uint64_t itemId = EquippedMusicKitItemId(true);
-    if (!itemId)
-    {
-        return 0;
-    }
-
-    auto it = m_items.find(itemId);
+    auto it = m_items.find(musicKitItemId);
     if (it == m_items.end())
     {
         return 0;
@@ -2093,8 +2090,7 @@ uint32_t Inventory::EquippedMusicKitMVPCount(bool incrementForLocalMVP) const
     {
         if (attribute.def_index() == ItemSchema::AttributeKillEater)
         {
-            uint32_t count = m_itemSchema.AttributeUint32(&attribute);
-            return incrementForLocalMVP ? count + 1 : count;
+            return m_itemSchema.AttributeUint32(&attribute);
         }
     }
 

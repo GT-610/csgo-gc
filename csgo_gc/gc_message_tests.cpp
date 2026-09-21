@@ -19,6 +19,13 @@ void Print(const char *, ...)
     g_printCount.fetch_add(1, std::memory_order_relaxed);
 }
 
+void *ModuleFactory(std::string_view)
+{
+    // Tests run without the game, so the gametypes interface must resolve to
+    // nothing. This keeps the music kit gate on its conservative path.
+    return nullptr;
+}
+
 bool UpdateGraffitiKey(std::string_view, const void *, const void *, size_t)
 {
     return true;
