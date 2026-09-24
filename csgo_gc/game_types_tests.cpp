@@ -1,18 +1,50 @@
-#include "stdafx.h"
 #include "game_types.h"
 
 #include <cstdio>
+#include <string_view>
+
+namespace
+{
+
+// The prefix of the game's IGameTypes declaration, through the two getters.
+// Let the compiler generate its native vtable and member calling convention;
+// a hand-built pointer array would merely repeat the production slot constants.
+class TestGameTypes
+{
+public:
+    virtual ~TestGameTypes() = default;
+    virtual bool Initialize(bool) { ++unexpectedCalls; return false; }
+    virtual bool IsInitialized() const { ++unexpectedCalls; return false; }
+    virtual bool SetGameTypeAndMode(const char *, const char *) { ++unexpectedCalls; return false; }
+    virtual bool GetGameTypeAndModeFromAlias(const char *, int &, int &) { ++unexpectedCalls; return false; }
+    virtual bool SetGameTypeAndMode(int, int) { ++unexpectedCalls; return false; }
+    virtual void SetAndParseExtendedServerInfo(class KeyValues *) { ++unexpectedCalls; }
+    virtual void CheckShouldSetDefaultGameModeAndType(const char *) { ++unexpectedCalls; }
+    virtual int GetCurrentGameType() const { ++typeReads; return type; }
+    virtual int GetCurrentGameMode() const { ++modeReads; return mode; }
+
+    int type = GameTypes::GameTypeClassic;
+    int mode = GameTypes::ClassicCompetitive;
+    mutable int unexpectedCalls = 0;
+    mutable int typeReads = 0;
+    mutable int modeReads = 0;
+};
+
+TestGameTypes *s_testGameTypes = nullptr;
+
+void *CreateTestInterface(const char *name, int *)
+{
+    return std::string_view(name) == "VENGINE_GAMETYPES_VERSION002" ? s_testGameTypes : nullptr;
+}
+
+} // namespace
 
 namespace Platform
 {
 
-void Print(const char *, ...)
+void *ModuleFactory(std::string_view module)
 {
-}
-
-void *ModuleFactory(std::string_view)
-{
-    return nullptr;
+    return module == "server" ? reinterpret_cast<void *>(&CreateTestInterface) : nullptr;
 }
 
 }
@@ -102,6 +134,35 @@ bool TestRepeatedUnavailableLookupsAreStable()
         && CHECK(!GameTypes::IsAvailable());
 }
 
+bool TestNativeInterfaceCalls()
+{
+    GameTypes::Reset();
+    bool success = CHECK(!GameTypes::IsAvailable());
+
+    TestGameTypes instance;
+    s_testGameTypes = &instance;
+    // A previous failed lookup must not prevent resolving a newly loaded module.
+    success = CHECK(GameTypes::IsAvailable()) && success;
+    success = CHECK(GameTypes::CurrentGameType() == GameTypes::GameTypeClassic) && success;
+    success = CHECK(GameTypes::CurrentGameMode() == GameTypes::ClassicCompetitive) && success;
+    success = CHECK(GameTypes::IsCompetitiveRuleset()) && success;
+
+    // Read distinct, changing member values to detect swapped slots and a bad this
+    // pointer, as well as accidental caching of the mode across map changes.
+    instance.type = GameTypes::GameTypeGunGame;
+    instance.mode = GameTypes::ClassicScrimComp5v5;
+    success = CHECK(GameTypes::CurrentGameType() == GameTypes::GameTypeGunGame) && success;
+    success = CHECK(GameTypes::CurrentGameMode() == GameTypes::ClassicScrimComp5v5) && success;
+    success = CHECK(!GameTypes::IsCompetitiveRuleset()) && success;
+    success = CHECK(instance.unexpectedCalls == 0) && success;
+    success = CHECK(instance.typeReads > 0 && instance.modeReads > 0) && success;
+
+    GameTypes::Reset();
+    s_testGameTypes = nullptr;
+    success = CHECK(!GameTypes::IsAvailable()) && success;
+    return success;
+}
+
 } // namespace
 
 int main()
@@ -114,6 +175,7 @@ int main()
     success = TestUnknownModesAreNotCompetitive() && success;
     success = TestUnavailableWithoutGame() && success;
     success = TestRepeatedUnavailableLookupsAreStable() && success;
+    success = TestNativeInterfaceCalls() && success;
 
     if (!success)
     {

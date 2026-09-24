@@ -1,4 +1,9 @@
-#include "stdafx.h"
+#include <cstddef>
+#include <cstdint>
+#include <mutex>
+#include <optional>
+#include <string_view>
+
 #include "game_types.h"
 #include "platform.h"
 
@@ -12,18 +17,22 @@ namespace
 // name through EXPOSE_SINGLE_INTERFACE_GLOBALVAR.
 constexpr const char *GameTypesInterfaceVersion = "VENGINE_GAMETYPES_VERSION002";
 
-// IGameTypes is a plain interface, not an IAppSystem, so vtable slot 0 is the
-// virtual destructor. These are the vtable indices of GetCurrentGameType and
-// GetCurrentGameMode, matching igametypes.h's declaration order and the call
-// sites inside the shipped client.dll and server.dll, where they appear as the
-// byte offsets 0x20 and 0x24.
+// MSVC uses one virtual destructor entry; the Itanium ABI used on Linux and
+// macOS uses complete and deleting destructor entries. The getter slots must
+// account for that difference (indices are relative to the object's vptr).
+#if defined(_WIN32)
 constexpr size_t GetCurrentGameTypeIndex = 8;
-constexpr size_t GetCurrentGameModeIndex = 9;
+#else
+constexpr size_t GetCurrentGameTypeIndex = 9;
+#endif
+constexpr size_t GetCurrentGameModeIndex = GetCurrentGameTypeIndex + 1;
 
-static_assert(GetCurrentGameModeIndex == GetCurrentGameTypeIndex + 1,
-    "the two accessors are declared next to each other in igametypes.h");
-
+// Windows x86 passes this in ECX, unlike a free function's stack argument.
+#if defined(_WIN32) && (defined(_M_IX86) || defined(__i386__))
+using GetCurrentValueFn = int (__thiscall *)(const void *);
+#else
 using GetCurrentValueFn = int (*)(const void *);
+#endif
 
 // The vtable is an array of function pointers, so the entries are read through a
 // function pointer type. Naming the array type lets the object's leading vtable
@@ -85,8 +94,7 @@ std::optional<int> ReadValue(size_t index)
         return std::nullopt;
     }
 
-    // The object starts with a pointer to its vtable, and the entries are indexed
-    // directly because slot 0 is the virtual destructor.
+    // The object's vptr points at the first function entry, after any ABI metadata.
     const GameTypesVTable vtable = *reinterpret_cast<const GameTypesVTable *>(gameTypes);
     if (!vtable)
     {

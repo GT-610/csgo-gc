@@ -10,8 +10,8 @@
 // game's own replicated game_type/game_mode values instead. They are
 // FCVAR_REPLICATED, so a client sees the values of the server it is connected to.
 //
-// GetCurrentGameType and GetCurrentGameMode are the vtable indices 8 and 9 of
-// IGameTypes, which is the byte offsets 0x20 and 0x24 in the shipped binaries.
+// Getter slots and the member-function calling convention depend on the game's
+// platform ABI; game_types.cpp handles those differences.
 namespace GameTypes
 {
 
