@@ -66,7 +66,8 @@ jobs:
         cmake --build ${{ github.workspace }}/build --config ${{ matrix.build_type }}
         ctest --test-dir ${{ github.workspace }}/build --build-config ${{ matrix.build_type }} --output-on-failure
         cmake -B ${{ github.workspace }}/build_ds -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -S ${{ github.workspace }} -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DCMAKE_C_FLAGS=-m32 -DCMAKE_CXX_FLAGS=-m32 -DCMAKE_ASM_FLAGS=-m32 -DOUTDIR=${{ github.workspace }}/release -DCMAKE_TOOLCHAIN_FILE=${{ env.VCPKG_ROOT }}/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET=x86-linux
-        cmake --build ${{ github.workspace }}/build_ds --config ${{ matrix.build_type }} --target srcds csgo_gc
+        cmake --build ${{ github.workspace }}/build_ds --config ${{ matrix.build_type }} --target srcds csgo_gc game_types_tests
+        ctest --test-dir ${{ github.workspace }}/build_ds --build-config ${{ matrix.build_type }} --output-on-failure -R '^game_types_tests$'
 
     - if: matrix.os == 'macos-15'
       name: Build macOS

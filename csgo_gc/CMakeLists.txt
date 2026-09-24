@@ -349,8 +349,7 @@ if (BUILD_TESTING)
         game_types.cpp
         game_types_tests.cpp)
 
-    target_precompile_headers(game_types_tests PRIVATE stdafx.h)
-    target_link_libraries(game_types_tests PRIVATE csgo_gc_protobufs)
+    target_link_libraries(game_types_tests PRIVATE Threads::Threads)
 
     if (MSVC)
         target_compile_options(game_types_tests PRIVATE /W4 /wd4244 /wd4819)
