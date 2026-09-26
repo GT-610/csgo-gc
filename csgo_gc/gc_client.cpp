@@ -2010,7 +2010,7 @@ void ClientGC::ClientRequestNewMission(GCMessageRead &messageRead)
 static void AddressString(uint32_t ip, uint32_t port, char *buffer, size_t bufferSize)
 {
     snprintf(buffer, bufferSize,
-        "%u.%u.%u.%u:%u\n",
+        "%u.%u.%u.%u:%u",
         (ip >> 24) & 0xff,
         (ip >> 16) & 0xff,
         (ip >> 8) & 0xff,
@@ -2899,7 +2899,11 @@ void ClientGC::HandleRequestSouvenir(GCMessageRead &messageRead)
             newItem,
             notification))
     {
-        SendMessageToGame(true, k_ESOMsg_Destroy, destroyPackage);
+        if (destroyPackage.has_type_id())
+        {
+            SendMessageToGame(true, k_ESOMsg_Destroy, destroyPackage);
+        }
+
         SendMessageToGame(true, k_ESOMsg_Create, newItem);
 
         SendMessageToGame(false, k_EMsgGCItemCustomizationNotification, notification);
