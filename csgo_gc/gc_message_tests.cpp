@@ -824,6 +824,171 @@ static bool LoadoutStateTransitionsPreserveClassesAndSwapSlots()
     return valid;
 }
 
+static bool GameServerInventoryUpdatesOnlyIncludeEquipment()
+{
+    constexpr uint64_t SteamId = 76561197960265729ull;
+    auto itemId = [](uint64_t highId) { return (highId << 32) | (SteamId & UINT32_MAX); };
+    TestFilesystem::RemoveFile("csgo_gc/inventory.txt");
+    if (!WriteLoadoutFixture())
+        return false;
+    KeyValue fixture{ "inventory" };
+    if (!fixture.ParseFromFile("csgo_gc/inventory.txt"))
+        return false;
+    for (const char *id : { "4", "5" })
+        fixture.GetSubkey("items")->AddSubkey(id).AddNumber("def_index", 7);
+    if (!fixture.WriteToFile("csgo_gc/inventory.txt")
+        || !TestFilesystem::MakeDirectory("csgo")
+        || !TestFilesystem::MakeDirectory("csgo/scripts")
+        || !TestFilesystem::MakeDirectory("csgo/scripts/items"))
+        return false;
+    KeyValue schema{ "root" };
+    schema.AddSubkey("items_game").AddSubkey("items")
+        .AddSubkey("7").AddString("name", "weapon_ak47");
+    if (!schema.WriteToFile("csgo/scripts/items/items_game.txt"))
+        return false;
+
+    bool valid = true;
+    {
+        ClientGC gc{ SteamId };
+        std::vector<EventData> events;
+        auto drain = [&]()
+        {
+            // A synchronous RCON command is a worker-thread barrier, so absence
+            // assertions do not depend on a polling timeout or scheduler timing.
+            valid &= gc.RunRconCommand("list_items").rfind("OK", 0) == 0;
+            events.clear();
+            gc.GetHostEvents(events);
+        };
+        auto checkUpdates = [&](std::initializer_list<uint64_t> clientIds,
+                                std::initializer_list<uint64_t> serverIds)
+        {
+            std::vector<uint64_t> actualClient, actualServer;
+            int clientMessages = 0, serverMessages = 0;
+            uint64_t clientVersion = 0, serverVersion = 0;
+            for (const EventData &event : events)
+            {
+                GCMessageRead read{ 0, event.buffer.data(), static_cast<uint32_t>(event.buffer.size()) };
+                if (read.TypeUnmasked() != k_ESOMsg_UpdateMultiple)
+                    continue;
+                CMsgSOMultipleObjects update;
+                valid &= read.ReadProtobuf(update) && update.owner_soid().id() == SteamId;
+                bool server = event.type == static_cast<int>(HostEvent::NetMessage);
+                if (server) { ++serverMessages; serverVersion = update.version(); }
+                else { ++clientMessages; clientVersion = update.version(); }
+                for (const auto &object : update.objects_modified())
+                {
+                    if (object.type_id() == SOTypeItem)
+                    {
+                        CSOEconItem item;
+                        valid &= item.ParseFromString(object.object_data());
+                        (server ? actualServer : actualClient).push_back(item.id());
+                    }
+                }
+            }
+            std::vector<uint64_t> expectedClient{ clientIds }, expectedServer{ serverIds };
+            std::sort(actualClient.begin(), actualClient.end());
+            std::sort(actualServer.begin(), actualServer.end());
+            std::sort(expectedClient.begin(), expectedClient.end());
+            std::sort(expectedServer.begin(), expectedServer.end());
+            bool matches = actualClient == expectedClient && actualServer == expectedServer
+                && clientMessages == 1 && serverMessages == (serverIds.size() ? 1 : 0)
+                && (!serverMessages || clientVersion == serverVersion);
+            if (!matches)
+            {
+                std::cerr << "Equipment routing mismatch: client messages=" << clientMessages
+                    << " server messages=" << serverMessages << " client ids=";
+                for (uint64_t id : actualClient) std::cerr << id << ',';
+                std::cerr << " server ids=";
+                for (uint64_t id : actualServer) std::cerr << id << ',';
+                std::cerr << '\n';
+            }
+            valid &= matches;
+        };
+        auto equip = [&](uint64_t id, uint32_t team, uint32_t slot)
+        {
+            CMsgAdjustItemEquippedState request;
+            request.set_item_id(id);
+            request.set_new_class(team);
+            request.set_new_slot(slot);
+            GCMessageWrite write{ k_EMsgGCAdjustItemEquippedState, request };
+            gc.PostToGC(GCEvent::Message, write.TypeMasked(), write.Data(), write.Size());
+            drain();
+        };
+        auto positions = [&](std::initializer_list<uint64_t> ids, uint32_t position)
+        {
+            CMsgSetItemPositions request;
+            for (uint64_t id : ids)
+            {
+                auto *item = request.add_item_positions();
+                item->set_item_id(id);
+                item->set_position(position++);
+            }
+            GCMessageWrite write{ k_EMsgGCSetItemPositions, request };
+            gc.PostToGC(GCEvent::Message, write.TypeMasked(), write.Data(), write.Size());
+            drain();
+        };
+        auto checkSingle = [&](uint32_t type, bool serverExpected)
+        {
+            int clientMessages = 0, serverMessages = 0;
+            for (const EventData &event : events)
+            {
+                GCMessageRead read{ 0, event.buffer.data(), static_cast<uint32_t>(event.buffer.size()) };
+                if (read.TypeUnmasked() != type)
+                    continue;
+                CMsgSOSingleObject object;
+                valid &= read.ReadProtobuf(object) && object.type_id() == SOTypeItem
+                    && object.owner_soid().id() == SteamId;
+                if (event.type == static_cast<int>(HostEvent::NetMessage)) ++serverMessages;
+                else ++clientMessages;
+            }
+            valid &= clientMessages == 1 && serverMessages == (serverExpected ? 1 : 0);
+        };
+
+        gc.PostToGC(GCEvent::SOCacheRequest, 0, nullptr, 0);
+        drain();
+        int subscriptions = 0;
+        for (const EventData &event : events)
+        {
+            if (event.type == static_cast<int>(HostEvent::NetMessage))
+            {
+                CMsgSOCacheSubscribed subscription;
+                valid &= ParseHostProtobuf(event, subscription);
+                ++subscriptions;
+                for (const auto &type : subscription.objects())
+                    if (type.type_id() == SOTypeItem) valid &= type.object_data_size() == 3;
+            }
+        }
+        valid &= subscriptions == 1;
+        if (!valid) std::cerr << "Equipment subscription failed, count=" << subscriptions << '\n';
+        positions({ itemId(1), itemId(4) }, 100);
+        checkUpdates({ itemId(1), itemId(4) }, { itemId(1) });
+        positions({ itemId(4), itemId(5) }, 200);
+        checkUpdates({ itemId(4), itemId(5) }, {});
+        equip(itemId(4), 2, 1); // Displaced item remains equipped for class 3.
+        checkUpdates({ itemId(1), itemId(4) }, { itemId(1), itemId(4) });
+        equip(itemId(1), 3, 0xffff); // Final unequip must still reach the server.
+        checkUpdates({ itemId(1) }, { itemId(1) });
+        positions({ itemId(1) }, 300);
+        checkUpdates({ itemId(1) }, {});
+        valid &= gc.RunRconCommand("remove_item " + std::to_string(itemId(4))) == "OK removed";
+        drain();
+        checkSingle(k_ESOMsg_Destroy, true);
+        valid &= gc.RunRconCommand("remove_item " + std::to_string(itemId(5))) == "OK removed";
+        drain();
+        checkSingle(k_ESOMsg_Destroy, false);
+        valid &= gc.RunRconCommand("give_item 7").rfind("OK item_ids=", 0) == 0;
+        drain();
+        checkSingle(k_ESOMsg_Create, false);
+    }
+    TestFilesystem::RemoveFile("csgo/scripts/items/items_game.txt");
+    TestFilesystem::RemoveDirectory("csgo/scripts/items");
+    TestFilesystem::RemoveDirectory("csgo/scripts");
+    TestFilesystem::RemoveDirectory("csgo");
+    TestFilesystem::RemoveFile("csgo_gc/inventory.txt");
+    TestFilesystem::RemoveDirectory("csgo_gc");
+    return valid;
+}
+
 static bool SOCacheVersionNegotiationAndRefresh()
 {
     constexpr uint64_t SteamId = 76561197960265729ull;
@@ -3445,6 +3610,8 @@ int main()
         { "StatsSubscriptionDuplicatesKeepNewest", StatsSubscriptionDuplicatesKeepNewest },
         { "LoadoutStateTransitionsPreserveClassesAndSwapSlots",
             LoadoutStateTransitionsPreserveClassesAndSwapSlots },
+        { "GameServerInventoryUpdatesOnlyIncludeEquipment",
+            GameServerInventoryUpdatesOnlyIncludeEquipment },
         { "SOCacheVersionNegotiationAndRefresh", SOCacheVersionNegotiationAndRefresh },
         { "BaseItemCustomizationsPreserveRemainingState",
             BaseItemCustomizationsPreserveRemainingState },

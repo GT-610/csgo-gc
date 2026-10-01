@@ -337,6 +337,14 @@ ClientGC::ClientGC(uint64_t steamId)
     // later, once we know which server we are connected to.
     m_cachedMusicKitMVPs.store(CachedMusicKitMVPsFromInventory());
 
+    for (const auto &[itemId, item] : m_inventory.Items())
+    {
+        if (item.equipped_state_size())
+        {
+            m_gameServerEquippedItems.insert(itemId);
+        }
+    }
+
     StartThread();
 
     Platform::Print("ClientGC spawned for user %llu\n", steamId);
@@ -1387,6 +1395,15 @@ void ClientGC::HandleSOCacheRequest()
     CMsgSOCacheSubscribed message;
     m_inventory.BuildCacheSubscription(message, true);
 
+    m_gameServerEquippedItems.clear();
+    for (const auto &[itemId, item] : m_inventory.Items())
+    {
+        if (item.equipped_state_size())
+        {
+            m_gameServerEquippedItems.insert(itemId);
+        }
+    }
+
     GCMessageWrite messageWrite{ k_ESOMsg_CacheSubscribed, message };
     PostToHost(HostEvent::NetMessage, 0, messageWrite.Data(), messageWrite.Size());
 }
@@ -1476,6 +1493,69 @@ void ClientGC::GetEventFavorites(GCMessageRead &messageRead)
         messageRead.JobId());
 }
 
+bool ClientGC::GameServerItemDirty(int32_t soType, const std::string &data, bool destroyed)
+{
+    // Default equips and fork-specific SOs keep their existing routing.
+    if (soType != SOTypeItem)
+    {
+        return true;
+    }
+
+    CSOEconItem item;
+    if (!item.ParseFromString(data) || !item.has_id())
+    {
+        return false;
+    }
+
+    bool wasEquipped = m_gameServerEquippedItems.contains(item.id());
+    if (destroyed || !item.equipped_state_size())
+    {
+        m_gameServerEquippedItems.erase(item.id());
+        return wasEquipped;
+    }
+
+    m_gameServerEquippedItems.insert(item.id());
+    return true;
+}
+
+void ClientGC::SendMessageToGameServer(uint32_t type,
+    const google::protobuf::MessageLite &message, uint64_t jobId)
+{
+    if (type == k_ESOMsg_Create || type == k_ESOMsg_Update || type == k_ESOMsg_Destroy)
+    {
+        const auto &object = static_cast<const CMsgSOSingleObject &>(message);
+        if (!GameServerItemDirty(object.type_id(), object.object_data(), type == k_ESOMsg_Destroy))
+        {
+            return;
+        }
+    }
+    else if (type == k_ESOMsg_UpdateMultiple)
+    {
+        const auto &clientUpdate = static_cast<const CMsgSOMultipleObjects &>(message);
+        CMsgSOMultipleObjects serverUpdate{ clientUpdate };
+        serverUpdate.clear_objects_modified();
+        for (const auto &object : clientUpdate.objects_modified())
+        {
+            if (GameServerItemDirty(object.type_id(), object.object_data(), false))
+            {
+                *serverUpdate.add_objects_modified() = object;
+            }
+        }
+
+        // Preserve owner, version, job id and SO ordering, but never publish an
+        // empty update after filtering client-only inventory changes.
+        if (serverUpdate.objects_modified_size())
+        {
+            GCMessageWrite messageWrite{ type, serverUpdate, jobId };
+            PostToHost(HostEvent::NetMessage, 0, messageWrite.Data(), messageWrite.Size());
+        }
+        return;
+    }
+
+    GCMessageWrite messageWrite{ type, message, jobId };
+    PostToHost(HostEvent::NetMessage, 0, messageWrite.Data(), messageWrite.Size());
+}
+
 void ClientGC::SendMessageToGame(bool sendToGameServer, uint32_t type,
     const google::protobuf::MessageLite &message, uint64_t jobId)
 {
@@ -1483,7 +1563,7 @@ void ClientGC::SendMessageToGame(bool sendToGameServer, uint32_t type,
 
     if (sendToGameServer)
     {
-        PostToHost(HostEvent::NetMessage, 0, messageWrite.Data(), messageWrite.Size());
+        SendMessageToGameServer(type, message, jobId);
     }
 
     PostToHost(HostEvent::Message, messageWrite.TypeMasked(), messageWrite.Data(), messageWrite.Size());

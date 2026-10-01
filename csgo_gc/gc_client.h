@@ -67,6 +67,12 @@ private:
     void PublishItemRemoval(const CMsgSOSingleObject &itemDestroy,
         const CMsgSOSingleObject &recurringSubscriptionDestroy);
 
+    // Tracks the last published equipment state so final unequips and destroys
+    // still reach the server even after the inventory mutation removed it.
+    bool GameServerItemDirty(int32_t soType, const std::string &data, bool destroyed);
+    void SendMessageToGameServer(uint32_t type,
+        const google::protobuf::MessageLite &message, uint64_t jobId);
+
     // send to the local game and the game server we're connected to (if we're connected)
     void SendMessageToGame(bool sendToGameServer, uint32_t type,
         const google::protobuf::MessageLite &message, uint64_t jobId = JobIdInvalid);
@@ -134,6 +140,7 @@ private:
     const uint32_t m_buildYear;
 
     Inventory m_inventory;
+    std::unordered_set<uint64_t> m_gameServerEquippedItems;
     std::atomic<int32_t> m_localUserId{};
     std::atomic<int32_t> m_cachedMusicKitMVPs{ -1 };
 
