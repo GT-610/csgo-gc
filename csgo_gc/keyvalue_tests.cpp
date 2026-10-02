@@ -2,6 +2,15 @@
 #include "keyvalue.h"
 #include <cstdio>
 
+namespace Platform
+{
+
+void Print(const char *, ...)
+{
+}
+
+}
+
 namespace
 {
 

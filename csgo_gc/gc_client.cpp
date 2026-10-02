@@ -2983,7 +2983,6 @@ void ClientGC::HandleRequestSouvenir(GCMessageRead &messageRead)
         {
             SendMessageToGame(true, k_ESOMsg_Destroy, destroyPackage);
         }
-
         SendMessageToGame(true, k_ESOMsg_Create, newItem);
 
         SendMessageToGame(false, k_EMsgGCItemCustomizationNotification, notification);

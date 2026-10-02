@@ -8,6 +8,16 @@ constexpr const char *ConfigFilePath = "csgo_gc/config.txt";
 const GCConfig &GetConfig()
 {
     static GCConfig instance;
+
+    // Publish diagnostics only after construction has finished. Platform::Print
+    // calls GetConfig(), so mark them reported before entering the logger.
+    static std::atomic<bool> diagnosticsReported{ false };
+    bool expected = false;
+    if (!diagnosticsReported.load(std::memory_order_relaxed)
+        && diagnosticsReported.compare_exchange_strong(expected, true, std::memory_order_relaxed))
+    {
+        instance.PrintDiagnostics();
+    }
     return instance;
 }
 
@@ -63,9 +73,7 @@ GCConfig::GCConfig()
     }
     else
     {
-        Platform::Print("config: unknown music_kit_stattrak value '%.*s', using competitive\n",
-            static_cast<int>(musicKitStatTrak.size()),
-            musicKitStatTrak.data());
+        m_unknownMusicKitStatTrak = musicKitStatTrak;
         m_musicKitStatTrakGate = MusicKit::StatTrakGate::CompetitiveRuleset;
     }
 
@@ -90,6 +98,15 @@ GCConfig::GCConfig()
     m_commendedLeader = config.GetNumber("cmd_leader", m_commendedLeader);
     m_level = config.GetNumber("player_level", m_level);
     m_xp = config.GetNumber("player_cur_xp", m_xp);
+}
+
+void GCConfig::PrintDiagnostics() const
+{
+    if (!m_unknownMusicKitStatTrak.empty())
+    {
+        Platform::Print("config: unknown music_kit_stattrak value '%s', using competitive\n",
+            m_unknownMusicKitStatTrak.c_str());
+    }
 }
 
 float GCConfig::GetRarityWeight(uint32_t rarity) const

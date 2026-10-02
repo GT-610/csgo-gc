@@ -5,6 +5,12 @@ GCMessageRead::GCMessageRead(uint32_t type, const void *data, uint32_t size)
     : m_data{ static_cast<const uint8_t *>(data) }
     , m_size{ size }
 {
+    if (!m_data)
+    {
+        m_error = true;
+        return;
+    }
+
     m_type = ReadUint32();
     if (!IsValid())
     {
@@ -27,7 +33,9 @@ GCMessageRead::GCMessageRead(uint32_t type, const void *data, uint32_t size)
         {
             CMsgProtoBufHeader header;
             const void *headerData = ReadData(headerSize);
-            if (!header.ParseFromArray(headerData, headerSize))
+            if (!headerData
+                || headerSize > static_cast<uint32_t>(std::numeric_limits<int>::max())
+                || !header.ParseFromArray(headerData, static_cast<int>(headerSize)))
             {
                 Platform::Print("GCMessageRead: failed to parse protobuf header\n");
                 m_error = true;
@@ -57,8 +65,7 @@ GCMessageRead::GCMessageRead(uint32_t type, const void *data, uint32_t size)
         ReadUint16();
     }
 
-    // caller needs to check for this
-    assert(IsValid());
+    // Malformed messages are reported through IsValid(), not assertions.
 }
 
 const void *GCMessageRead::ReadData(size_t size)
@@ -69,11 +76,9 @@ const void *GCMessageRead::ReadData(size_t size)
         return nullptr;
     }
 
-    // Subtracting instead of adding: m_offset and m_size are uint32_t, so on
-    // 32-bit builds (where size_t is 32 bits too) "m_offset + size" wraps and
-    // the check passes for huge sizes.
-    if (size > m_size - m_offset)
+    if (m_offset > m_size || size > m_size - m_offset)
     {
+        // overflow
         Platform::Print("GCMessageRead: data read overflow\n");
         m_error = true;
         return nullptr;

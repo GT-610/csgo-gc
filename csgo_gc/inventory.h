@@ -10,6 +10,8 @@ using ItemMap = std::unordered_map<uint64_t, CSOEconItem>;
 
 class Inventory
 {
+    friend struct InventoryTestAccess;
+
 public:
     Inventory(uint64_t steamId);
     ~Inventory();
