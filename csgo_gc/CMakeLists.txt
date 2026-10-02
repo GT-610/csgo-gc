@@ -139,6 +139,37 @@ if (BUILD_TESTING)
 
     add_test(NAME gc_message_tests COMMAND gc_message_tests)
 
+    add_executable(config_tests config_tests.cpp config.cpp keyvalue.cpp)
+    target_precompile_headers(config_tests PRIVATE stdafx.h)
+    target_link_libraries(config_tests PRIVATE csgo_gc_protobufs Threads::Threads)
+    if (MSVC)
+        target_compile_options(config_tests PRIVATE /W4 /wd4244 /wd4819)
+        target_compile_definitions(config_tests PRIVATE _CRT_SECURE_NO_WARNINGS)
+    else()
+        target_compile_options(config_tests PRIVATE -Wall -Wextra)
+    endif()
+    foreach(mode IN ITEMS 0 1 2)
+        set(config_workdir "${CMAKE_CURRENT_BINARY_DIR}/config_test_${mode}")
+        file(MAKE_DIRECTORY "${config_workdir}/csgo_gc")
+        file(WRITE "${config_workdir}/csgo_gc/config.txt"
+            "\"music_kit_stattrak\" \"invalid\"\n\"log_output\" \"${mode}\"\n\"appid_override\" \"12345\"\n\"player_cur_xp\" \"987\"\n")
+        add_test(NAME config_invalid_logging_${mode} COMMAND config_tests invalid)
+        set_tests_properties(config_invalid_logging_${mode} PROPERTIES
+            WORKING_DIRECTORY "${config_workdir}" TIMEOUT 10)
+    endforeach()
+    foreach(case IN ITEMS valid missing malformed)
+        set(config_workdir "${CMAKE_CURRENT_BINARY_DIR}/config_test_${case}")
+        file(MAKE_DIRECTORY "${config_workdir}/csgo_gc")
+        if(case STREQUAL "valid")
+            file(WRITE "${config_workdir}/csgo_gc/config.txt" "\"music_kit_stattrak\" \"competitive\"\n")
+        elseif(case STREQUAL "malformed")
+            file(WRITE "${config_workdir}/csgo_gc/config.txt" "\"unterminated")
+        endif()
+        add_test(NAME config_${case} COMMAND config_tests)
+        set_tests_properties(config_${case} PROPERTIES
+            WORKING_DIRECTORY "${config_workdir}" TIMEOUT 10)
+    endforeach()
+
     add_executable(overwatch_tests
         appid.cpp
         case_opening.cpp

@@ -59,6 +59,10 @@ public:
     float GetRarityWeight(uint32_t rarity) const;
 
 private:
+    friend const GCConfig &GetConfig();
+    void PrintDiagnostics() const;
+    std::string m_unknownMusicKitStatTrak;
+
     LogOutput m_logOutput{ LogOutputConsole };
 
     // actually default to 4465480 instead of 730, people are going to use old configs
