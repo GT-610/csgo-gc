@@ -69,9 +69,11 @@ const void *GCMessageRead::ReadData(size_t size)
         return nullptr;
     }
 
-    if (m_offset + size > m_size)
+    // Subtracting instead of adding: m_offset and m_size are uint32_t, so on
+    // 32-bit builds (where size_t is 32 bits too) "m_offset + size" wraps and
+    // the check passes for huge sizes.
+    if (size > m_size - m_offset)
     {
-        // overflow
         Platform::Print("GCMessageRead: data read overflow\n");
         m_error = true;
         return nullptr;
