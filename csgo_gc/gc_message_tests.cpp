@@ -1671,16 +1671,60 @@ static bool WriteStatTrakFixtures()
 static bool MegaBundlesCreateAllEventPacks()
 {
     constexpr uint64_t SteamId = 76561197960265729ull;
+    auto makeRange = [](uint32_t first, uint32_t last)
+    {
+        std::vector<uint32_t> definitions;
+        for (uint32_t defIndex = first; defIndex <= last; ++defIndex)
+        {
+            definitions.push_back(defIndex);
+        }
+        return definitions;
+    };
     const struct BundleCase
     {
         uint32_t defIndex;
         uint32_t firstPack;
         uint32_t lastPack;
-        uint32_t expectedCount;
+        std::vector<uint32_t> expectedDefinitions;
     } cases[]{
-        { 4343, 4289, 4342, 50 }, { 4395, 4357, 4394, 50 },
-        { 4462, 4406, 4455, 48 }, { 4476, 4406, 4473, 48 },
-        { 4480, 4406, 4455, 48 }, { 4539, 4483, 4532, 50 },
+        { 4343, 4289, 4342, [&] {
+            std::vector<uint32_t> definitions = makeRange(4289, 4322);
+            const std::vector<uint32_t> autographAndOrganizer = makeRange(4327, 4342);
+            definitions.insert(definitions.end(), autographAndOrganizer.begin(), autographAndOrganizer.end());
+            return definitions;
+        }() },
+        { 4395, 4357, 4394, [&] {
+            std::vector<uint32_t> definitions = makeRange(4357, 4390);
+            definitions.insert(definitions.end(), 8, 4393);
+            definitions.insert(definitions.end(), 8, 4394);
+            return definitions;
+        }() },
+        { 4462, 4406, 4455, [&] {
+            std::vector<uint32_t> definitions = makeRange(4406, 4455);
+            for (uint32_t excluded : { 4429, 4454 })
+            {
+                definitions.erase(std::remove(definitions.begin(), definitions.end(), excluded), definitions.end());
+            }
+            return definitions;
+        }() },
+        { 4476, 4406, 4473, [&] {
+            std::vector<uint32_t> definitions = makeRange(4406, 4455);
+            for (uint32_t excluded : { 4407, 4429, 4432, 4454 })
+            {
+                definitions.erase(std::remove(definitions.begin(), definitions.end(), excluded), definitions.end());
+            }
+            definitions.insert(definitions.end(), { 4472, 4473 });
+            return definitions;
+        }() },
+        { 4480, 4406, 4455, [&] {
+            std::vector<uint32_t> definitions = makeRange(4406, 4455);
+            for (uint32_t excluded : { 4407, 4432 })
+            {
+                definitions.erase(std::remove(definitions.begin(), definitions.end(), excluded), definitions.end());
+            }
+            return definitions;
+        }() },
+        { 4539, 4483, 4532, makeRange(4483, 4532) },
     };
 
     RemoveStatTrakFixtures();
@@ -1796,36 +1840,11 @@ static bool MegaBundlesCreateAllEventPacks()
                     ++notifications;
                 }
             }
-            valid &= definitions.size() == test.expectedCount
+            std::vector<uint32_t> expectedDefinitions = test.expectedDefinitions;
+            std::sort(definitions.begin(), definitions.end());
+            std::sort(expectedDefinitions.begin(), expectedDefinitions.end());
+            valid &= definitions == expectedDefinitions
                 && createdIds == notifiedIds && destroyed == 1 && notifications == 1;
-            auto count = [&](uint32_t id)
-            {
-                return std::count(definitions.begin(), definitions.end(), id);
-            };
-            if (test.defIndex == 4343)
-            {
-                valid &= count(4325) == 0 && count(4326) == 0 && count(4327) == 1;
-            }
-            else if (test.defIndex == 4395)
-            {
-                valid &= count(4393) == 8 && count(4394) == 8
-                    && count(4391) == 0 && count(4392) == 0;
-            }
-            else if (test.defIndex == 4539)
-            {
-                valid &= count(4533) == 0 && count(4532) == 1;
-            }
-            else
-            {
-                valid &= count(4455) == 1 && count(4430) == 1;
-                valid &= count(4407) == (test.defIndex == 4462 ? 1 : 0);
-                valid &= count(4432) == (test.defIndex == 4462 ? 1 : 0);
-                valid &= count(4472) == (test.defIndex == 4476 ? 1 : 0);
-                valid &= count(4473) == (test.defIndex == 4476 ? 1 : 0);
-                valid &= count(4429) == (test.defIndex == 4480 ? 1 : 0);
-                valid &= count(4454) == (test.defIndex == 4480 ? 1 : 0);
-                valid &= count(4456) == 0;
-            }
         }
 
         // A normal self-opening capsule still produces one random loot-list item.
