@@ -250,26 +250,44 @@ bool KeyValue::WriteToFile(const char *path)
     FILE *f = fopen(temporaryPath.c_str(), "wb");
     if (!f)
     {
+        const int error = errno;
+        Platform::Print("Could not open temporary KeyValues file %s: %s (%d)\n",
+            temporaryPath.c_str(), strerror(error), error);
         return false;
     }
 
     WriteToFile(f, 0);
 
     bool writeSucceeded = !ferror(f) && fflush(f) == 0;
+    int writeError = writeSucceeded ? 0 : errno;
 #if defined(_WIN32)
     if (writeSucceeded)
     {
         writeSucceeded = _commit(_fileno(f)) == 0;
+        if (!writeSucceeded)
+        {
+            writeError = errno;
+        }
     }
 #else
     if (writeSucceeded)
     {
         writeSucceeded = fsync(fileno(f)) == 0;
+        if (!writeSucceeded)
+        {
+            writeError = errno;
+        }
     }
 #endif
-    writeSucceeded &= fclose(f) == 0;
+    if (fclose(f) != 0 && writeSucceeded)
+    {
+        writeSucceeded = false;
+        writeError = errno;
+    }
     if (!writeSucceeded)
     {
+        Platform::Print("Writing temporary KeyValues file %s failed: %s (%d)\n",
+            temporaryPath.c_str(), strerror(writeError), writeError);
         remove(temporaryPath.c_str());
         return false;
     }
@@ -277,12 +295,16 @@ bool KeyValue::WriteToFile(const char *path)
 #if defined(_WIN32)
     bool replaced = MoveFileExA(temporaryPath.c_str(), path,
         MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != FALSE;
+    const int replaceError = replaced ? 0 : static_cast<int>(GetLastError());
 #else
     bool replaced = rename(temporaryPath.c_str(), path) == 0;
+    const int replaceError = replaced ? 0 : errno;
 #endif
 
     if (!replaced)
     {
+        Platform::Print("Could not replace KeyValues file %s with %s: %s (%d)\n",
+            path, temporaryPath.c_str(), strerror(replaceError), replaceError);
         remove(temporaryPath.c_str());
     }
 
