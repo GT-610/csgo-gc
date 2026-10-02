@@ -139,6 +139,13 @@ if (BUILD_TESTING)
 
     add_test(NAME gc_message_tests COMMAND gc_message_tests)
 
+    set(souvenir_workdir "${CMAKE_CURRENT_BINARY_DIR}/souvenir_keep_items_test")
+    file(MAKE_DIRECTORY "${souvenir_workdir}/csgo_gc")
+    file(WRITE "${souvenir_workdir}/csgo_gc/config.txt" "\"destroy_used_items\" \"0\"\n")
+    add_test(NAME souvenir_keep_used_items COMMAND gc_message_tests --souvenir-output)
+    set_tests_properties(souvenir_keep_used_items PROPERTIES
+        WORKING_DIRECTORY "${souvenir_workdir}" TIMEOUT 10)
+
     add_executable(config_tests config_tests.cpp config.cpp keyvalue.cpp)
     target_precompile_headers(config_tests PRIVATE stdafx.h)
     target_link_libraries(config_tests PRIVATE csgo_gc_protobufs Threads::Threads)

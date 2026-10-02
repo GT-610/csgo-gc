@@ -3846,8 +3846,74 @@ static bool JoinServerAddressHasNoTrailingWhitespace()
     return true;
 }
 
-int main()
+static bool SouvenirOpeningPublishesOnlyValidObjects()
 {
+    constexpr uint64_t SteamId = 76561197960265729ull;
+    constexpr uint64_t PackageId = (uint64_t{ 7 } << 32) | (SteamId & 0xffffffffull);
+    if (!WriteRehashFixtures())
+    {
+        RemoveCustomizationFixtures();
+        return false;
+    }
+    bool valid = true;
+    {
+        ClientGC gc{ SteamId };
+        CMsgGCCStrike15_v2_ClientRequestSouvenir request;
+        request.set_itemid(PackageId);
+        SendGCProtobuf(gc, k_EMsgGCCStrike15_v2_ClientRequestSouvenir, request);
+        std::vector<EventData> events;
+        valid &= WaitForHostMessagesUntil(gc, k_EMsgGCItemCustomizationNotification, events);
+        size_t destroyed = 0;
+        size_t created = 0;
+        uint64_t createdId = 0;
+        for (const EventData &event : events)
+        {
+            const uint32_t type = static_cast<uint32_t>(event.id) & ~ProtobufMask;
+            if (type == k_ESOMsg_Destroy || type == k_ESOMsg_Create)
+            {
+                CMsgSOSingleObject object;
+                CSOEconItem item;
+                const bool parsed = ParseHostProtobuf(event, object) && ParseItemObject(object, item);
+                valid &= parsed && object.has_object_data() && item.has_id();
+                if (type == k_ESOMsg_Destroy)
+                {
+                    ++destroyed;
+                    valid &= parsed && item.id() == PackageId && !created;
+                }
+                else
+                {
+                    ++created;
+                    createdId = item.id();
+                    valid &= parsed && item.quality() == ItemSchema::QualityTournament;
+                }
+            }
+            else if (type == k_EMsgGCItemCustomizationNotification)
+            {
+                CMsgGCItemCustomizationNotification notification;
+                valid &= ParseHostProtobuf(event, notification) && created == 1
+                    && notification.item_id_size() == 1 && notification.item_id(0) == createdId;
+            }
+        }
+        valid &= created == 1 && destroyed == (GetConfig().DestroyUsedItems() ? 1u : 0u);
+        valid &= HostMessageOrNetMessageNotReceived(gc, k_ESOMsg_Destroy,
+            std::chrono::milliseconds{ 100 });
+    }
+    {
+        Inventory persisted{ SteamId };
+        valid &= bool(persisted.GetItem(PackageId)) == !GetConfig().DestroyUsedItems();
+    }
+    RemoveCustomizationFixtures();
+    return valid;
+}
+
+int main(int argc, char **argv)
+{
+    if (argc > 1 && std::string_view{ argv[1] } == "--souvenir-output")
+    {
+        const bool valid = SouvenirOpeningPublishesOnlyValidObjects();
+        std::printf("SouvenirOpeningPublishesOnlyValidObjects: %s\n", valid ? "PASS" : "FAIL");
+        return valid ? 0 : 1;
+    }
     struct TestCase
     {
         const char *name;
@@ -3858,6 +3924,7 @@ int main()
         { "MalformedMessageLengthsAreRejected", MalformedMessageLengthsAreRejected },
         { "InventoryInsertionsSurviveRehash", InventoryInsertionsSurviveRehash },
         { "JoinServerAddressHasNoTrailingWhitespace", JoinServerAddressHasNoTrailingWhitespace },
+        { "SouvenirOpeningPublishesOnlyValidObjects", SouvenirOpeningPublishesOnlyValidObjects },
         { "ExtendedCraftResponseSerialization", ExtendedCraftResponseSerialization },
         { "TruncatedCraftRequestGetsInvalidResponse", TruncatedCraftRequestGetsInvalidResponse },
         { "BasicStructHeaderSerializationIsUnchanged", BasicStructHeaderSerializationIsUnchanged },

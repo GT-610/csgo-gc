@@ -2979,7 +2979,10 @@ void ClientGC::HandleRequestSouvenir(GCMessageRead &messageRead)
             newItem,
             notification))
     {
-        SendMessageToGame(true, k_ESOMsg_Destroy, destroyPackage);
+        if (destroyPackage.has_type_id())
+        {
+            SendMessageToGame(true, k_ESOMsg_Destroy, destroyPackage);
+        }
         SendMessageToGame(true, k_ESOMsg_Create, newItem);
 
         SendMessageToGame(false, k_EMsgGCItemCustomizationNotification, notification);
