@@ -3817,6 +3817,35 @@ static bool OfflineGCRequestsReceiveMinimalResponses()
         && Platform::g_printCount.load(std::memory_order_relaxed) == printCountBefore;
 }
 
+static bool JoinServerAddressHasNoTrailingWhitespace()
+{
+    ClientGC gc{ 76561197960265729ull };
+    struct AddressCase { uint32_t ip; uint32_t port; const char *expected; };
+    for (const AddressCase &test : {
+        AddressCase{ 0, 0, "0.0.0.0:0" },
+        AddressCase{ 0x7f000001, 27015, "127.0.0.1:27015" },
+        AddressCase{ 0xffffffff, 65535, "255.255.255.255:65535" } })
+    {
+        CMsgGCCStrike15_v2_ClientRequestJoinServerData request;
+        request.set_server_ip(test.ip);
+        request.set_server_port(test.port);
+        request.set_version(1234);
+        SendGCProtobuf(gc, k_EMsgGCCStrike15_v2_ClientRequestJoinServerData, request);
+        EventData event;
+        CMsgGCCStrike15_v2_ClientRequestJoinServerData response;
+        if (!WaitForHostMessage(gc, k_EMsgGCCStrike15_v2_ClientRequestJoinServerData, event)
+            || !ParseHostProtobuf(event, response) || !response.has_res()
+            || response.res().server_address() != test.expected
+            || response.res().direct_udp_ip() != test.ip
+            || response.res().direct_udp_port() != test.port
+            || response.res().serverid() != request.version())
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 int main()
 {
     struct TestCase
@@ -3828,6 +3857,7 @@ int main()
     const TestCase tests[]{
         { "MalformedMessageLengthsAreRejected", MalformedMessageLengthsAreRejected },
         { "InventoryInsertionsSurviveRehash", InventoryInsertionsSurviveRehash },
+        { "JoinServerAddressHasNoTrailingWhitespace", JoinServerAddressHasNoTrailingWhitespace },
         { "ExtendedCraftResponseSerialization", ExtendedCraftResponseSerialization },
         { "TruncatedCraftRequestGetsInvalidResponse", TruncatedCraftRequestGetsInvalidResponse },
         { "BasicStructHeaderSerializationIsUnchanged", BasicStructHeaderSerializationIsUnchanged },
