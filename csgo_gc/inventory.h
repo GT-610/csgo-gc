@@ -105,6 +105,11 @@ public:
         CMsgSOSingleObject &newItem,
         CMsgGCItemCustomizationNotification &notification);
 
+    bool OpenMegaBundle(uint64_t bundleId,
+        CMsgSOSingleObject &destroyBundle,
+        std::vector<CMsgSOSingleObject> &newItems,
+        CMsgGCItemCustomizationNotification &notification);
+
     bool OpenStatTrakSwapToolBundle(uint64_t bundleId,
         CMsgSOSingleObject &destroyBundle,
         std::array<CMsgSOSingleObject, 2> &newTools,

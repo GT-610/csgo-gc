@@ -2559,9 +2559,33 @@ void ClientGC::UnlockCrate(GCMessageRead &messageRead)
 
     CMsgSOSingleObject destroyCrate, destroyKey, newItem;
     std::array<CMsgSOSingleObject, 2> newStatTrakSwapTools;
+    std::vector<CMsgSOSingleObject> newMegaBundleItems;
     CMsgGCItemCustomizationNotification notification;
 
     const CSOEconItem *crate = m_inventory.GetItem(crateId);
+    if (keyId == 0
+        && crate
+        && (crate->def_index() == 4343 || crate->def_index() == 4395
+            || crate->def_index() == 4462 || crate->def_index() == 4476
+            || crate->def_index() == 4480 || crate->def_index() == 4539))
+    {
+        if (!m_inventory.OpenMegaBundle(crateId, destroyCrate, newMegaBundleItems, notification))
+        {
+            Platform::Print("MEGA BUNDLE OPENING FAILED %llu\n", crateId);
+            return;
+        }
+        if (destroyCrate.has_type_id())
+        {
+            SendMessageToGame(true, k_ESOMsg_Destroy, destroyCrate);
+        }
+        for (const CMsgSOSingleObject &item : newMegaBundleItems)
+        {
+            SendMessageToGame(true, k_ESOMsg_Create, item);
+        }
+        SendMessageToGame(false, k_EMsgGCItemCustomizationNotification, notification);
+        return;
+    }
+
     if (keyId == 0
         && crate
         && crate->def_index() == ItemSchema::ItemStatTrakSwapToolBundle

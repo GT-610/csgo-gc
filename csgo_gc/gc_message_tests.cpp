@@ -1668,6 +1668,226 @@ static bool WriteStatTrakFixtures()
         && gcLootLists.WriteToFile("csgo_gc/gc_loot_lists.txt");
 }
 
+static bool MegaBundlesCreateAllEventPacks()
+{
+    constexpr uint64_t SteamId = 76561197960265729ull;
+    const struct BundleCase
+    {
+        uint32_t defIndex;
+        uint32_t firstPack;
+        uint32_t lastPack;
+        uint32_t expectedCount;
+    } cases[]{
+        { 4343, 4289, 4342, 50 }, { 4395, 4357, 4394, 50 },
+        { 4462, 4406, 4455, 48 }, { 4476, 4406, 4473, 48 },
+        { 4480, 4406, 4455, 48 }, { 4539, 4483, 4532, 50 },
+    };
+
+    RemoveStatTrakFixtures();
+    if (!TestFilesystem::MakeDirectory("csgo")
+        || !TestFilesystem::MakeDirectory("csgo/scripts")
+        || !TestFilesystem::MakeDirectory("csgo/scripts/items")
+        || !TestFilesystem::MakeDirectory("csgo_gc"))
+    {
+        RemoveStatTrakFixtures();
+        return false;
+    }
+
+    KeyValue schema{ "root" };
+    KeyValue &itemsGame = schema.AddSubkey("items_game");
+    KeyValue &items = itemsGame.AddSubkey("items");
+    for (const BundleCase &test : cases)
+    {
+        KeyValue &bundle = items.AddSubkey(std::to_string(test.defIndex));
+        bundle.AddString("name", "event_mega_bundle");
+        bundle.AddString("item_type", "self_opening_purchase");
+        bundle.AddString("loot_list_name", "intentionally_missing_bundle_loot_list");
+        for (uint32_t defIndex = test.firstPack; defIndex <= test.lastPack; ++defIndex)
+        {
+            KeyValue &pack = items.AddSubkey(std::to_string(defIndex));
+            pack.AddString("name", defIndex == 4289 ? "ordinary_capsule" : "event_pack");
+            if (defIndex == 4289)
+            {
+                pack.AddString("item_type", "self_opening_purchase");
+                pack.AddString("loot_list_name", "ordinary_capsule_loot");
+            }
+        }
+    }
+    // Definition 4289 is also a self-opening purchase, but is not a mega bundle.
+    items.AddSubkey("9000").AddString("name", "weapon_ak47");
+    itemsGame.AddSubkey("client_loot_lists")
+        .AddSubkey("ordinary_capsule_loot").AddNumber("weapon_ak47", 1);
+    KeyValue inventory{ "inventory" };
+    inventory.AddNumber("format_version", 1);
+    KeyValue &inventoryItems = inventory.AddSubkey("items");
+    for (size_t index = 0; index <= std::size(cases); ++index)
+    {
+        KeyValue &item = inventoryItems.AddSubkey(std::to_string(index + 1));
+        item.AddNumber("def_index", index == std::size(cases) ? 4289 : cases[index].defIndex);
+        item.AddNumber("quality", ItemSchema::QualityUnique);
+        item.AddNumber("origin", ItemOriginTraded);
+        item.AddNumber("rarity", ItemSchema::RarityCommon);
+    }
+    KeyValue emptyLoot{ "gc_loot_lists" };
+    KeyValue unusualLoot{ "unusual_loot_lists" };
+    bool valid = schema.WriteToFile("csgo/scripts/items/items_game.txt")
+        && inventory.WriteToFile("csgo_gc/inventory.txt")
+        && emptyLoot.WriteToFile("csgo_gc/gc_loot_lists.txt")
+        && unusualLoot.WriteToFile("csgo_gc/unusual_loot_lists.txt");
+    if (valid)
+    {
+        ClientGC gc{ SteamId };
+        for (size_t index = 0; index < std::size(cases); ++index)
+        {
+            const BundleCase &test = cases[index];
+            GCMessageWrite request{ k_EMsgGCUnlockCrate };
+            request.WriteUint64(0);
+            const uint64_t bundleId = (static_cast<uint64_t>(index + 1) << 32)
+                | (SteamId & UINT32_MAX);
+            request.WriteUint64(bundleId);
+            gc.PostToGC(GCEvent::Message, request.TypeMasked(), request.Data(), request.Size());
+            std::vector<EventData> events;
+            valid &= WaitForHostMessagesUntil(gc, k_EMsgGCItemCustomizationNotification, events);
+            std::unordered_set<uint64_t> createdIds;
+            std::unordered_set<uint64_t> notifiedIds;
+            std::vector<uint32_t> definitions;
+            int destroyed = 0;
+            int notifications = 0;
+            for (const EventData &event : events)
+            {
+                const uint32_t type = static_cast<uint32_t>(event.id) & ~ProtobufMask;
+                if (type == k_ESOMsg_Create || type == k_ESOMsg_Destroy)
+                {
+                    CMsgSOSingleObject object;
+                    CSOEconItem item;
+                    const bool parsed = ParseHostProtobuf(event, object)
+                        && ParseItemObject(object, item);
+                    valid &= parsed;
+                    if (!parsed)
+                    {
+                        continue;
+                    }
+                    if (type == k_ESOMsg_Destroy)
+                    {
+                        valid &= item.id() == bundleId;
+                        ++destroyed;
+                    }
+                    else
+                    {
+                        valid &= item.origin() == ItemOriginCrate
+                            && item.def_index() >= test.firstPack
+                            && item.def_index() <= test.lastPack
+                            && createdIds.insert(item.id()).second;
+                        definitions.push_back(item.def_index());
+                    }
+                }
+                else if (type == k_EMsgGCItemCustomizationNotification)
+                {
+                    CMsgGCItemCustomizationNotification notification;
+                    const bool parsed = ParseHostProtobuf(event, notification);
+                    valid &= parsed;
+                    if (parsed)
+                    {
+                        valid &= notification.request()
+                            == k_EGCItemCustomizationNotification_UnlockCrate;
+                        notifiedIds.insert(notification.item_id().begin(), notification.item_id().end());
+                        valid &= static_cast<size_t>(notification.item_id_size()) == notifiedIds.size();
+                    }
+                    ++notifications;
+                }
+            }
+            valid &= definitions.size() == test.expectedCount
+                && createdIds == notifiedIds && destroyed == 1 && notifications == 1;
+            auto count = [&](uint32_t id)
+            {
+                return std::count(definitions.begin(), definitions.end(), id);
+            };
+            if (test.defIndex == 4343)
+            {
+                valid &= count(4325) == 0 && count(4326) == 0 && count(4327) == 1;
+            }
+            else if (test.defIndex == 4395)
+            {
+                valid &= count(4393) == 8 && count(4394) == 8
+                    && count(4391) == 0 && count(4392) == 0;
+            }
+            else if (test.defIndex == 4539)
+            {
+                valid &= count(4533) == 0 && count(4532) == 1;
+            }
+            else
+            {
+                valid &= count(4455) == 1 && count(4430) == 1;
+                valid &= count(4407) == (test.defIndex == 4462 ? 1 : 0);
+                valid &= count(4432) == (test.defIndex == 4462 ? 1 : 0);
+                valid &= count(4472) == (test.defIndex == 4476 ? 1 : 0);
+                valid &= count(4473) == (test.defIndex == 4476 ? 1 : 0);
+                valid &= count(4429) == (test.defIndex == 4480 ? 1 : 0);
+                valid &= count(4454) == (test.defIndex == 4480 ? 1 : 0);
+                valid &= count(4456) == 0;
+            }
+        }
+
+        // A normal self-opening capsule still produces one random loot-list item.
+        GCMessageWrite capsuleRequest{ k_EMsgGCUnlockCrate };
+        capsuleRequest.WriteUint64(0);
+        const uint64_t capsuleId = (static_cast<uint64_t>(std::size(cases) + 1) << 32)
+            | (SteamId & UINT32_MAX);
+        capsuleRequest.WriteUint64(capsuleId);
+        gc.PostToGC(GCEvent::Message, capsuleRequest.TypeMasked(),
+            capsuleRequest.Data(), capsuleRequest.Size());
+        std::vector<EventData> capsuleEvents;
+        valid &= WaitForHostMessagesUntil(gc, k_EMsgGCItemCustomizationNotification, capsuleEvents);
+        int capsuleCreated = 0;
+        int capsuleDestroyed = 0;
+        int capsuleNotified = 0;
+        uint64_t capsuleRewardId = 0;
+        for (const EventData &event : capsuleEvents)
+        {
+            const uint32_t type = static_cast<uint32_t>(event.id) & ~ProtobufMask;
+            if (type == k_ESOMsg_Create || type == k_ESOMsg_Destroy)
+            {
+                CMsgSOSingleObject object;
+                CSOEconItem item;
+                const bool parsed = ParseHostProtobuf(event, object)
+                    && ParseItemObject(object, item);
+                valid &= parsed;
+                if (!parsed)
+                {
+                    continue;
+                }
+                if (type == k_ESOMsg_Create)
+                {
+                    valid &= item.def_index() == 9000 && item.origin() == ItemOriginCrate;
+                    capsuleRewardId = item.id();
+                    ++capsuleCreated;
+                }
+                else
+                {
+                    valid &= item.id() == capsuleId;
+                    ++capsuleDestroyed;
+                }
+            }
+            else if (type == k_EMsgGCItemCustomizationNotification)
+            {
+                CMsgGCItemCustomizationNotification capsuleNotification;
+                valid &= ParseHostProtobuf(event, capsuleNotification);
+                valid &= capsuleNotification.request()
+                    == k_EGCItemCustomizationNotification_UnlockCrate
+                    && capsuleNotification.item_id_size() == 1;
+                if (capsuleNotification.item_id_size() == 1)
+                {
+                    valid &= capsuleNotification.item_id(0) == capsuleRewardId;
+                }
+                ++capsuleNotified;
+            }
+        }
+        valid &= capsuleCreated == 1 && capsuleDestroyed == 1 && capsuleNotified == 1;
+    }
+    RemoveStatTrakFixtures();
+    return valid;
+}
+
 static bool StatTrakSwapToolTwoPackCreatesTwoTools()
 {
     constexpr uint64_t SteamId = 76561197960265729ull;
@@ -3943,6 +4163,7 @@ int main(int argc, char **argv)
         { "SOCacheVersionNegotiationAndRefresh", SOCacheVersionNegotiationAndRefresh },
         { "BaseItemCustomizationsPreserveRemainingState",
             BaseItemCustomizationsPreserveRemainingState },
+        { "MegaBundlesCreateAllEventPacks", MegaBundlesCreateAllEventPacks },
         { "StatTrakSwapToolTwoPackCreatesTwoTools", StatTrakSwapToolTwoPackCreatesTwoTools },
         { "UnusualStatTrakKnivesCanSwapCounters", UnusualStatTrakKnivesCanSwapCounters },
         { "StorePurchasesFinalizeTransactionally", StorePurchasesFinalizeTransactionally },

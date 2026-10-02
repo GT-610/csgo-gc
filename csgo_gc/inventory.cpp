@@ -1446,6 +1446,107 @@ bool Inventory::UnlockCrate(uint64_t crateId,
     return true;
 }
 
+// Mega bundles contain fixed event packs, not a random item from a loot list.
+// Boston's two revisions replaced the non-attending teams rather than adding
+// extra packs; all three versions still contain 48 items.
+static std::vector<uint32_t> MegaBundleContents(uint32_t defIndex)
+{
+    std::vector<uint32_t> contents;
+    auto addRange = [&](uint32_t first, uint32_t last)
+    {
+        for (uint32_t index = first; index <= last; ++index)
+        {
+            contents.push_back(index);
+        }
+    };
+
+    switch (defIndex)
+    {
+    case 4343: // Atlanta: 16 team stickers, 16 graffiti, 16 autograph capsules, 2 organizer packs.
+        addRange(4289, 4322);
+        addRange(4327, 4342);
+        break;
+    case 4395: // Krakow: 16 team stickers, 16 graffiti, 8 of each autograph capsule, 2 organizer packs.
+        addRange(4357, 4390);
+        for (int i = 0; i < 8; ++i)
+        {
+            contents.push_back(4393);
+            contents.push_back(4394);
+        }
+        break;
+    case 4462:
+    case 4476:
+    case 4480:
+        addRange(4406, 4455);
+        // Each edition has 23 team pairs: the initial release includes
+        // 100 Thieves, the Flash Gaming revision replaces them, and the
+        // no-Thieves revision retains TyLoo instead of Flash Gaming.
+        contents.erase(std::remove(contents.begin(), contents.end(), 4429), contents.end());
+        contents.erase(std::remove(contents.begin(), contents.end(), 4454), contents.end());
+        if (defIndex == 4476 || defIndex == 4480)
+        {
+            contents.erase(std::remove(contents.begin(), contents.end(), 4407), contents.end());
+            contents.erase(std::remove(contents.begin(), contents.end(), 4432), contents.end());
+            contents.push_back(defIndex == 4476 ? 4472 : 4429);
+            contents.push_back(defIndex == 4476 ? 4473 : 4454);
+        }
+        break;
+    case 4539: // London: 24 teams and one organizer pack of each type.
+        addRange(4483, 4532);
+        break;
+    default:
+        break;
+    }
+    return contents;
+}
+
+bool Inventory::OpenMegaBundle(uint64_t bundleId,
+    CMsgSOSingleObject &destroyBundle,
+    std::vector<CMsgSOSingleObject> &newItems,
+    CMsgGCItemCustomizationNotification &notification)
+{
+    auto bundle = m_items.find(bundleId);
+    if (bundle == m_items.end())
+    {
+        return false;
+    }
+
+    const std::vector<uint32_t> contents = MegaBundleContents(bundle->second.def_index());
+    if (contents.empty())
+    {
+        return false;
+    }
+    for (uint32_t defIndex : contents)
+    {
+        if (!m_itemSchema.CanCreateItem(defIndex))
+        {
+            Platform::Print("OpenMegaBundle: missing item definition %u\n", defIndex);
+            return false;
+        }
+    }
+
+    newItems.reserve(contents.size());
+    for (uint32_t defIndex : contents)
+    {
+        CSOEconItem &item = CreateItem(defIndex, ItemOriginCrate, UnacknowledgedFoundInCrate);
+        CMsgSOSingleObject object;
+        ToSingleObject(object, item);
+        newItems.push_back(std::move(object));
+        notification.add_item_id(item.id());
+    }
+    notification.set_request(k_EGCItemCustomizationNotification_UnlockCrate);
+
+    if (GetConfig().DestroyUsedItems())
+    {
+        bundle = m_items.find(bundleId);
+        if (bundle != m_items.end())
+        {
+            DestroyItem(bundle, destroyBundle);
+        }
+    }
+    return true;
+}
+
 bool Inventory::OpenStatTrakSwapToolBundle(uint64_t bundleId,
     CMsgSOSingleObject &destroyBundle,
     std::array<CMsgSOSingleObject, 2> &newTools,
