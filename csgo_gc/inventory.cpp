@@ -1449,8 +1449,29 @@ bool Inventory::UnlockCrate(uint64_t crateId,
 // Mega bundles contain fixed event packs, not a random item from a loot list.
 // Boston's two revisions replaced the non-attending teams rather than adding
 // extra packs; all three versions still contain 48 items.
+bool Inventory::IsMegaBundle(uint32_t defIndex)
+{
+    switch (defIndex)
+    {
+    case 4343:
+    case 4395:
+    case 4462:
+    case 4476:
+    case 4480:
+    case 4539:
+        return true;
+    default:
+        return false;
+    }
+}
+
 static std::vector<uint32_t> MegaBundleContents(uint32_t defIndex)
 {
+    if (!Inventory::IsMegaBundle(defIndex))
+    {
+        return {};
+    }
+
     std::vector<uint32_t> contents;
     auto addRange = [&](uint32_t first, uint32_t last)
     {

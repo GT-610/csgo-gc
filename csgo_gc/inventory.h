@@ -105,6 +105,7 @@ public:
         CMsgSOSingleObject &newItem,
         CMsgGCItemCustomizationNotification &notification);
 
+    static bool IsMegaBundle(uint32_t defIndex);
     bool OpenMegaBundle(uint64_t bundleId,
         CMsgSOSingleObject &destroyBundle,
         std::vector<CMsgSOSingleObject> &newItems,

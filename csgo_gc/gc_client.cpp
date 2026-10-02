@@ -2563,15 +2563,13 @@ void ClientGC::UnlockCrate(GCMessageRead &messageRead)
     CMsgGCItemCustomizationNotification notification;
 
     const CSOEconItem *crate = m_inventory.GetItem(crateId);
-    if (keyId == 0
-        && crate
-        && (crate->def_index() == 4343 || crate->def_index() == 4395
-            || crate->def_index() == 4462 || crate->def_index() == 4476
-            || crate->def_index() == 4480 || crate->def_index() == 4539))
+    if (keyId == 0 && crate && Inventory::IsMegaBundle(crate->def_index()))
     {
         if (!m_inventory.OpenMegaBundle(crateId, destroyCrate, newMegaBundleItems, notification))
         {
             Platform::Print("MEGA BUNDLE OPENING FAILED %llu\n", crateId);
+            notification.set_request(k_EGCItemCustomizationNotification_UnlockCrate);
+            SendMessageToGame(false, k_EMsgGCItemCustomizationNotification, notification);
             return;
         }
         if (destroyCrate.has_type_id())
