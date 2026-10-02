@@ -41,6 +41,23 @@ S_API void S_CALLTYPE SteamAPI_UnregisterCallback(CCallbackBase *)
 {
 }
 
+struct InventoryTestAccess
+{
+    static size_t ForceNextInsertionToRehash(Inventory &inventory)
+    {
+        auto &items = inventory.m_items;
+        items.rehash(items.size());
+        items.max_load_factor((static_cast<float>(items.size()) + 0.5f)
+            / static_cast<float>(items.bucket_count()));
+        return items.bucket_count();
+    }
+
+    static bool Rehashed(const Inventory &inventory, size_t previousBuckets)
+    {
+        return inventory.m_items.bucket_count() != previousBuckets;
+    }
+};
+
 template<typename T>
 static bool ValueAt(const uint8_t *data, size_t offset, T expected)
 {
@@ -1226,6 +1243,168 @@ static bool WriteCustomizationFixtures()
 static bool ParseItemObject(const CMsgSOSingleObject &object, CSOEconItem &item)
 {
     return object.type_id() == SOTypeItem && item.ParseFromString(object.object_data());
+}
+
+static bool WriteRehashFixtures()
+{
+    if (!WriteCustomizationFixtures())
+    {
+        return false;
+    }
+    KeyValue schema{ "root" };
+    KeyValue inventory{ "inventory" };
+    if (!schema.ParseFromFile("csgo/scripts/items/items_game.txt")
+        || !inventory.ParseFromFile("csgo_gc/inventory.txt"))
+    {
+        return false;
+    }
+    KeyValue &game = *schema.GetSubkey("items_game");
+    KeyValue &attributes = *game.GetSubkey("attributes");
+    for (uint32_t id : { ItemSchema::AttributeSpraysRemaining,
+        ItemSchema::AttributeTexturePrefab, ItemSchema::AttributeTextureSeed })
+    {
+        attributes.AddSubkey(std::to_string(id)).AddNumber("stored_as_integer", 1);
+    }
+    attributes.AddSubkey(std::to_string(ItemSchema::AttributeTextureWear))
+        .AddString("attribute_type", "float");
+    KeyValue &items = *game.GetSubkey("items");
+    items.AddSubkey(std::to_string(ItemSchema::ItemSpray)).AddString("name", "spray");
+    items.AddSubkey(std::to_string(ItemSchema::ItemSprayPaint)).AddString("name", "spraypaint");
+    for (const char *id : { "1001", "1002" })
+    {
+        KeyValue &crate = items.AddSubkey(id);
+        crate.AddString("name", std::string{ "crate_" } + id);
+        crate.AddString("loot_list_name", "rehash_loot");
+    }
+    game.AddSubkey("client_loot_lists").AddSubkey("rehash_loot")
+        .AddNumber("weapon_ak47", 1);
+    KeyValue &paintKits = game.AddSubkey("paint_kits");
+    paintKits.AddSubkey("101").AddString("name", "rehash_input");
+    paintKits.AddSubkey("102").AddString("name", "rehash_output");
+    KeyValue &rarities = game.AddSubkey("paint_kits_rarity");
+    rarities.AddString("rehash_input", "common");
+    rarities.AddString("rehash_output", "uncommon");
+    KeyValue &collection = game.AddSubkey("item_sets").AddSubkey("rehash_collection");
+    collection.AddNumber("is_collection", 1);
+    KeyValue &collectionItems = collection.AddSubkey("items");
+    collectionItems.AddNumber("[rehash_input]weapon_ak47", 1);
+    collectionItems.AddNumber("[rehash_output]weapon_ak47", 1);
+
+    KeyValue &owned = *inventory.GetSubkey("items");
+    auto addItem = [&](uint32_t id, uint32_t defIndex) -> KeyValue &
+    {
+        KeyValue &item = owned.AddSubkey(std::to_string(id));
+        item.AddNumber("def_index", defIndex);
+        item.AddNumber("quality", ItemSchema::QualityUnique);
+        item.AddNumber("origin", ItemOriginTraded);
+        item.AddNumber("rarity", ItemSchema::RarityUncommon);
+        return item;
+    };
+    addItem(5, ItemSchema::ItemSpray);
+    addItem(6, 1001);
+    addItem(7, 1002);
+    for (uint32_t id = 8; id < 18; ++id)
+    {
+        KeyValue &itemAttributes = addItem(id, 7).AddSubkey("attributes");
+        itemAttributes.AddNumber(std::to_string(ItemSchema::AttributeTexturePrefab), 101);
+        itemAttributes.AddNumber(std::to_string(ItemSchema::AttributeTextureWear), 0.25f);
+    }
+    return schema.WriteToFile("csgo/scripts/items/items_game.txt")
+        && inventory.WriteToFile("csgo_gc/inventory.txt");
+}
+
+static bool InventoryInsertionsSurviveRehash()
+{
+    constexpr uint64_t SteamId = 76561197960265729ull;
+    auto itemId = [](uint32_t high) { return (uint64_t{ high } << 32) | (SteamId & 0xffffffffull); };
+    bool valid = true;
+    for (int path = 0; path < 6; ++path)
+    {
+        if (!WriteRehashFixtures())
+        {
+            RemoveCustomizationFixtures();
+            return false;
+        }
+        {
+            Inventory inventory{ SteamId };
+            size_t buckets = InventoryTestAccess::ForceNextInsertionToRehash(inventory);
+            CMsgSOSingleObject create, destroy, unusedKey;
+            CMsgGCItemCustomizationNotification notification;
+            uint64_t consumedId = 0;
+            uint64_t createdId = 0;
+            bool success = false;
+            if (path == 0)
+            {
+                consumedId = itemId(5);
+                Inventory::UseItemResult result;
+                success = inventory.UseItem(consumedId, result);
+                destroy = result.destroy;
+                if (result.notification.item_id_size())
+                {
+                    createdId = result.notification.item_id(0);
+                }
+            }
+            else if (path == 1)
+            {
+                consumedId = itemId(6);
+                success = inventory.UnlockCrate(consumedId, 0, destroy, unusedKey, create, notification);
+            }
+            else if (path == 2)
+            {
+                consumedId = itemId(7);
+                success = inventory.OpenSouvenirPackage(consumedId, destroy, create, notification);
+            }
+            else if (path == 3)
+            {
+                consumedId = itemId(1);
+                CMsgApplySticker request;
+                request.set_sticker_item_id(consumedId);
+                request.set_sticker_slot(0);
+                request.set_baseitem_defidx(7);
+                success = inventory.ApplySticker(request, create, destroy, notification);
+            }
+            else if (path == 4)
+            {
+                consumedId = itemId(3);
+                success = inventory.NameBaseItem(consumedId, 7, "rehash", create, destroy, notification);
+            }
+            else
+            {
+                std::vector<uint64_t> inputs;
+                for (uint32_t id = 8; id < 18; ++id)
+                {
+                    inputs.push_back(itemId(id));
+                }
+                std::vector<CMsgSOSingleObject> destroyed;
+                int16_t recipe = -1;
+                success = inventory.TradeUp(inputs, destroyed, create, recipe);
+                valid &= destroyed.size() == inputs.size();
+                for (size_t i = 0; i < destroyed.size(); ++i)
+                {
+                    CSOEconItem removed;
+                    valid &= i < inputs.size() && ParseItemObject(destroyed[i], removed)
+                        && removed.id() == inputs[i] && !inventory.GetItem(inputs[i]);
+                }
+            }
+            if (path != 0)
+            {
+                CSOEconItem created;
+                valid &= ParseItemObject(create, created);
+                createdId = created.id();
+            }
+            if (consumedId)
+            {
+                CSOEconItem removed;
+                valid &= ParseItemObject(destroy, removed) && removed.id() == consumedId
+                    && !inventory.GetItem(consumedId);
+            }
+            valid &= success && createdId && inventory.GetItem(createdId)
+                && InventoryTestAccess::Rehashed(inventory, buckets);
+            std::printf("Inventory rehash path %d: %s\n", path, success ? "completed" : "FAILED");
+        }
+    }
+    RemoveCustomizationFixtures();
+    return valid;
 }
 
 static bool ParseRecurringSubscriptionObject(const CMsgSOSingleObject &object,
@@ -3648,6 +3827,7 @@ int main()
 
     const TestCase tests[]{
         { "MalformedMessageLengthsAreRejected", MalformedMessageLengthsAreRejected },
+        { "InventoryInsertionsSurviveRehash", InventoryInsertionsSurviveRehash },
         { "ExtendedCraftResponseSerialization", ExtendedCraftResponseSerialization },
         { "TruncatedCraftRequestGetsInvalidResponse", TruncatedCraftRequestGetsInvalidResponse },
         { "BasicStructHeaderSerializationIsUnchanged", BasicStructHeaderSerializationIsUnchanged },

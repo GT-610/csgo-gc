@@ -1186,7 +1186,7 @@ bool Inventory::UseItem(uint64_t itemId, UseItemResult &result)
     unsealed.set_def_index(ItemSchema::ItemSprayPaint);
 
     // remove the sealed spray from our inventory
-    DestroyItem(it, result.destroy);
+    DestroyItem(m_items.find(itemId), result.destroy);
 
     // equip the new spray, this will also unequip the old one if we had one
     EquipItem(unsealed.id(), 0, ItemSchema::LoadoutSlotGraffiti, false, result.updateMultiple);
@@ -1434,7 +1434,7 @@ bool Inventory::UnlockCrate(uint64_t crateId,
     // remove the crate
     if (GetConfig().DestroyUsedItems())
     {
-        DestroyItem(crate, destroyCrate);
+        DestroyItem(m_items.find(crateId), destroyCrate);
 
         auto key = m_items.find(keyId);
         if (keyId && key != m_items.end())
@@ -1524,7 +1524,7 @@ bool Inventory::OpenSouvenirPackage(uint64_t packageId,
     // remove the package
     if (GetConfig().DestroyUsedItems())
     {
-        DestroyItem(package, destroyPackage);
+        DestroyItem(m_items.find(packageId), destroyPackage);
     }
 
     return true;
@@ -1825,6 +1825,7 @@ bool Inventory::ApplySticker(const CMsgApplySticker &message,
     {
         item = &CreateItem(message.baseitem_defidx(), ItemOriginBaseItem, UnacknowledgedInvalid);
         item->set_rarity(ItemSchema::RarityDefault);
+        sticker = m_items.find(message.sticker_item_id());
     }
 
     assert(item);
@@ -2225,7 +2226,7 @@ bool Inventory::NameBaseItem(uint64_t nameTagId,
 
     if (GetConfig().DestroyUsedItems())
     {
-        DestroyItem(tag, destroy);
+        DestroyItem(m_items.find(nameTagId), destroy);
     }
 
     notification.add_item_id(item.id()); // mikkotodo def index???
@@ -3180,7 +3181,8 @@ bool Inventory::TradeUp(const std::vector<uint64_t> &inputItemIds,
         return false;
     }
 
-    std::vector<ItemMap::iterator> inputItems;
+    // Item IDs remain valid when allocating the output rehashes m_items.
+    std::vector<uint64_t> inputItems;
     inputItems.reserve(10);
 
     uint32_t inputRarity = 0;
@@ -3234,7 +3236,7 @@ bool Inventory::TradeUp(const std::vector<uint64_t> &inputItemIds,
         }
 
         const CSOEconItem &item = it->second;
-        inputItems.push_back(it);
+        inputItems.push_back(itemId);
 
         TradeUpItemDebug debug;
         debug.itemId = itemId;
@@ -3479,10 +3481,10 @@ bool Inventory::TradeUp(const std::vector<uint64_t> &inputItemIds,
     }
 
     destroyItems.reserve(inputItems.size());
-    for (auto it : inputItems)
+    for (uint64_t itemId : inputItems)
     {
         CMsgSOSingleObject &destroy = destroyItems.emplace_back();
-        DestroyItem(it, destroy);
+        DestroyItem(m_items.find(itemId), destroy);
     }
 
     ToSingleObject(newItem, outputItem);
