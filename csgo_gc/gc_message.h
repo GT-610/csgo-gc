@@ -1,6 +1,7 @@
 #pragma once
 
 #include "gc_const.h"
+#include <limits>
 
 class GCMessageRead
 {
@@ -22,15 +23,23 @@ public:
         assert(IsProtobuf());
 
         // read the remainder as a protobuf message
+        if (m_error || m_offset > m_size)
+        {
+            return false;
+        }
         uint32_t size = m_size - m_offset;
+        if (size > static_cast<uint32_t>(std::numeric_limits<int>::max()))
+        {
+            m_error = true;
+            return false;
+        }
         const void *data = ReadData(size);
         if (!data)
         {
-            assert(false);
             return false;
         }
 
-        return message.ParseFromArray(data, size);
+        return message.ParseFromArray(data, static_cast<int>(size));
     }
 
     // ReadData wrappers
@@ -40,7 +49,6 @@ public:
         const T *variable = static_cast<const T *>(ReadData(sizeof(T)));
         if (!variable)
         {
-            assert(false);
             return 0;
         }
 
@@ -54,7 +62,7 @@ public:
 private:
     const uint8_t *const m_data;
     const uint32_t m_size;
-    uint32_t m_type; // parsed from the message, protobuf mask is kept
+    uint32_t m_type{}; // parsed from the message, protobuf mask is kept
     uint64_t m_jobId{ JobIdInvalid };
 
     // the state

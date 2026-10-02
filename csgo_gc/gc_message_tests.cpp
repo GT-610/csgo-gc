@@ -49,6 +49,56 @@ static bool ValueAt(const uint8_t *data, size_t offset, T expected)
     return actual == expected;
 }
 
+static bool MalformedMessageLengthsAreRejected()
+{
+    constexpr uint32_t Type = k_EMsgGCClientHello | ProtobufMask;
+    const uint32_t lengths[]{ 1, 8, 0x7fffffffu, 0x80000000u, 0xfffffff8u, 0xffffffffu };
+    for (uint32_t length : lengths)
+    {
+        const uint32_t header[]{ Type, length };
+        GCMessageRead reader{ 0, header, sizeof(header) };
+        if (reader.IsValid() || reader.ReadData(0))
+        {
+            return false;
+        }
+    }
+
+    const uint32_t header[]{ Type, 0 };
+    for (uint32_t size = 0; size < sizeof(header); ++size)
+    {
+        GCMessageRead reader{ 0, header, size };
+        if (reader.IsValid())
+        {
+            return false;
+        }
+    }
+
+    GCMessageRead nullReader{ 0, nullptr, sizeof(header) };
+    GCMessageRead reader{ 0, header, sizeof(header) };
+    if (nullReader.IsValid() || !reader.IsValid() || !reader.ReadData(0))
+    {
+        return false;
+    }
+    // This length wraps offset + size to zero on x86.
+    if (reader.ReadData(0xfffffff8u) || reader.IsValid())
+    {
+        return false;
+    }
+
+    GCMessageRead endReader{ 0, header, sizeof(header) };
+    CMsgClientHello emptyBody;
+    if (!endReader.ReadProtobuf(emptyBody) || !endReader.IsValid()
+        || endReader.ReadData(1) || endReader.IsValid())
+    {
+        return false;
+    }
+
+    // No access beyond the actual header should occur: reject the claimed
+    // payload before calling protobuf's int-sized ParseFromArray API.
+    GCMessageRead largeBody{ 0, header, 0xffffffffu };
+    return !largeBody.ReadProtobuf(emptyBody) && !largeBody.IsValid();
+}
+
 static bool ExtendedCraftResponseSerialization()
 {
     constexpr int16_t responseIndex = 12;
@@ -3597,6 +3647,7 @@ int main()
     };
 
     const TestCase tests[]{
+        { "MalformedMessageLengthsAreRejected", MalformedMessageLengthsAreRejected },
         { "ExtendedCraftResponseSerialization", ExtendedCraftResponseSerialization },
         { "TruncatedCraftRequestGetsInvalidResponse", TruncatedCraftRequestGetsInvalidResponse },
         { "BasicStructHeaderSerializationIsUnchanged", BasicStructHeaderSerializationIsUnchanged },
