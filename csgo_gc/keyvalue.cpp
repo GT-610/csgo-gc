@@ -303,8 +303,8 @@ bool KeyValue::WriteToFile(const char *path)
 
     if (!replaced)
     {
-        Platform::Print("Could not replace KeyValues file %s with %s: %s (%d)\n",
-            path, temporaryPath.c_str(), strerror(replaceError), replaceError);
+        Platform::Print("Could not replace KeyValues file %s with %s (system error %d)\n",
+            path, temporaryPath.c_str(), replaceError);
         remove(temporaryPath.c_str());
     }
 
