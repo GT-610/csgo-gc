@@ -4,6 +4,15 @@
 
 #include <cstdio>
 
+namespace Platform
+{
+
+void Print(const char *, ...)
+{
+}
+
+}
+
 namespace
 {
 
