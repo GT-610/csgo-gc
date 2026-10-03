@@ -91,6 +91,7 @@ private:
     void GetEventFavorites(GCMessageRead &messageRead);
     void SetItemPositions(GCMessageRead &messageRead);
     void IncrementKillCountAttribute(GCMessageRead &messageRead);
+    void ModifyItemAttribute(GCMessageRead &messageRead);
     // Increment the equipped StatTrak music kit when the local player receives round MVP.
     void LocalPlayerRoundMVP();
     void ApplySticker(GCMessageRead &messageRead);

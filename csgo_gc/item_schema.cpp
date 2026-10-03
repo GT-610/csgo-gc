@@ -288,6 +288,11 @@ float ItemSchema::AttributeFloat(const CSOEconItemAttribute *attribute) const
     }
 }
 
+bool ItemSchema::IsKnownAttribute(uint32_t defIndex) const
+{
+    return m_attributeInfo.contains(defIndex);
+}
+
 uint32_t ItemSchema::AttributeUint32(const CSOEconItemAttribute *attribute) const
 {
     auto it = m_attributeInfo.find(attribute->def_index());

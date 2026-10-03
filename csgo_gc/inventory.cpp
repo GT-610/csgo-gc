@@ -2105,6 +2105,64 @@ bool Inventory::ScrapeSticker(const CMsgApplySticker &message,
     return true;
 }
 
+bool Inventory::ModifyItemAttribute(uint64_t itemId, uint32_t defIndex, uint32_t value,
+    CMsgSOSingleObject &update)
+{
+    auto it = m_items.find(itemId);
+    if (it == m_items.end() || !m_itemSchema.IsKnownAttribute(defIndex))
+    {
+        return false;
+    }
+
+    CSOEconItem &item = it->second;
+
+    // The journal's selected graffiti is an ordinary integer attribute. Nothing
+    // here depends on which event the journal belongs to, so a journal from any
+    // tournament can be updated even while a different event is current.
+    const uint64_t previousVersion = m_version;
+    CSOEconItemAttribute *existing = FindAttribute(item, defIndex);
+    const bool hadValue = existing && existing->has_value_bytes();
+    const std::string previousValue = hadValue ? existing->value_bytes() : std::string{};
+
+    CSOEconItemAttribute *attribute = existing ? existing : FindOrAddAttribute(item, defIndex);
+    if (!m_itemSchema.SetAttributeUint32(attribute, value))
+    {
+        if (!existing)
+        {
+            item.mutable_attribute()->RemoveLast();
+        }
+        return false;
+    }
+
+    ToSingleObject(update, item);
+
+    if (WriteToFile())
+    {
+        return true;
+    }
+
+    // Same rollback contract as the kill counter: a value the client believes
+    // was stored must not disappear on the next save.
+    m_version = previousVersion;
+    if (existing)
+    {
+        if (hadValue)
+        {
+            existing->set_value_bytes(previousValue);
+        }
+        else
+        {
+            existing->clear_value_bytes();
+        }
+    }
+    else
+    {
+        item.mutable_attribute()->RemoveLast();
+    }
+    update.Clear();
+    return false;
+}
+
 bool Inventory::IncrementKillCountAttribute(uint64_t itemId, uint32_t amount, CMsgSOSingleObject &update)
 {
     auto it = m_items.find(itemId);

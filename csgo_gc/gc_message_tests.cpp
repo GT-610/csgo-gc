@@ -3508,6 +3508,110 @@ static bool SouvenirTokenInitializesMissingPurchasedCount()
     return valid;
 }
 
+// Issue 113: the tournament spray popup persists the chosen graffiti through
+// InventoryAPI.SetItemAttributeValueAsync, which the client sends as
+// k_EMsgGCModifyItemAttribute. The GC ignored that message entirely, so the
+// selection never reached the SOCache and the game kept spraying the previous
+// graffiti. The journal's own event must not gate the update: a Rio 2022
+// graffiti has to be storable on a journal from any tournament.
+static bool TournamentJournalAcceptsCrossEventGraffiti()
+{
+    constexpr uint64_t SteamId = 76561197960265729ull;
+    constexpr uint32_t Rio2022GraffitiId = 6085;
+    constexpr uint32_t Rio2022TeamGraffitiId = 6061;
+    constexpr uint32_t UnknownAttributeDefIndex = 65000;
+
+    RemoveTournamentAccessFixtures();
+    if (!WriteTournamentAccessFixtures({ 100 }))
+    {
+        RemoveTournamentAccessFixtures();
+        return false;
+    }
+
+    const uint64_t passId = TournamentFixtureItemId(SteamId, 1);
+    const uint64_t missingItemId = TournamentFixtureItemId(SteamId, 0x4000);
+    uint64_t journalId = 0;
+    bool valid = true;
+    {
+        ClientGC gc{ SteamId };
+
+        // Activating the pass creates the journal with its default selection.
+        CMsgUseItem activation;
+        activation.set_item_id(passId);
+        SendGCProtobuf(gc, k_EMsgGCUseItemRequest, activation);
+
+        std::vector<EventData> activationEvents;
+        valid &= WaitForHostMessagesUntil(gc,
+            k_EMsgGCItemCustomizationNotification, activationEvents)
+            && ValidateTournamentActivationEvents(activationEvents, passId,
+                k_ESOMsg_Create, 0, journalId);
+
+        auto selectGraffiti = [&](uint64_t itemId, uint32_t defIndex,
+            uint32_t graffitiId, CSOEconItem &item)
+        {
+            CMsgModifyItemAttribute request;
+            request.set_item_id(itemId);
+            request.set_attr_defidx(defIndex);
+            request.set_attr_value(graffitiId);
+            SendGCProtobuf(gc, k_EMsgGCModifyItemAttribute, request);
+
+            EventData event;
+            CMsgSOSingleObject update;
+            return WaitForHostMessage(gc, k_ESOMsg_Update, event)
+                && ParseHostProtobuf(event, update)
+                && ParseItemObject(update, item)
+                && item.id() == itemId;
+        };
+
+        CSOEconItem updated;
+        uint32_t stickerId = 0;
+        valid &= selectGraffiti(journalId, ItemSchema::AttributeStickerId0,
+                Rio2022GraffitiId, updated)
+            && GetUint32Attribute(updated, ItemSchema::AttributeStickerId0, stickerId)
+            && stickerId == Rio2022GraffitiId
+            // Selecting a graffiti must not migrate the journal to the event the
+            // graffiti came from; it stays the Paris journal it was created as.
+            && updated.def_index() == 200;
+
+        // A second, different cross-event selection must also be accepted.
+        updated.Clear();
+        valid &= selectGraffiti(journalId, ItemSchema::AttributeStickerId0,
+                Rio2022TeamGraffitiId, updated)
+            && GetUint32Attribute(updated, ItemSchema::AttributeStickerId0, stickerId)
+            && stickerId == Rio2022TeamGraffitiId;
+
+        // Attributes the schema cannot encode are refused instead of storing
+        // bytes the client could never read back.
+        CMsgModifyItemAttribute unknown;
+        unknown.set_item_id(journalId);
+        unknown.set_attr_defidx(UnknownAttributeDefIndex);
+        unknown.set_attr_value(1);
+        SendGCProtobuf(gc, k_EMsgGCModifyItemAttribute, unknown);
+        valid &= HostMessageNotReceived(gc, k_ESOMsg_Update);
+
+        // An unknown item id is equally rejected.
+        CMsgModifyItemAttribute missing;
+        missing.set_item_id(missingItemId);
+        missing.set_attr_defidx(ItemSchema::AttributeStickerId0);
+        missing.set_attr_value(Rio2022GraffitiId);
+        SendGCProtobuf(gc, k_EMsgGCModifyItemAttribute, missing);
+        valid &= HostMessageNotReceived(gc, k_ESOMsg_Update);
+    }
+
+    {
+        Inventory persisted{ SteamId };
+        const CSOEconItem *journal = persisted.GetItem(journalId);
+        uint32_t stickerId = 0;
+        valid &= journal
+            && journal->def_index() == 200
+            && GetUint32Attribute(*journal, ItemSchema::AttributeStickerId0, stickerId)
+            && stickerId == Rio2022TeamGraffitiId;
+    }
+
+    RemoveTournamentAccessFixtures();
+    return valid;
+}
+
 static void RemoveSeasonalOperationFixtures()
 {
     TestFilesystem::RemoveFile("csgo_gc/inventory.txt");
@@ -4196,6 +4300,8 @@ int main(int argc, char **argv)
             ViewerPassActivationCreatesAndPersistsJournal },
         { "ViewerPassTokenPacksUpdatePersistedJournal",
             ViewerPassTokenPacksUpdatePersistedJournal },
+        { "TournamentJournalAcceptsCrossEventGraffiti",
+            TournamentJournalAcceptsCrossEventGraffiti },
         { "SouvenirTokenInitializesMissingPurchasedCount",
             SouvenirTokenInitializesMissingPurchasedCount },
         { "SeasonPassActivationCreatesAndPersistsOperationState",
