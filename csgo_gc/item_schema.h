@@ -180,6 +180,10 @@ public:
     uint32_t AttributeUint32(const CSOEconItemAttribute *attribute) const;
     std::string AttributeString(const CSOEconItemAttribute *attribute) const;
 
+    // Whether the definition is a tournament journal, which owns the graffiti a
+    // player selects through the tournament spray popup.
+    bool IsTournamentJournal(uint32_t defIndex) const;
+
     bool SetAttributeFloat(CSOEconItemAttribute *attribute, float value) const;
     bool SetAttributeUint32(CSOEconItemAttribute *attribute, uint32_t value) const;
     bool SetAttributeString(CSOEconItemAttribute *attribute, std::string_view value) const;

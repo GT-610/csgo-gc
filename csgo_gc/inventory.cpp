@@ -2105,6 +2105,75 @@ bool Inventory::ScrapeSticker(const CMsgApplySticker &message,
     return true;
 }
 
+bool Inventory::ModifyItemAttribute(uint64_t itemId, uint32_t defIndex, uint32_t value,
+    CMsgSOSingleObject &update)
+{
+    auto it = m_items.find(itemId);
+    if (it == m_items.end())
+    {
+        return false;
+    }
+
+    CSOEconItem &item = it->second;
+
+    // This path exists for one client feature: the tournament spray popup, which
+    // stores the chosen graffiti as the journal's "sticker slot 0 id". Accepting
+    // every known attribute would let the client rewrite GC-managed state it has
+    // no business touching, and def index 113 is also the first weapon sticker
+    // slot, so an unrestricted write would rewrite weapon stickers directly.
+    // Limit client writes to that single item-and-attribute combination. Which
+    // tournament the journal belongs to is deliberately not checked, so a
+    // graffiti from any event can be selected while another event is current.
+    if (defIndex != ItemSchema::AttributeStickerId0
+        || !m_itemSchema.IsTournamentJournal(item.def_index()))
+    {
+        return false;
+    }
+
+    const uint64_t previousVersion = m_version;
+    CSOEconItemAttribute *existing = FindAttribute(item, defIndex);
+    const bool hadValue = existing && existing->has_value_bytes();
+    const std::string previousValue = hadValue ? existing->value_bytes() : std::string{};
+
+    CSOEconItemAttribute *attribute = existing ? existing : FindOrAddAttribute(item, defIndex);
+    if (!m_itemSchema.SetAttributeUint32(attribute, value))
+    {
+        if (!existing)
+        {
+            item.mutable_attribute()->RemoveLast();
+        }
+        return false;
+    }
+
+    ToSingleObject(update, item);
+
+    if (WriteToFile())
+    {
+        return true;
+    }
+
+    // Same rollback contract as the kill counter: a value the client believes
+    // was stored must not disappear on the next save.
+    m_version = previousVersion;
+    if (existing)
+    {
+        if (hadValue)
+        {
+            existing->set_value_bytes(previousValue);
+        }
+        else
+        {
+            existing->clear_value_bytes();
+        }
+    }
+    else
+    {
+        item.mutable_attribute()->RemoveLast();
+    }
+    update.Clear();
+    return false;
+}
+
 bool Inventory::IncrementKillCountAttribute(uint64_t itemId, uint32_t amount, CMsgSOSingleObject &update)
 {
     auto it = m_items.find(itemId);

@@ -1098,6 +1098,10 @@ void ClientGC::HandleMessage(uint32_t type, const void *data, uint32_t size)
             SetItemPositions(messageRead);
             break;
 
+        case k_EMsgGCModifyItemAttribute:
+            ModifyItemAttribute(messageRead);
+            break;
+
         case k_EMsgGCApplySticker:
             ApplySticker(messageRead);
             break;
@@ -2147,6 +2151,26 @@ void ClientGC::SetItemPositions(GCMessageRead &messageRead)
     else
     {
         assert(false);
+    }
+}
+
+void ClientGC::ModifyItemAttribute(GCMessageRead &messageRead)
+{
+    CMsgModifyItemAttribute message;
+    if (!messageRead.ReadProtobuf(message))
+    {
+        Platform::Print("Parsing CMsgModifyItemAttribute failed, ignoring\n");
+        return;
+    }
+
+    // Panorama's tournament spray popup persists the chosen graffiti this way.
+    // The journal keeps its own event, and no current-event whitelist applies,
+    // so selecting a graffiti from a non-current event is stored as requested.
+    CMsgSOSingleObject update;
+    if (m_inventory.ModifyItemAttribute(message.item_id(), message.attr_defidx(),
+        message.attr_value(), update))
+    {
+        SendMessageToGame(true, k_ESOMsg_Update, update);
     }
 }
 

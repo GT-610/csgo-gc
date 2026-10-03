@@ -147,6 +147,15 @@ public:
 
     bool IncrementKillCountAttribute(uint64_t itemId, uint32_t amount, CMsgSOSingleObject &update);
 
+    // Applies a client-requested attribute value (k_EMsgGCModifyItemAttribute).
+    // This is how Panorama persists the graffiti a tournament journal has
+    // selected: it sets "sticker slot 0 id" on the journal. Only that item and
+    // attribute combination is accepted, so the client cannot rewrite other
+    // GC-managed attributes. The journal's event is deliberately not checked,
+    // so a graffiti from any tournament can be selected.
+    bool ModifyItemAttribute(uint64_t itemId, uint32_t defIndex, uint32_t value,
+        CMsgSOSingleObject &update);
+
     bool NameItem(uint64_t nameTagId,
         uint64_t itemId,
         std::string_view name,
