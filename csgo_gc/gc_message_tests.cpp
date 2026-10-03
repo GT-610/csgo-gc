@@ -3513,7 +3513,8 @@ static bool SouvenirTokenInitializesMissingPurchasedCount()
 // k_EMsgGCModifyItemAttribute. The GC ignored that message entirely, so the
 // selection never reached the SOCache and the game kept spraying the previous
 // graffiti. The journal's own event must not gate the update: a Rio 2022
-// graffiti has to be storable on a journal from any tournament.
+// graffiti has to be storable on a journal from any tournament. Only that one
+// item-and-attribute combination may be written from the client.
 static bool TournamentJournalAcceptsCrossEventGraffiti()
 {
     constexpr uint64_t SteamId = 76561197960265729ull;
@@ -3522,13 +3523,14 @@ static bool TournamentJournalAcceptsCrossEventGraffiti()
     constexpr uint32_t UnknownAttributeDefIndex = 65000;
 
     RemoveTournamentAccessFixtures();
-    if (!WriteTournamentAccessFixtures({ 100 }))
+    if (!WriteTournamentAccessFixtures({ 100, 100 }))
     {
         RemoveTournamentAccessFixtures();
         return false;
     }
 
     const uint64_t passId = TournamentFixtureItemId(SteamId, 1);
+    const uint64_t sparePassId = TournamentFixtureItemId(SteamId, 2);
     const uint64_t missingItemId = TournamentFixtureItemId(SteamId, 0x4000);
     uint64_t journalId = 0;
     bool valid = true;
@@ -3580,8 +3582,27 @@ static bool TournamentJournalAcceptsCrossEventGraffiti()
             && GetUint32Attribute(updated, ItemSchema::AttributeStickerId0, stickerId)
             && stickerId == Rio2022TeamGraffitiId;
 
-        // Attributes the schema cannot encode are refused instead of storing
-        // bytes the client could never read back.
+        // Only the journal's graffiti attribute is writable from the client. A
+        // non-journal item must be refused even though it is owned, since def
+        // index 113 is also the first weapon sticker slot.
+        CMsgModifyItemAttribute notAJournal;
+        notAJournal.set_item_id(sparePassId);
+        notAJournal.set_attr_defidx(ItemSchema::AttributeStickerId0);
+        notAJournal.set_attr_value(Rio2022GraffitiId);
+        SendGCProtobuf(gc, k_EMsgGCModifyItemAttribute, notAJournal);
+        valid &= HostMessageNotReceived(gc, k_ESOMsg_Update);
+
+        // Other GC-managed attributes on the journal itself are refused too, so
+        // the client cannot reach the campaign or token counters this way.
+        CMsgModifyItemAttribute otherAttribute;
+        otherAttribute.set_item_id(journalId);
+        otherAttribute.set_attr_defidx(ItemSchema::AttributeCampaignId);
+        otherAttribute.set_attr_value(999);
+        SendGCProtobuf(gc, k_EMsgGCModifyItemAttribute, otherAttribute);
+        valid &= HostMessageNotReceived(gc, k_ESOMsg_Update);
+
+        // A def index the schema has no storage type for is refused as well,
+        // since the attribute encoder cannot encode it.
         CMsgModifyItemAttribute unknown;
         unknown.set_item_id(journalId);
         unknown.set_attr_defidx(UnknownAttributeDefIndex);
@@ -3601,11 +3622,20 @@ static bool TournamentJournalAcceptsCrossEventGraffiti()
     {
         Inventory persisted{ SteamId };
         const CSOEconItem *journal = persisted.GetItem(journalId);
+        const CSOEconItem *sparePass = persisted.GetItem(sparePassId);
         uint32_t stickerId = 0;
+        uint32_t campaignId = 0;
         valid &= journal
             && journal->def_index() == 200
             && GetUint32Attribute(*journal, ItemSchema::AttributeStickerId0, stickerId)
-            && stickerId == Rio2022TeamGraffitiId;
+            && stickerId == Rio2022TeamGraffitiId
+            // The refused campaign write left no trace.
+            && GetUint32Attribute(*journal, ItemSchema::AttributeCampaignId, campaignId)
+            && campaignId == 15
+            // The refused non-journal write left no trace either.
+            && sparePass
+            && sparePass->def_index() == 100
+            && !HasAttribute(*sparePass, ItemSchema::AttributeStickerId0);
     }
 
     RemoveTournamentAccessFixtures();

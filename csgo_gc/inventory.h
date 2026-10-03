@@ -149,9 +149,10 @@ public:
 
     // Applies a client-requested attribute value (k_EMsgGCModifyItemAttribute).
     // This is how Panorama persists the graffiti a tournament journal has
-    // selected: it sets "sticker slot 0 id" on the journal. The event the
-    // journal belongs to is irrelevant, so any schema-known attribute on any
-    // owned item is accepted.
+    // selected: it sets "sticker slot 0 id" on the journal. Only that item and
+    // attribute combination is accepted, so the client cannot rewrite other
+    // GC-managed attributes. The journal's event is deliberately not checked,
+    // so a graffiti from any tournament can be selected.
     bool ModifyItemAttribute(uint64_t itemId, uint32_t defIndex, uint32_t value,
         CMsgSOSingleObject &update);
 

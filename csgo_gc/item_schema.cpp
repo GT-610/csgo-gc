@@ -288,9 +288,13 @@ float ItemSchema::AttributeFloat(const CSOEconItemAttribute *attribute) const
     }
 }
 
-bool ItemSchema::IsKnownAttribute(uint32_t defIndex) const
+bool ItemSchema::IsTournamentJournal(uint32_t defIndex) const
 {
-    return m_attributeInfo.contains(defIndex);
+    const ItemInfo *info = ItemInfoByDefIndex(defIndex);
+    return info
+        && info->m_name.starts_with("tournament_journal_")
+        && std::find(info->m_prefabs.begin(), info->m_prefabs.end(), "fan_shield")
+            != info->m_prefabs.end();
 }
 
 uint32_t ItemSchema::AttributeUint32(const CSOEconItemAttribute *attribute) const
