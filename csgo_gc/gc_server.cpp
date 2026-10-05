@@ -271,7 +271,7 @@ void ServerGC::HandleMessage(uint32_t type, const void *data, uint32_t size)
             break;
 
         default:
-            Platform::Print("ServerGC::HandleMessage: unhandled protobuf message %s)\n",
+            Platform::Print("ServerGC::HandleMessage: unhandled protobuf message %s\n",
                 MessageName(messageRead.TypeUnmasked()));
             break;
         }
