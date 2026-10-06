@@ -496,12 +496,32 @@ static void UpdateGameEventListeners()
 // Fetched when s_serverGC is initialized and cleared when it is destroyed.
 static ISteamGameServer *s_steamGameServer;
 
+// Steam refuses to hand out an interface when the running steamclient build is
+// not compatible with this game build, or when the pipe logged in without the
+// requested version. That is reported here instead of being fatal: the GC is
+// only one part of the process, and terminating it took down a dedicated server
+// that Steam otherwise drove fine. There is also no useful fallback, because the
+// GC talks to the game through these interfaces, so the affected side simply
+// runs without a GC for the rest of the session.
+static void ReportUnavailableGCInterface(const char *name)
+{
+    Platform::Print("Steam did not provide %s; running without a GC for this session\n", name);
+}
+
+// The lookups below return an empty result when Steam cannot provide the
+// interface. Callers decide whether they can still run and report what is
+// missing, so these stay silent to keep the per-frame paths quiet.
 static uint64_t GetUserSteamId(HSteamPipe pipe, HSteamUser user)
 {
+    if (!s_actualSteamClient)
+    {
+        return 0;
+    }
+
     ISteamUser *steamUser = s_actualSteamClient->GetISteamUser(user, pipe, STEAMUSER_INTERFACE_VERSION);
     if (!steamUser)
     {
-        Platform::Error("Could not get %s", STEAMUSER_INTERFACE_VERSION);
+        return 0;
     }
 
     CSteamID steamId = steamUser->GetSteamID();
@@ -511,24 +531,23 @@ static uint64_t GetUserSteamId(HSteamPipe pipe, HSteamUser user)
 
 static ISteamNetworkingMessages *GetSteamNetworkingMessages(HSteamPipe pipe, HSteamUser user)
 {
-    void *networkingMessages = s_actualSteamClient->GetISteamGenericInterface(user, pipe, STEAMNETWORKINGMESSAGES_INTERFACE_VERSION);
-    if (!networkingMessages)
+    if (!s_actualSteamClient)
     {
-        Platform::Error("Could not get %s", STEAMNETWORKINGMESSAGES_INTERFACE_VERSION);
+        return nullptr;
     }
 
-    return static_cast<ISteamNetworkingMessages *>(networkingMessages);
+    return static_cast<ISteamNetworkingMessages *>(
+        s_actualSteamClient->GetISteamGenericInterface(user, pipe, STEAMNETWORKINGMESSAGES_INTERFACE_VERSION));
 }
 
 static ISteamGameServer *GetSteamGameServer(HSteamPipe pipe, HSteamUser user)
 {
-    ISteamGameServer *gameServer = s_actualSteamClient->GetISteamGameServer(user, pipe, STEAMGAMESERVER_INTERFACE_VERSION);
-    if (!gameServer)
+    if (!s_actualSteamClient)
     {
-        Platform::Error("Could not get %s", STEAMGAMESERVER_INTERFACE_VERSION);
+        return nullptr;
     }
 
-    return gameServer;
+    return s_actualSteamClient->GetISteamGameServer(user, pipe, STEAMGAMESERVER_INTERFACE_VERSION);
 }
 
 // ============================================================================
@@ -539,24 +558,55 @@ class SteamGameCoordinatorProxy final
 {
     const bool m_server;
 
+    // False when this side had no usable Steam interfaces at construction time.
+    bool HasGC() const
+    {
+        return m_server ? s_serverGC != nullptr : s_clientGC != nullptr;
+    }
+
 public:
     SteamGameCoordinatorProxy(HSteamPipe pipe, HSteamUser user)
         : m_server{ pipe == s_serverSteamPipe }
     {
+        // The GC runs on these interfaces, so a missing one means this side has
+        // to run without a GC. Everything below tolerates the wrappers staying
+        // null for the rest of the session.
+        ISteamNetworkingMessages *networkingMessages = GetSteamNetworkingMessages(pipe, user);
+        if (!networkingMessages)
+        {
+            ReportUnavailableGCInterface(STEAMNETWORKINGMESSAGES_INTERFACE_VERSION);
+            return;
+        }
+
         if (m_server)
         {
             assert(!s_serverGC);
-            s_serverGC = new GCWrapper<ServerGC, NetworkingServer>{
-                GetSteamNetworkingMessages(pipe, user), pipe, user };
 
-            assert(!s_steamGameServer);
             s_steamGameServer = GetSteamGameServer(pipe, user);
+            if (!s_steamGameServer)
+            {
+                // Without this we cannot tell whether the server is logged on,
+                // which the server GC relies on before it publishes anything.
+                ReportUnavailableGCInterface(STEAMGAMESERVER_INTERFACE_VERSION);
+                return;
+            }
+
+            s_serverGC = new GCWrapper<ServerGC, NetworkingServer>{
+                networkingMessages, pipe, user };
         }
         else
         {
             assert(!s_clientGC);
+
+            uint64_t steamId = GetUserSteamId(pipe, user);
+            if (!steamId)
+            {
+                ReportUnavailableGCInterface(STEAMUSER_INTERFACE_VERSION);
+                return;
+            }
+
             s_clientGC = new GCWrapper<ClientGC, NetworkingClient>{
-                GetSteamNetworkingMessages(pipe, user), pipe, user, GetUserSteamId(pipe, user) };
+                networkingMessages, pipe, user, steamId };
             s_rconServer.RegisterClient(&s_clientGC->m_gc);
         }
     }
@@ -565,17 +615,18 @@ public:
     {
         if (m_server)
         {
-            assert(s_serverGC);
             delete s_serverGC;
             s_serverGC = nullptr;
 
-            assert(s_steamGameServer);
             s_steamGameServer = nullptr;
         }
         else
         {
-            assert(s_clientGC);
-            s_rconServer.UnregisterClient(&s_clientGC->m_gc);
+            if (s_clientGC)
+            {
+                s_rconServer.UnregisterClient(&s_clientGC->m_gc);
+            }
+
             delete s_clientGC;
             s_clientGC = nullptr;
             s_pendingMicroTransactionAuthorization.reset();
@@ -584,14 +635,19 @@ public:
 
     EGCResults SendMessage(auto, uint32 unMsgType, const void *pubData, uint32 cubData)
     {
+        if (!HasGC())
+        {
+            // The game still calls this after we failed to start a GC, so report
+            // the result Steam uses when no GC is reachable instead of trapping.
+            return k_EGCResultNotLoggedOn;
+        }
+
         if (m_server)
         {
-            assert(s_serverGC);
             s_serverGC->m_gc.PostToGC(GCEvent::Message, unMsgType, pubData, cubData);
         }
         else
         {
-            assert(s_clientGC);
             s_clientGC->m_gc.PostToGC(GCEvent::Message, unMsgType, pubData, cubData);
         }
 
@@ -600,6 +656,11 @@ public:
 
     bool IsMessageAvailable(auto, uint32 *pcubMsgSize)
     {
+        if (!HasGC())
+        {
+            return false;
+        }
+
         if (m_server)
         {
             return s_serverGC->m_messageQueue.IsMessageAvailable(*pcubMsgSize);
@@ -612,6 +673,11 @@ public:
 
     EGCResults RetrieveMessage(auto, uint32 *punMsgType, void *pubDest, uint32 cubDest, uint32 *pcubMsgSize)
     {
+        if (!HasGC())
+        {
+            return k_EGCResultNoMessage;
+        }
+
         bool result;
 
         if (m_server)
@@ -1787,6 +1853,24 @@ static void Hk_SteamAPI_UnregisterCallback(class CCallbackBase *pCallback)
     Og_SteamAPI_UnregisterCallback(pCallback);
 }
 
+// Re-reads the networking interface for an already running client GC. Steam may
+// recycle generic interface objects while processing its own callbacks (the
+// store authorization flow does this in practice), so this is refreshed on both
+// sides of the callback pass.
+static void RefreshClientNetworkingMessages()
+{
+    ISteamNetworkingMessages *networkingMessages = GetSteamNetworkingMessages(
+        s_clientGC->m_steamPipe, s_clientGC->m_steamUser);
+
+    if (!networkingMessages)
+    {
+        // Keep the interface we already have rather than clearing it.
+        return;
+    }
+
+    s_clientGC->m_networking.SetNetworkingMessages(networkingMessages);
+}
+
 static void Hk_SteamAPI_RunCallbacks()
 {
     const auto callbackPassStarted = std::chrono::steady_clock::now();
@@ -1801,8 +1885,7 @@ static void Hk_SteamAPI_RunCallbacks()
             s_pendingMicroTransactionAuthorization.reset();
         }
 
-        s_clientGC->m_networking.SetNetworkingMessages(GetSteamNetworkingMessages(
-            s_clientGC->m_steamPipe, s_clientGC->m_steamUser));
+        RefreshClientNetworkingMessages();
     }
 
     Og_SteamAPI_RunCallbacks();
@@ -1811,10 +1894,7 @@ static void Hk_SteamAPI_RunCallbacks()
 
     if (s_clientGC)
     {
-        // Steam may recycle generic interface objects while processing its
-        // own callbacks (the store authorization flow does this in practice).
-        s_clientGC->m_networking.SetNetworkingMessages(GetSteamNetworkingMessages(
-            s_clientGC->m_steamPipe, s_clientGC->m_steamUser));
+        RefreshClientNetworkingMessages();
 
         std::vector<EventData> events;
         s_clientGC->m_gc.GetHostEvents(events);
@@ -1906,8 +1986,7 @@ static void Hk_SteamGameServer_RunCallbacks()
     {
         // only run server gc when logged on as an attempt to more accurately mimic real gc behaviour
         // FIXME: does csgo handle CMsgConnectionStatus?
-        assert(s_steamGameServer);
-        if (!s_steamGameServer->BLoggedOn())
+        if (!s_steamGameServer || !s_steamGameServer->BLoggedOn())
         {
             return;
         }
@@ -2100,7 +2179,10 @@ void SteamHookInstall(bool dedicated)
     s_actualSteamClient = static_cast<ISteamClient *>(pCreateInterface(STEAMCLIENT_INTERFACE_VERSION, nullptr));
     if (!s_actualSteamClient)
     {
-        Platform::Error("Could not get %s", STEAMCLIENT_INTERFACE_VERSION);
+        // Without this we cannot reach any other interface, so no GC will start.
+        // The game keeps running and gets told that the GC is unavailable.
+        Platform::Print("Steam did not provide %s; running without a GC for this session\n",
+            STEAMCLIENT_INTERFACE_VERSION);
     }
 
     // see if we should write funchook logs to file
