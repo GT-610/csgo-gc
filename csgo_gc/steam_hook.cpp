@@ -1787,6 +1787,16 @@ static void Hk_SteamAPI_UnregisterCallback(class CCallbackBase *pCallback)
     Og_SteamAPI_UnregisterCallback(pCallback);
 }
 
+// Re-reads the networking interface for an already running client GC. Steam may
+// recycle generic interface objects while processing its own callbacks (the
+// store authorization flow does this in practice), so this is refreshed on both
+// sides of the callback pass.
+static void RefreshClientNetworkingMessages()
+{
+    s_clientGC->m_networking.SetNetworkingMessages(GetSteamNetworkingMessages(
+        s_clientGC->m_steamPipe, s_clientGC->m_steamUser));
+}
+
 static void Hk_SteamAPI_RunCallbacks()
 {
     const auto callbackPassStarted = std::chrono::steady_clock::now();
@@ -1801,8 +1811,7 @@ static void Hk_SteamAPI_RunCallbacks()
             s_pendingMicroTransactionAuthorization.reset();
         }
 
-        s_clientGC->m_networking.SetNetworkingMessages(GetSteamNetworkingMessages(
-            s_clientGC->m_steamPipe, s_clientGC->m_steamUser));
+        RefreshClientNetworkingMessages();
     }
 
     Og_SteamAPI_RunCallbacks();
@@ -1811,10 +1820,7 @@ static void Hk_SteamAPI_RunCallbacks()
 
     if (s_clientGC)
     {
-        // Steam may recycle generic interface objects while processing its
-        // own callbacks (the store authorization flow does this in practice).
-        s_clientGC->m_networking.SetNetworkingMessages(GetSteamNetworkingMessages(
-            s_clientGC->m_steamPipe, s_clientGC->m_steamUser));
+        RefreshClientNetworkingMessages();
 
         std::vector<EventData> events;
         s_clientGC->m_gc.GetHostEvents(events);
