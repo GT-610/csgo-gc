@@ -32,39 +32,58 @@
 // Odds per rarity come from "rarity_weights" in config.txt, same as real cases.
 // Like real cases, 1 in 10 unboxes is StatTrak (gloves never are).
 
-// example: replaces the original CS:GO Weapon Case (def 4001)
+// "Galaxy Case": real finishes on weapons they never shipped on, checked against
+// the final CS:GO items_game.txt (all names exist, none of these combos are in
+// the game). Replaces the original CS:GO Weapon Case (def 4001).
 "4001"
 {
 	"name"	"Galaxy Case"
 
 	"items"
 	{
-		"[aq_oiled]weapon_ak47"							"rare"
-		"[am_zebra]weapon_usp_silencer"					"rare"
-		"[an_tiger_orange]weapon_glock"					"rare"
-		"[am_marble_fade]weapon_deagle"					"mythical"
-		"[am_doppler_phase2]weapon_m4a1_silencer"		"mythical"
-		"[am_gamma_doppler_phase2]weapon_awp"			"legendary"
-		"[am_ruby_marbleized]weapon_ak47"				"ancient"
-		"[am_sapphire_marbleized]weapon_awp"			"ancient"
+		// Mil-Spec
+		"[am_copper_flecks]weapon_glock"				"rare"		// Copper Galaxy
+		"[am_crumple]weapon_ak47"						"rare"		// Graphite
+		"[am_diamond_plate]weapon_usp_silencer"			"rare"		// Tread Plate
+		"[am_ossify_blue]weapon_famas"					"rare"		// Ocean Foam
+		"[am_crystallized]weapon_p250"					"rare"		// Red Quartz
+		"[an_emerald_bravo]weapon_mac10"				"rare"		// Emerald
+		"[am_jorm_blue]weapon_ssg08"					"rare"		// Astral Jormungandr
+
+		// Restricted
+		"[am_crystallized_blue]weapon_m4a1_silencer"	"mythical"	// Cobalt Quartz
+		"[am_electric_red]weapon_deagle"				"mythical"	// Serum
+		"[am_ossify_red]weapon_awp"						"mythical"	// Hemoglobin
+		"[am_fuschia]weapon_ak47"						"mythical"	// The Fuschia Is Now
+		"[am_bloom_blue]weapon_usp_silencer"			"mythical"	// Midnight Lily
+
+		// Classified
+		"[am_gold_brick]weapon_deagle"					"legendary"	// Gold Brick
+		"[am_m4a1s_bluesmoke]weapon_awp"				"legendary"	// Blue Phosphor
+		"[am_scales_bravo]weapon_ak47"					"legendary"	// Golden Koi
+
+		// Covert
+		"[am_aqua_flecks]weapon_ak47"					"ancient"	// Twilight Galaxy
+		"[aa_fade_metallic_revolver]weapon_awp"			"ancient"	// Amber Fade
 	}
 
 	"golds"
 	{
-		// Twilight Galaxy (Glock-18 finish)
+		// Twilight Galaxy
 		"[am_aqua_flecks]weapon_knife_karambit"			""
 		"[am_aqua_flecks]weapon_knife_butterfly"		""
-		// Gold Brick (MAC-10 finish)
-		"[am_gold_brick]weapon_knife_m9_bayonet"		""
+		"[am_aqua_flecks]weapon_knife_m9_bayonet"		""
+		// Gold Brick
+		"[am_gold_brick]weapon_knife_karambit"			""
 		"[am_gold_brick]weapon_knife_butterfly"			""
-		// Copper Galaxy (Five-SeveN finish)
-		"[am_copper_flecks]weapon_knife_karambit"		""
-		// Cobalt Quartz (Dual Berettas finish)
+		"[am_gold_brick]weapon_bayonet"					""
+		// Blue Phosphor
+		"[am_m4a1s_bluesmoke]weapon_knife_karambit"		""
+		"[am_m4a1s_bluesmoke]weapon_knife_m9_bayonet"	""
+		"[am_m4a1s_bluesmoke]weapon_knife_flip"			""
+		// Copper Galaxy, Cobalt Quartz, Amber Fade
+		"[am_copper_flecks]weapon_knife_falchion"		""
 		"[am_crystallized_blue]weapon_bayonet"			""
-		// Amber Fade (R8 Revolver finish)
 		"[aa_fade_metallic_revolver]weapon_knife_flip"	""
-		// regular Ruby / Sapphire for the lucky ones
-		"[am_ruby_marbleized]weapon_knife_karambit"		""
-		"[am_sapphire_marbleized]weapon_knife_karambit"	""
 	}
 }

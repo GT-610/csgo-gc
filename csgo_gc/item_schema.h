@@ -186,6 +186,8 @@ public:
 
     // for case opening
     const LootList *GetCrateLootList(uint32_t crateDefIndex) const;
+    // the crate's contents from the game schema, ignoring custom_cases.txt
+    const LootList *GetOriginalCrateLootList(uint32_t crateDefIndex) const;
 
     // Legacy souvenir packages are opened through UnlockCrate with no key.
     // Distinguish them from other self-opening containers using schema data.

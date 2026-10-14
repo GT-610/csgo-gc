@@ -3471,8 +3471,9 @@ static bool WriteGoldTradeUpFixtures()
     karambit.AddString("item_rarity", "ancient");
     KeyValue &crate = items.AddSubkey("4001");
     crate.AddString("name", "crate_gold_test");
-    crate.AddString("loot_list_name", "crate_gold_test");
     crate.AddSubkey("tool").AddString("restriction", "gold_test");
+    // real weapon cases point at their contents through a supply crate series
+    crate.AddSubkey("attributes").AddSubkey("set supply crate series").AddNumber("value", 77);
     KeyValue &key = items.AddSubkey("4002");
     key.AddString("name", "key_gold_test");
     key.AddString("item_type", "weapon_case_key");
@@ -3503,6 +3504,7 @@ static bool WriteGoldTradeUpFixtures()
     setItems.AddNumber("[classified_a]weapon_ak47", 1);
     setItems.AddNumber("[consumer_a]weapon_ak47", 1);
 
+    itemsGame.AddSubkey("revolving_loot_lists").AddString("77", "crate_gold_test");
     KeyValue &lootList = itemsGame.AddSubkey("client_loot_lists").AddSubkey("crate_gold_test");
     lootList.AddNumber("[covert_a]weapon_ak47", 1);
     lootList.AddNumber("[covert_b]weapon_ak47", 1);

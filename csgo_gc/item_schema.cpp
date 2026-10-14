@@ -638,6 +638,11 @@ const LootList *ItemSchema::GetCrateLootList(uint32_t crateDefIndex) const
         return customSearch->second;
     }
 
+    return GetOriginalCrateLootList(crateDefIndex);
+}
+
+const LootList *ItemSchema::GetOriginalCrateLootList(uint32_t crateDefIndex) const
+{
     auto itemSearch = m_itemInfo.find(crateDefIndex);
     if (itemSearch == m_itemInfo.end())
     {
@@ -2276,12 +2281,15 @@ void ItemSchema::BuildSpecialTradeUpPools() const
     for (const auto &pair : m_itemInfo)
     {
         const ItemInfo &info = pair.second;
-        if (info.m_lootListName.empty())
+        // weapon cases point at their contents through a supply crate series,
+        // other containers through a loot list name
+        if (info.m_lootListName.empty() && !info.m_supplyCrateSeries)
         {
             continue;
         }
 
-        const LootList *root = GetCrateLootList(info.m_defIndex);
+        // link collections through the real contents, not custom_cases.txt
+        const LootList *root = GetOriginalCrateLootList(info.m_defIndex);
         if (!root)
         {
             continue;
