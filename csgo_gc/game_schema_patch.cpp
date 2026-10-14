@@ -165,12 +165,195 @@ size_t GameSchemaPatch::PatchLootLists(std::string &text, const LootListPreviews
     return ranges.size();
 }
 
-bool GameSchemaPatch::Apply(const LootListPreviews &previews)
+// Recipe ids follow the existing pattern (0..4 by input rarity, +10 for
+// StatTrak), which is also what the GC's craft handler expects.
+const char *const GameSchemaPatch::GoldTradeUpRecipes = R"(		"5"
+		{
+			"name"		"#RT_MP_A"
+			"n_A"		"#RI_R6p"
+			"desc_inputs"		"#RDI_AB"
+			"desc_outputs"		"#RDO_AB"
+			"di_A"		"5"
+			"di_B"		"#RI_R6p"
+			"do_A"		"1"
+			"do_B"		"#Exceedingly_Rare_Item"
+			"all_same_class"		"0"
+			"always_known"		"1"
+			"premium_only"		"0"
+			"disabled"		"0"
+			"input_items"
+			{
+				"5"
+				{
+					"conditions"
+					{
+						"0" { "field" "*rarity" "operator" "string==" "value" "ancient" "required" "1" }
+						"1" { "field" "*quality" "operator" "string==" "value" "unique" "required" "1" }
+						"2" { "field" "craft_class" "operator" "string==" "value" "weapon" "required" "1" }
+					}
+				}
+			}
+			"output_items"
+			{
+				"item1"
+				{
+					"conditions"
+					{
+						"0" { "field" "*match_set_rarity" "operator" "string==" "value" "unusual" "required" "1" }
+					}
+				}
+			}
+			"category"		"crafting"
+			"filter"		"-3"
+		}
+		"15"
+		{
+			"name"		"#RT_MP_A"
+			"n_A"		"#RI_R6p"
+			"desc_inputs"		"#RDI_AB"
+			"desc_outputs"		"#RDO_AB"
+			"di_A"		"5"
+			"di_B"		"#RI_R6p"
+			"do_A"		"1"
+			"do_B"		"#Exceedingly_Rare_Item"
+			"all_same_class"		"0"
+			"always_known"		"1"
+			"premium_only"		"0"
+			"disabled"		"0"
+			"input_items"
+			{
+				"5"
+				{
+					"conditions"
+					{
+						"0" { "field" "*rarity" "operator" "string==" "value" "ancient" "required" "1" }
+						"1" { "field" "*quality" "operator" "string==" "value" "strange" "required" "1" }
+						"2" { "field" "*kill_eater_score_type" "operator" "string==" "value" "0" "required" "1" }
+						"3" { "field" "craft_class" "operator" "string==" "value" "weapon" "required" "1" }
+					}
+				}
+			}
+			"output_items"
+			{
+				"item1"
+				{
+					"conditions"
+					{
+						"0" { "field" "*match_set_rarity" "operator" "string==" "value" "unusual" "required" "1" }
+						"1" { "field" "*stattrak_recipe" "operator" "string==" "value" "yes" "required" "1" }
+					}
+				}
+			}
+			"category"		"crafting"
+			"filter"		"-3"
+			"requires_tool"		"0"
+		}
+		"6"
+		{
+			"name"		"#RT_MP_A"
+			"n_A"		"#Exceedingly_Rare_Item"
+			"desc_inputs"		"#RDI_AB"
+			"desc_outputs"		"#RDO_AB"
+			"di_A"		"5"
+			"di_B"		"#Exceedingly_Rare_Item"
+			"do_A"		"1"
+			"do_B"		"#Exceedingly_Rare_Item"
+			"all_same_class"		"0"
+			"always_known"		"1"
+			"premium_only"		"0"
+			"disabled"		"0"
+			"input_items"
+			{
+				"5"
+				{
+					"conditions"
+					{
+						"0" { "field" "*quality" "operator" "string==" "value" "unusual" "required" "1" }
+					}
+				}
+			}
+			"output_items"
+			{
+				"item1"
+				{
+					"conditions"
+					{
+						"0" { "field" "*match_set_rarity" "operator" "string==" "value" "unusual" "required" "1" }
+					}
+				}
+			}
+			"category"		"crafting"
+			"filter"		"-3"
+		}
+)";
+
+bool GameSchemaPatch::InsertRecipes(std::string &text, const std::string &recipesText)
+{
+    std::vector<std::string> stack;
+    std::string lastString;
+    bool haveLastString = false;
+
+    for (size_t i = 0; i < text.size(); i++)
+    {
+        char c = text[i];
+
+        if (c == '/' && i + 1 < text.size() && text[i + 1] == '/')
+        {
+            while (i < text.size() && text[i] != '\n')
+            {
+                i++;
+            }
+            continue;
+        }
+
+        if (c == '"')
+        {
+            size_t start = ++i;
+            while (i < text.size() && text[i] != '"')
+            {
+                if (text[i] == '\\' && i + 1 < text.size())
+                {
+                    i++;
+                }
+                i++;
+            }
+            lastString.assign(text, start, i - start);
+            haveLastString = true;
+            continue;
+        }
+
+        if (c == '{')
+        {
+            stack.push_back(haveLastString ? lastString : std::string{});
+            haveLastString = false;
+            continue;
+        }
+
+        if (c == '}')
+        {
+            if (stack.size() == 2 && stack[0] == "items_game" && stack[1] == "recipes")
+            {
+                text.insert(i, recipesText);
+                return true;
+            }
+
+            if (!stack.empty())
+            {
+                stack.pop_back();
+            }
+            haveLastString = false;
+        }
+    }
+
+    return false;
+}
+
+bool GameSchemaPatch::Apply(const LootListPreviews &previews, const std::string &recipesText)
 {
     std::string original;
     if (!ReadWholeFile(OriginalSchemaPath(), original))
     {
-        Platform::Print("custom_cases: could not read %s, case previews not updated\n", SchemaPath);
+        Platform::Print("could not read %s, not patching it\n", SchemaPath);
         return false;
     }
 
@@ -181,6 +364,11 @@ bool GameSchemaPatch::Apply(const LootListPreviews &previews)
         Platform::Print("custom_cases: found %zu of %zu case contents lists to update\n", replaced, previews.size());
     }
 
+    if (!recipesText.empty() && !InsertRecipes(patched, recipesText))
+    {
+        Platform::Print("items_game.txt has no recipes block, gold trade-up recipes not added\n");
+    }
+
     std::string current;
     if (ReadWholeFile(SchemaPath, current) && current == patched)
     {
@@ -189,18 +377,18 @@ bool GameSchemaPatch::Apply(const LootListPreviews &previews)
 
     if (!FileExists(BackupPath) && !WriteWholeFile(BackupPath, original))
     {
-        Platform::Print("custom_cases: could not back up %s, case previews not updated\n", SchemaPath);
+        Platform::Print("could not back up %s, not patching it\n", SchemaPath);
         return false;
     }
 
     if (!WriteWholeFile(SchemaPath, patched))
     {
-        Platform::Print("custom_cases: could not write %s, case previews not updated\n", SchemaPath);
+        Platform::Print("could not write %s\n", SchemaPath);
         return false;
     }
 
-    Platform::Print("custom_cases: updated %zu case preview(s) in %s, restart the game to see them\n",
-        replaced, SchemaPath);
+    Platform::Print("Updated %s (%zu case preview(s)%s), restart the game to see the changes\n",
+        SchemaPath, replaced, recipesText.empty() ? "" : ", gold trade-up recipes");
     return true;
 }
 
@@ -214,11 +402,11 @@ bool GameSchemaPatch::Restore()
     std::string original;
     if (!ReadWholeFile(BackupPath, original) || !WriteWholeFile(SchemaPath, original))
     {
-        Platform::Print("custom_cases: could not restore %s from %s\n", SchemaPath, BackupPath);
+        Platform::Print("could not restore %s from %s\n", SchemaPath, BackupPath);
         return false;
     }
 
     remove(BackupPath);
-    Platform::Print("custom_cases: restored the original %s, restart the game to see it\n", SchemaPath);
+    Platform::Print("restored the original %s, restart the game to see it\n", SchemaPath);
     return true;
 }

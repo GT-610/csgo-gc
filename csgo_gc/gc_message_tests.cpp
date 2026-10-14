@@ -4024,11 +4024,11 @@ static bool CustomCasePreviewBacksUpAndRestores()
 
     bool valid = !original.empty()
         && strcmp(GameSchemaPatch::OriginalSchemaPath(), GameSchemaPatch::SchemaPath) == 0
-        && GameSchemaPatch::Apply(previews)
+        && GameSchemaPatch::Apply(previews, {})
         && readFile(GameSchemaPatch::BackupPath) == original
         && readFile(GameSchemaPatch::SchemaPath) != original
         && strcmp(GameSchemaPatch::OriginalSchemaPath(), GameSchemaPatch::BackupPath) == 0
-        && !GameSchemaPatch::Apply(previews) // already up to date
+        && !GameSchemaPatch::Apply(previews, {}) // already up to date
         && GameSchemaPatch::Restore()
         && readFile(GameSchemaPatch::SchemaPath) == original
         && readFile(GameSchemaPatch::BackupPath).empty()
@@ -4036,6 +4036,48 @@ static bool CustomCasePreviewBacksUpAndRestores()
 
     TestFilesystem::RemoveFile(GameSchemaPatch::BackupPath);
     RemoveGoldTradeUpFixtures();
+    return valid;
+}
+
+
+static bool GoldTradeUpRecipesAreAddedToSchema()
+{
+    const std::string original =
+        "\"items_game\"\n"
+        "{\n"
+        "\t\"recipes\"\n"
+        "\t{\n"
+        "\t\t\"0\" { \"name\" \"#RT_MP_A\" }\n"
+        "\t}\n"
+        "\t\"other\" { \"recipes\" { } }\n"
+        "}\n";
+
+    std::string text = original;
+    bool valid = GameSchemaPatch::InsertRecipes(text, GameSchemaPatch::GoldTradeUpRecipes);
+
+    KeyValue parsed{ "root" };
+    if (FILE *f = fopen("recipes_schema_test.txt", "wb"))
+    {
+        fwrite(text.data(), 1, text.size(), f);
+        fclose(f);
+    }
+    valid &= parsed.ParseFromFile("recipes_schema_test.txt");
+    TestFilesystem::RemoveFile("recipes_schema_test.txt");
+
+    const KeyValue *itemsGame = parsed.GetSubkey("items_game");
+    const KeyValue *recipes = itemsGame ? itemsGame->GetSubkey("recipes") : nullptr;
+    const KeyValue *other = itemsGame ? itemsGame->GetSubkey("other") : nullptr;
+    valid &= recipes && recipes->SubkeyCount() == 4
+        && recipes->GetSubkey("0") && recipes->GetSubkey("5") && recipes->GetSubkey("15") && recipes->GetSubkey("6")
+        && other && other->GetSubkey("recipes") && other->GetSubkey("recipes")->SubkeyCount() == 0;
+
+    // covert recipe takes 5 Coverts
+    const KeyValue *covert = recipes ? recipes->GetSubkey("5") : nullptr;
+    const KeyValue *inputs = covert ? covert->GetSubkey("input_items") : nullptr;
+    valid &= inputs && inputs->GetSubkey("5") && covert->GetString("do_B") == "#Exceedingly_Rare_Item";
+
+    std::string noRecipes = "\"items_game\" { \"items\" { } }";
+    valid &= !GameSchemaPatch::InsertRecipes(noRecipes, GameSchemaPatch::GoldTradeUpRecipes);
     return valid;
 }
 
@@ -4073,6 +4115,7 @@ int main()
         { "CustomCaseReplacesContents", CustomCaseReplacesContents },
         { "CustomCasePreviewPatchesOnlyTargetLists", CustomCasePreviewPatchesOnlyTargetLists },
         { "CustomCasePreviewBacksUpAndRestores", CustomCasePreviewBacksUpAndRestores },
+        { "GoldTradeUpRecipesAreAddedToSchema", GoldTradeUpRecipesAreAddedToSchema },
         { "StorePurchasesFinalizeTransactionally", StorePurchasesFinalizeTransactionally },
         { "LegacyStorePriceSheetMatchesClientSchema",
             LegacyStorePriceSheetMatchesClientSchema },
