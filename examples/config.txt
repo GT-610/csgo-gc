@@ -61,10 +61,23 @@
 	}
 }
 
-// list every container (weapon cases, souvenir packages, sticker/patch/pin
-// capsules...) and the key that opens it in the in-game store, not just the
-// newest ones on the store front page. purchases are free.
+// list every container and the key that opens it in the in-game store, not just
+// the newest ones on the store front page. purchases are free. the store is
+// sorted: weapon cases, then souvenir packages, then capsules (newest first).
 "store_all_cases"	"1"
+
+// which kinds of containers store_all_cases adds
+"store_containers"
+{
+	"weapon_cases"		"1"
+	"souvenir_packages"	"1"
+	"capsules"			"1"	// sticker, autograph and patch capsules
+	"other"				"0"	// graffiti boxes, pin capsules, music kit boxes, ...
+}
+
+// hide store coupons for single items (individual stickers, graffiti, music
+// kits...). coupons that give a capsule or package are kept.
+"store_hide_individual_items"	"1"
 
 // lets the trade-up screen accept 5 Coverts (or 5 knives/gloves) for a
 // knife/glove. the game's own trade-up rules live in its items_game.txt and

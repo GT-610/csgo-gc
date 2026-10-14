@@ -1655,17 +1655,84 @@ static void AdaptStorePriceSheet(KeyValue &priceSheet, const ItemSchema &itemSch
         removedCount += bannerLayout->RemoveSubkey(name);
     }
 
-    // every container (and its key) is purchasable, not only the store front page ones
+    // every container (and its key) is purchasable, not only the store front page ones.
+    // The banner layout is rebuilt in a useful order: weapon cases, souvenir packages,
+    // capsules, other containers (each newest first), then whatever else was listed.
     size_t addedCaseCount = 0;
+    size_t hiddenCount = 0;
     if (GetConfig().StoreAllCases() && priceTemplate)
     {
+        using Kind = ItemSchema::ContainerKind;
+        auto kindEnabled = [](Kind kind)
+        {
+            switch (kind)
+            {
+            case Kind::WeaponCase: return GetConfig().StoreWeaponCases();
+            case Kind::SouvenirPackage: return GetConfig().StoreSouvenirPackages();
+            case Kind::Capsule: return GetConfig().StoreCapsules();
+            default: return GetConfig().StoreOtherContainers();
+            }
+        };
+
         std::vector<uint32_t> crates = itemSchema.GetContainerDefIndexes();
-        std::sort(crates.begin(), crates.end(), std::greater<uint32_t>()); // newest first
+        std::stable_sort(crates.begin(), crates.end(), [&](uint32_t a, uint32_t b)
+        {
+            Kind kindA = itemSchema.GetContainerKind(a);
+            Kind kindB = itemSchema.GetContainerKind(b);
+            if (kindA != kindB)
+            {
+                return kindA < kindB;
+            }
+            return a > b; // newest first
+        });
+
+        // take the current banners out, keeping their settings
+        std::vector<KeyValue> originalBanners;
+        for (const KeyValue &banner : *bannerLayout)
+        {
+            originalBanners.push_back(banner);
+        }
+        for (const KeyValue &banner : originalBanners)
+        {
+            bannerLayout->RemoveSubkey(banner.Name());
+        }
+
+        std::unordered_set<std::string> placed;
+        auto placeBanner = [&](const std::string &name, const KeyValue *original)
+        {
+            if (!placed.insert(name).second)
+            {
+                return;
+            }
+            KeyValue &banner = bannerLayout->AddSubkey(name);
+            if (original)
+            {
+                banner = *original;
+            }
+            else
+            {
+                banner.AddString("market_link", "0");
+                ++addedCaseCount;
+            }
+        };
+
+        auto findOriginal = [&](const std::string &name) -> const KeyValue *
+        {
+            for (const KeyValue &banner : originalBanners)
+            {
+                if (banner.Name() == name)
+                {
+                    return &banner;
+                }
+            }
+            return nullptr;
+        };
 
         for (uint32_t crateDefIndex : crates)
         {
             const ItemInfo *crate = itemSchema.ItemInfoByDefIndex(crateDefIndex);
-            if (!crate || !IsStoreCrate(*crate) || !itemSchema.CanCreateItem(crateDefIndex)
+            if (!crate || !kindEnabled(itemSchema.GetContainerKind(crateDefIndex))
+                || !IsStoreCrate(*crate) || !itemSchema.CanCreateItem(crateDefIndex)
                 || !EnsureStoreEntry(*entries, *crate, &*priceTemplate))
             {
                 continue;
@@ -1680,12 +1747,30 @@ static void AdaptStorePriceSheet(KeyValue &priceSheet, const ItemSchema &itemSch
                 }
             }
 
-            const std::string bannerName = std::to_string(crateDefIndex);
-            if (!bannerLayout->GetSubkey(bannerName))
+            const std::string name = std::to_string(crateDefIndex);
+            placeBanner(name, findOriginal(name));
+        }
+
+        // everything else that was listed (passes, pack coupons, ...)
+        for (const KeyValue &banner : originalBanners)
+        {
+            const std::string name{ banner.Name() };
+            uint32_t defIndex{};
+            // the front page's own listings stay, apart from single-item coupons
+            if (TryParseNumber(name, defIndex))
             {
-                bannerLayout->AddSubkey(bannerName).AddString("market_link", "0");
-                ++addedCaseCount;
+                const bool individualItem = GetConfig().StoreHideIndividualItems()
+                    && itemSchema.IsSingleItemCoupon(defIndex);
+                if (individualItem)
+                {
+                    if (!placed.count(name))
+                    {
+                        ++hiddenCount;
+                    }
+                    continue;
+                }
             }
+            placeBanner(name, &banner);
         }
     }
 
@@ -1698,6 +1783,11 @@ static void AdaptStorePriceSheet(KeyValue &priceSheet, const ItemSchema &itemSch
     {
         Platform::Print("Added %zu more case%s/capsule%s/package%s to the store\n", addedCaseCount,
             addedCaseCount == 1 ? "" : "s", addedCaseCount == 1 ? "" : "s", addedCaseCount == 1 ? "" : "s");
+    }
+    if (hiddenCount)
+    {
+        Platform::Print("Hid %zu individual item coupon%s from the store\n", hiddenCount,
+            hiddenCount == 1 ? "" : "s");
     }
     if (removedCount || removedLinkedCount)
     {
