@@ -229,6 +229,8 @@ public:
     const std::vector<uint32_t> &GetDropCrateDefIndexes() const;
     // every container (weapon cases, souvenir packages, sticker/patch/pin capsules...)
     std::vector<uint32_t> GetContainerDefIndexes() const;
+    // custom_cases.txt display name for a crate, or null
+    const std::string *CustomCaseName(uint32_t crateDefIndex) const;
     // keys that open this crate (empty when the crate needs no specific key)
     std::vector<uint32_t> GetKeysForCrate(uint32_t crateDefIndex) const;
     // match drops: painted skins of a rarity from collections that aren't tied to a
@@ -414,6 +416,8 @@ private:
     std::unordered_map<uint32_t, const LootList &> m_revolvingLootLists;
     // custom_cases.txt: crate def index -> replacement contents
     std::unordered_map<uint32_t, const LootList *> m_customCaseLootLists;
+    std::unordered_map<uint32_t, std::string> m_customCaseNames;
+    std::map<uint32_t, std::vector<std::string>> m_customCasePreviewEntries;
 
     friend class ItemSchemaTestFixture;
     friend class SouvenirTestFixture;

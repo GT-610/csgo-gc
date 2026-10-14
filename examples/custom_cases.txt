@@ -1,10 +1,14 @@
 // Custom cases: replace what an existing case gives you when you open it.
 // Copy this file to csgo_gc/custom_cases.txt in your game folder to use it.
 //
-// Each block is keyed by the def index of an existing case. The case keeps its
-// in-game name, icon and key, and the "contents" preview when you inspect it
-// still shows the original skins (that comes from the game files), but opening
-// it rolls from the lists below instead. Pick an old case you don't care about.
+// Each block is keyed by the def index of an existing case. Opening that case
+// rolls from the lists below instead. Pick an old case you don't care about.
+//
+// "name" (optional) is shown on the case like a name tag, e.g. "Galaxy Case".
+// The case keeps its icon and key. The contents preview (inspecting the case)
+// comes from the game's own files, so it shows the original skins unless you
+// turn on "custom_case_previews" in config.txt (experimental, edits the game's
+// items_game.txt with a backup, restart the game after changes).
 //
 // Items are written like the game's loot lists: "[paint_kit_name]weapon_name".
 // Any paint kit can go on any weapon, including unused/unreleased paint kits,
@@ -31,6 +35,8 @@
 // example: replaces the original CS:GO Weapon Case (def 4001)
 "4001"
 {
+	"name"	"Galaxy Case"
+
 	"items"
 	{
 		"[aq_oiled]weapon_ak47"							"rare"

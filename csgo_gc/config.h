@@ -70,6 +70,7 @@ public:
 
     bool DestroyUsedItems() const { return m_destroyUsedItems; }
     bool StoreAllCases() const { return m_storeAllCases; }
+    bool CustomCasePreviews() const { return m_customCasePreviews; }
 
     MusicKit::StatTrakGate MusicKitStatTrakGate() const { return m_musicKitStatTrakGate; }
 
@@ -110,6 +111,7 @@ private:
 
     bool m_destroyUsedItems{ true };
     bool m_storeAllCases{ true };
+    bool m_customCasePreviews{ false };
 
     // Music kit StatTrak follows competitive rules by default, matching the only
     // scope the official backend ever supported.

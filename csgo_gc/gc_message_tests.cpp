@@ -2,6 +2,7 @@
 #include "case_opening.h"
 #include "gc_client.h"
 #include "gc_message.h"
+#include "game_schema_patch.h"
 #include "keyvalue.h"
 #include "networking_client.h"
 #include "networking_server.h"
@@ -3942,6 +3943,100 @@ static bool CustomCaseReplacesContents()
     return valid;
 }
 
+
+static bool CustomCasePreviewPatchesOnlyTargetLists()
+{
+    const std::string original =
+        "\"items_game\"\n"
+        "{\n"
+        "\t// a comment with { braces } and \"quotes\n"
+        "\t\"revolving_loot_lists\" { \"1\" \"crate_one\" }\n"
+        "\t\"client_loot_lists\"\n"
+        "\t{\n"
+        "\t\t\"crate_one\"\n"
+        "\t\t{\n"
+        "\t\t\t\"crate_one_rare\"\t\"1\"\n"
+        "\t\t}\n"
+        "\t\t\"crate_two\" { \"[x]weapon_ak47\" \"1\" }\n"
+        "\t}\n"
+        "\t\"other\" { \"crate_one\" { \"keep\" \"1\" } }\n"
+        "}\n";
+
+    GameSchemaPatch::LootListPreviews previews;
+    previews["crate_one"] = { "[am_aqua_flecks]weapon_ak47", "[am_gold_brick]weapon_awp" };
+
+    std::string text = original;
+    bool valid = GameSchemaPatch::PatchLootLists(text, previews) == 1
+        && text.find("\"[am_aqua_flecks]weapon_ak47\"") != std::string::npos
+        && text.find("\"[am_gold_brick]weapon_awp\"") != std::string::npos
+        && text.find("crate_one_rare") == std::string::npos
+        && text.find("\"crate_two\" { \"[x]weapon_ak47\" \"1\" }") != std::string::npos
+        && text.find("\"keep\" \"1\"") != std::string::npos
+        && text.find("// a comment with { braces }") != std::string::npos;
+
+    // the result still parses and has the new contents
+    KeyValue parsed{ "root" };
+    if (FILE *f = fopen("patched_schema_test.txt", "wb"))
+    {
+        fwrite(text.data(), 1, text.size(), f);
+        fclose(f);
+    }
+    valid &= parsed.ParseFromFile("patched_schema_test.txt");
+    TestFilesystem::RemoveFile("patched_schema_test.txt");
+    const KeyValue *itemsGame = parsed.GetSubkey("items_game");
+    const KeyValue *lists = itemsGame ? itemsGame->GetSubkey("client_loot_lists") : nullptr;
+    const KeyValue *crateOne = lists ? lists->GetSubkey("crate_one") : nullptr;
+    valid &= crateOne && crateOne->SubkeyCount() == 2;
+    return valid;
+}
+
+static bool CustomCasePreviewBacksUpAndRestores()
+{
+    RemoveGoldTradeUpFixtures();
+    TestFilesystem::RemoveFile(GameSchemaPatch::BackupPath);
+    if (!WriteGoldTradeUpFixtures())
+    {
+        RemoveGoldTradeUpFixtures();
+        return false;
+    }
+
+    auto readFile = [](const char *path)
+    {
+        std::string data;
+        if (FILE *f = fopen(path, "rb"))
+        {
+            char buffer[4096];
+            size_t read;
+            while ((read = fread(buffer, 1, sizeof(buffer), f)) > 0)
+            {
+                data.append(buffer, read);
+            }
+            fclose(f);
+        }
+        return data;
+    };
+
+    const std::string original = readFile(GameSchemaPatch::SchemaPath);
+    GameSchemaPatch::LootListPreviews previews;
+    previews["crate_gold_test"] = { "[covert_b]weapon_ak47" };
+
+    bool valid = !original.empty()
+        && strcmp(GameSchemaPatch::OriginalSchemaPath(), GameSchemaPatch::SchemaPath) == 0
+        && GameSchemaPatch::Apply(previews)
+        && readFile(GameSchemaPatch::BackupPath) == original
+        && readFile(GameSchemaPatch::SchemaPath) != original
+        && strcmp(GameSchemaPatch::OriginalSchemaPath(), GameSchemaPatch::BackupPath) == 0
+        && !GameSchemaPatch::Apply(previews) // already up to date
+        && GameSchemaPatch::Restore()
+        && readFile(GameSchemaPatch::SchemaPath) == original
+        && readFile(GameSchemaPatch::BackupPath).empty()
+        && !GameSchemaPatch::Restore();
+
+    TestFilesystem::RemoveFile(GameSchemaPatch::BackupPath);
+    RemoveGoldTradeUpFixtures();
+    return valid;
+}
+
 int main()
 {
     struct TestCase
@@ -3974,6 +4069,8 @@ int main()
         { "MatchEndGivesOneDrop", MatchEndGivesOneDrop },
         { "StoreListsEveryWeaponCaseAndKey", StoreListsEveryWeaponCaseAndKey },
         { "CustomCaseReplacesContents", CustomCaseReplacesContents },
+        { "CustomCasePreviewPatchesOnlyTargetLists", CustomCasePreviewPatchesOnlyTargetLists },
+        { "CustomCasePreviewBacksUpAndRestores", CustomCasePreviewBacksUpAndRestores },
         { "StorePurchasesFinalizeTransactionally", StorePurchasesFinalizeTransactionally },
         { "LegacyStorePriceSheetMatchesClientSchema",
             LegacyStorePriceSheetMatchesClientSchema },

@@ -66,6 +66,12 @@
 // newest ones on the store front page. purchases are free.
 "store_all_cases"	"1"
 
+// EXPERIMENTAL: make the contents preview of custom cases (custom_cases.txt)
+// show your custom skins. this edits the game's csgo/scripts/items/items_game.txt
+// (the original is kept as items_game.txt.csgo_gc_backup and is put back when
+// this is turned off). restart the game after changing custom_cases.txt.
+"custom_case_previews"	"0"
+
 // remove keys, cases, stickers, etc. after they've been used
 "destroy_used_items"	"1"
 

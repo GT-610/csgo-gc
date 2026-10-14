@@ -484,6 +484,13 @@ void Inventory::ReadFromFile()
             uint32_t highItemId = FromString<uint32_t>(itemKey.Name());
             CSOEconItem &item = AllocateItem(highItemId);
             ReadItem(itemKey, item);
+
+            // name custom cases that were obtained before they had a name
+            const std::string *customCaseName = m_itemSchema.CustomCaseName(item.def_index());
+            if (customCaseName && GetCustomNameAttribute(m_itemSchema, item).empty())
+            {
+                SetCustomNameAttribute(m_itemSchema, item, *customCaseName);
+            }
         }
 
         DeduplicateStatsSubscriptions();

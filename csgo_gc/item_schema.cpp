@@ -3,6 +3,7 @@
 #include "config.h"
 #include "keyvalue.h"
 #include "random.h"
+#include "game_schema_patch.h"
 #include <unordered_set>
 
 // ideally this would get parsed from the item schema...
@@ -136,8 +137,9 @@ ItemSchema::ItemSchema(bool loadFiles)
         return;
     }
 
+    // read the original schema even if the game's copy was patched for custom case previews
     KeyValue itemSchema{ "root" };
-    if (!itemSchema.ParseFromFile("csgo/scripts/items/items_game.txt"))
+    if (!itemSchema.ParseFromFile(GameSchemaPatch::OriginalSchemaPath()))
     {
         assert(false);
         return;
@@ -249,12 +251,49 @@ ItemSchema::ItemSchema(bool loadFiles)
         {
             ParseCustomCases(customCases);
         }
+
+        if (GetConfig().CustomCasePreviews())
+        {
+            // the client builds a case's contents preview from the loot list the
+            // crate points at, so point those lists at the custom contents
+            GameSchemaPatch::LootListPreviews previews;
+            for (const auto &pair : m_customCasePreviewEntries)
+            {
+                const ItemInfo *crateInfo = ItemInfoByDefIndex(pair.first);
+                if (!crateInfo)
+                {
+                    continue;
+                }
+
+                std::string listName = crateInfo->m_lootListName;
+                if (crateInfo->m_supplyCrateSeries && revolvingLootListsKey)
+                {
+                    listName = std::string{ revolvingLootListsKey->GetString(
+                        std::to_string(crateInfo->m_supplyCrateSeries), listName) };
+                }
+
+                if (!listName.empty() && !pair.second.empty())
+                {
+                    previews[listName] = pair.second;
+                }
+            }
+
+            if (!previews.empty())
+            {
+                GameSchemaPatch::Apply(previews);
+            }
+        }
+        else
+        {
+            GameSchemaPatch::Restore();
+        }
     }
 }
 
 // custom_cases.txt format:
-//   "<crate def index>"            the case whose look and name are reused
+//   "<crate def index>"            the case whose look is reused
 //   {
+//       "name" "My Case"            optional, shown like a name tag
 //       "items" { "[paint_kit]weapon_name" "<rarity name or empty>" ... }
 //       "golds" { "[paint_kit]weapon_knife_x" "" ... }
 //   }
@@ -271,6 +310,7 @@ void ItemSchema::ParseCustomCases(const KeyValue &customCasesKey)
         { "ancient", RarityAncient },
     };
 
+    uint32_t currentCrateDefIndex = 0;
     auto parseItems = [&](const KeyValue *itemsKey, LootList &list, bool golds)
     {
         if (!itemsKey)
@@ -315,12 +355,17 @@ void ItemSchema::ParseCustomCases(const KeyValue &customCasesKey)
             }
 
             list.items.push_back(item);
+            if (!golds)
+            {
+                m_customCasePreviewEntries[currentCrateDefIndex].emplace_back(name);
+            }
         }
     };
 
     for (const KeyValue &caseKey : customCasesKey)
     {
         uint32_t crateDefIndex = FromString<uint32_t>(caseKey.Name());
+        currentCrateDefIndex = crateDefIndex;
         const ItemInfo *crateInfo = ItemInfoByDefIndex(crateDefIndex);
         if (!crateInfo)
         {
@@ -341,6 +386,7 @@ void ItemSchema::ParseCustomCases(const KeyValue &customCasesKey)
 
         if (regular.items.empty() && golds.items.empty())
         {
+            m_customCasePreviewEntries.erase(crateDefIndex);
             Platform::Print("custom_cases: case %u has no valid items, ignoring\n", crateDefIndex);
             continue;
         }
@@ -358,6 +404,12 @@ void ItemSchema::ParseCustomCases(const KeyValue &customCasesKey)
         }
 
         m_customCaseLootLists[crateDefIndex] = &root;
+
+        std::string_view customName = caseKey.GetString("name");
+        if (!customName.empty())
+        {
+            m_customCaseNames[crateDefIndex] = std::string{ customName };
+        }
         Platform::Print("custom_cases: %s (%u) now has %zu skins and %zu golds\n",
             crateInfo->m_name.c_str(), crateDefIndex, regular.items.size(), golds.items.size());
     }
@@ -878,7 +930,26 @@ bool ItemSchema::CreateItem(uint32_t defIndex, ItemOrigin origin, Unacknowledged
     econItem.set_in_use(false);
     econItem.set_rarity(itemInfo.m_rarity);
 
-    return ApplyGeneratedAttributes(itemInfo, econItem);
+    if (!ApplyGeneratedAttributes(itemInfo, econItem))
+    {
+        return false;
+    }
+
+    // custom cases can carry a display name, shown like a name tag
+    if (const std::string *customName = CustomCaseName(defIndex))
+    {
+        CSOEconItemAttribute *nameAttribute = econItem.add_attribute();
+        nameAttribute->set_def_index(AttributeCustomName);
+        SetAttributeString(nameAttribute, *customName);
+    }
+
+    return true;
+}
+
+const std::string *ItemSchema::CustomCaseName(uint32_t crateDefIndex) const
+{
+    auto it = m_customCaseNames.find(crateDefIndex);
+    return it != m_customCaseNames.end() ? &it->second : nullptr;
 }
 
 bool ItemSchema::ApplyGeneratedAttributes(const ItemInfo &info, CSOEconItem &item) const
