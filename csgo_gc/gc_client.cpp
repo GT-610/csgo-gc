@@ -1560,6 +1560,13 @@ static void AdaptStorePriceSheet(KeyValue &priceSheet, const ItemSchema &itemSch
         return;
     }
 
+    // added containers need a banner layout to show up in, so create it if needed
+    // (before looking up entries, since adding a subkey can move its siblings)
+    if (GetConfig().StoreAllCases() && !store->GetSubkey("store_banner_layout"))
+    {
+        store->AddSubkey("store_banner_layout");
+    }
+
     KeyValue *bannerLayout = store->GetSubkey("store_banner_layout");
     KeyValue *entries = store->GetSubkey("entries");
     if (!bannerLayout || !entries)
@@ -1648,10 +1655,49 @@ static void AdaptStorePriceSheet(KeyValue &priceSheet, const ItemSchema &itemSch
         removedCount += bannerLayout->RemoveSubkey(name);
     }
 
+    // every container (and its key) is purchasable, not only the store front page ones
+    size_t addedCaseCount = 0;
+    if (GetConfig().StoreAllCases() && priceTemplate)
+    {
+        std::vector<uint32_t> crates = itemSchema.GetContainerDefIndexes();
+        std::sort(crates.begin(), crates.end(), std::greater<uint32_t>()); // newest first
+
+        for (uint32_t crateDefIndex : crates)
+        {
+            const ItemInfo *crate = itemSchema.ItemInfoByDefIndex(crateDefIndex);
+            if (!crate || !IsStoreCrate(*crate) || !itemSchema.CanCreateItem(crateDefIndex)
+                || !EnsureStoreEntry(*entries, *crate, &*priceTemplate))
+            {
+                continue;
+            }
+
+            for (uint32_t keyDefIndex : itemSchema.GetKeysForCrate(crateDefIndex))
+            {
+                const ItemInfo *key = itemSchema.ItemInfoByDefIndex(keyDefIndex);
+                if (key && itemSchema.CanCreateItem(keyDefIndex))
+                {
+                    EnsureStoreEntry(*entries, *key, &*priceTemplate);
+                }
+            }
+
+            const std::string bannerName = std::to_string(crateDefIndex);
+            if (!bannerLayout->GetSubkey(bannerName))
+            {
+                bannerLayout->AddSubkey(bannerName).AddString("market_link", "0");
+                ++addedCaseCount;
+            }
+        }
+    }
+
     if (enabledCount)
     {
         Platform::Print("Enabled %zu market crate%s for offline store purchase\n", enabledCount,
             enabledCount == 1 ? "" : "s");
+    }
+    if (addedCaseCount)
+    {
+        Platform::Print("Added %zu more case%s/capsule%s/package%s to the store\n", addedCaseCount,
+            addedCaseCount == 1 ? "" : "s", addedCaseCount == 1 ? "" : "s", addedCaseCount == 1 ? "" : "s");
     }
     if (removedCount || removedLinkedCount)
     {

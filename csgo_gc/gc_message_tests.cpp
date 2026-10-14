@@ -3429,6 +3429,7 @@ static bool OfflineGCRequestsReceiveMinimalResponses()
 // knife pool is a single Case Hardened Karambit.
 static void RemoveGoldTradeUpFixtures()
 {
+    TestFilesystem::RemoveFile("csgo_gc/price_sheet.txt");
     TestFilesystem::RemoveFile("csgo_gc/inventory.txt");
     TestFilesystem::RemoveFile("csgo_gc/unusual_loot_lists.txt");
     TestFilesystem::RemoveFile("csgo_gc/gc_loot_lists.txt");
@@ -3468,6 +3469,11 @@ static bool WriteGoldTradeUpFixtures()
     KeyValue &crate = items.AddSubkey("4001");
     crate.AddString("name", "crate_gold_test");
     crate.AddString("loot_list_name", "crate_gold_test");
+    crate.AddSubkey("tool").AddString("restriction", "gold_test");
+    KeyValue &key = items.AddSubkey("4002");
+    key.AddString("name", "key_gold_test");
+    key.AddString("item_type", "weapon_case_key");
+    key.AddSubkey("tool").AddString("restriction", "gold_test");
 
     KeyValue &paintKits = itemsGame.AddSubkey("paint_kits");
     KeyValue &defaultKit = paintKits.AddSubkey("0");
@@ -3541,11 +3547,19 @@ static bool WriteGoldTradeUpFixtures()
         crateItem.AddNumber("rarity", ItemSchema::RarityCommon);
     }
 
+    KeyValue priceSheet{ "price_sheet" };
+    KeyValue &store = priceSheet.AddSubkey("store");
+    store.AddSubkey("store_banner_layout");
+    KeyValue &templateEntry = store.AddSubkey("entries").AddSubkey("price_template");
+    templateEntry.AddString("item_link", "weapon_ak47");
+    templateEntry.AddSubkey("prices").AddNumber("USD", 249);
+
     KeyValue gcLootLists{ "gc_loot_lists" };
     return schema.WriteToFile("csgo/scripts/items/items_game.txt")
         && inventory.WriteToFile("csgo_gc/inventory.txt")
         && unusualLootLists.WriteToFile("csgo_gc/unusual_loot_lists.txt")
-        && gcLootLists.WriteToFile("csgo_gc/gc_loot_lists.txt");
+        && gcLootLists.WriteToFile("csgo_gc/gc_loot_lists.txt")
+        && priceSheet.WriteToFile("csgo_gc/price_sheet.txt");
 }
 
 struct CraftOutcome
@@ -3794,6 +3808,52 @@ static bool MatchEndGivesOneDrop()
     return valid;
 }
 
+
+static bool StoreListsEveryWeaponCaseAndKey()
+{
+    RemoveGoldTradeUpFixtures();
+    if (!WriteGoldTradeUpFixtures())
+    {
+        RemoveGoldTradeUpFixtures();
+        return false;
+    }
+
+    bool valid = true;
+    {
+        ClientGC gc{ 76561197960265729ull };
+
+        CMsgStoreGetUserData storeData;
+        storeData.set_price_sheet_version(0);
+        SendGCProtobuf(gc, k_EMsgGCStoreGetUserData, storeData);
+
+        EventData event;
+        CMsgStoreGetUserDataResponse response;
+        constexpr std::string_view CaseBanner{
+            "\0" "4001\0" "\1" "market_link\0" "0\0",
+            sizeof("\0" "4001\0" "\1" "market_link\0" "0\0") - 1
+        };
+        constexpr std::string_view CaseEntry{
+            "\0" "crate_gold_test\0" "\1" "item_link\0" "crate_gold_test\0",
+            sizeof("\0" "crate_gold_test\0" "\1" "item_link\0" "crate_gold_test\0") - 1
+        };
+        constexpr std::string_view KeyEntry{
+            "\0" "key_gold_test\0" "\1" "item_link\0" "key_gold_test\0",
+            sizeof("\0" "key_gold_test\0" "\1" "item_link\0" "key_gold_test\0") - 1
+        };
+
+        valid &= WaitForHostMessage(gc, k_EMsgGCStoreGetUserDataResponse, event)
+            && ParseHostProtobuf(event, response)
+            && response.result() == 1;
+        const std::string &sheet = response.price_sheet();
+        valid &= sheet.find(CaseBanner) != std::string::npos
+            && sheet.find(CaseEntry) != std::string::npos
+            && sheet.find(KeyEntry) != std::string::npos;
+    }
+
+    RemoveGoldTradeUpFixtures();
+    return valid;
+}
+
 int main()
 {
     struct TestCase
@@ -3824,6 +3884,7 @@ int main()
         { "GoldTradeUpContractsProduceKnives", GoldTradeUpContractsProduceKnives },
         { "CasePityGuaranteesGoldWithinLimit", CasePityGuaranteesGoldWithinLimit },
         { "MatchEndGivesOneDrop", MatchEndGivesOneDrop },
+        { "StoreListsEveryWeaponCaseAndKey", StoreListsEveryWeaponCaseAndKey },
         { "StorePurchasesFinalizeTransactionally", StorePurchasesFinalizeTransactionally },
         { "LegacyStorePriceSheetMatchesClientSchema",
             LegacyStorePriceSheetMatchesClientSchema },

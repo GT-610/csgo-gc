@@ -2171,6 +2171,56 @@ const std::vector<uint32_t> &ItemSchema::GetDropCrateDefIndexes() const
     return m_dropCrateDefIndexes;
 }
 
+std::vector<uint32_t> ItemSchema::GetContainerDefIndexes() const
+{
+    std::vector<uint32_t> containers;
+    for (const auto &pair : m_itemInfo)
+    {
+        const ItemInfo &info = pair.second;
+        if (info.m_isCoupon || IsKeyToolDefIndex(info.m_defIndex))
+        {
+            continue;
+        }
+
+        // containers are named crate_* in items_game.txt and have contents
+        const bool namedCrate = info.m_name.compare(0, 6, "crate_") == 0;
+        if (!namedCrate || (!info.m_supplyCrateSeries && info.m_lootListName.empty()))
+        {
+            continue;
+        }
+
+        if (CanCreateItem(info.m_defIndex))
+        {
+            containers.push_back(info.m_defIndex);
+        }
+    }
+
+    std::sort(containers.begin(), containers.end());
+    return containers;
+}
+
+std::vector<uint32_t> ItemSchema::GetKeysForCrate(uint32_t crateDefIndex) const
+{
+    std::vector<uint32_t> keys;
+    const ItemInfo *crateInfo = ItemInfoByDefIndex(crateDefIndex);
+    if (!crateInfo || crateInfo->m_toolRestriction.empty())
+    {
+        return keys;
+    }
+
+    for (const auto &pair : m_itemInfo)
+    {
+        const ItemInfo &info = pair.second;
+        if (info.m_toolRestriction == crateInfo->m_toolRestriction && IsKeyToolDefIndex(info.m_defIndex))
+        {
+            keys.push_back(info.m_defIndex);
+        }
+    }
+
+    std::sort(keys.begin(), keys.end());
+    return keys;
+}
+
 bool ItemSchema::GetDropSkinCandidates(uint32_t rarity, std::vector<const LootListItem *> &outCandidates) const
 {
     BuildSpecialTradeUpPools();

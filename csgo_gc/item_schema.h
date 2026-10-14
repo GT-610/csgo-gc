@@ -227,6 +227,10 @@ public:
         std::vector<const LootListItem *> &outCandidates) const;
     // match drops: weapon cases (crates that can contain a knife/glove)
     const std::vector<uint32_t> &GetDropCrateDefIndexes() const;
+    // every container (weapon cases, souvenir packages, sticker/patch/pin capsules...)
+    std::vector<uint32_t> GetContainerDefIndexes() const;
+    // keys that open this crate (empty when the crate needs no specific key)
+    std::vector<uint32_t> GetKeysForCrate(uint32_t crateDefIndex) const;
     // match drops: painted skins of a rarity from collections that aren't tied to a
     // case (map/operation collections, like old CS:GO drops). falls back to all
     // collections when none of those have that rarity

@@ -69,6 +69,7 @@ public:
     int DangerZoneWins() const { return m_dangerZoneWins; }
 
     bool DestroyUsedItems() const { return m_destroyUsedItems; }
+    bool StoreAllCases() const { return m_storeAllCases; }
 
     MusicKit::StatTrakGate MusicKitStatTrakGate() const { return m_musicKitStatTrakGate; }
 
@@ -108,6 +109,7 @@ private:
     int m_dangerZoneWins{ 0 };
 
     bool m_destroyUsedItems{ true };
+    bool m_storeAllCases{ true };
 
     // Music kit StatTrak follows competitive rules by default, matching the only
     // scope the official backend ever supported.

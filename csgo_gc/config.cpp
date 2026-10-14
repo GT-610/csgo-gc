@@ -49,6 +49,7 @@ GCConfig::GCConfig()
     }
 
     m_destroyUsedItems = config.GetNumber("destroy_used_items", m_destroyUsedItems);
+    m_storeAllCases = config.GetNumber("store_all_cases", m_storeAllCases);
     m_primeStatus = config.GetNumber("prime_status", m_primeStatus);
 
     std::string_view musicKitStatTrak =
