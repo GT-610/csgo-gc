@@ -252,11 +252,11 @@ ItemSchema::ItemSchema(bool loadFiles)
             ParseCustomCases(customCases);
         }
 
+        // the client builds a case's contents preview from the loot list the
+        // crate points at, so point those lists at the custom contents
+        GameSchemaPatch::LootListPreviews previews;
         if (GetConfig().CustomCasePreviews())
         {
-            // the client builds a case's contents preview from the loot list the
-            // crate points at, so point those lists at the custom contents
-            GameSchemaPatch::LootListPreviews previews;
             for (const auto &pair : m_customCasePreviewEntries)
             {
                 const ItemInfo *crateInfo = ItemInfoByDefIndex(pair.first);
@@ -277,11 +277,19 @@ ItemSchema::ItemSchema(bool loadFiles)
                     previews[listName] = pair.second;
                 }
             }
+        }
 
-            if (!previews.empty())
-            {
-                GameSchemaPatch::Apply(previews);
-            }
+        // the client only offers items for trade-up when a recipe in its
+        // items_game.txt matches them, and the game has none for Coverts or golds
+        std::string recipes;
+        if (GetConfig().GoldTradeUpRecipes())
+        {
+            recipes = GameSchemaPatch::GoldTradeUpRecipes;
+        }
+
+        if (!previews.empty() || !recipes.empty())
+        {
+            GameSchemaPatch::Apply(previews, recipes);
         }
         else
         {

@@ -3793,10 +3793,16 @@ bool Inventory::TradeUp(const std::vector<uint64_t> &inputItemIds,
     ToSingleObject(newItem, outputItem);
 
     // recipe ids: 0..5 by input rarity (Consumer..Covert), +10 for StatTrak.
-    // Gold-for-gold reuses the Covert recipe id.
-    const uint32_t recipeRarity = contractType == ContractType::GoldToGold ? static_cast<uint32_t>(ItemSchema::RarityAncient) : inputRarity;
-    responseRecipeIndex = static_cast<int16_t>(recipeRarity - ItemSchema::RarityCommon
-        + (hasStatTrak ? 10 : 0));
+    // Gold-for-gold is recipe 6 whether or not the knives are StatTrak.
+    if (contractType == ContractType::GoldToGold)
+    {
+        responseRecipeIndex = 6;
+    }
+    else
+    {
+        responseRecipeIndex = static_cast<int16_t>(inputRarity - ItemSchema::RarityCommon
+            + (hasStatTrak ? 10 : 0));
+    }
 
     if (outCraftedItem)
     {

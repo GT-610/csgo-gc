@@ -2724,9 +2724,10 @@ void ClientGC::Craft(GCMessageRead &messageRead)
     Platform::Print("TRADE-UP CONTRACT: recipe=%d, itemCount=%d\n", recipe, itemCount);
 
     // Trade-up recipes in items_game.txt use filter -3. The concrete always-known
-    // recipe ids are 0..5 for normal weapons and 10..15 for StatTrak weapons.
+    // recipe ids are 0..5 for normal weapons and 10..15 for StatTrak weapons;
+    // 6 is the knife/glove recipe csgo_gc adds (see game_schema_patch.cpp).
     bool isTradeUpRecipe = recipe == -3
-        || (recipe >= 0 && recipe <= 5)
+        || (recipe >= 0 && recipe <= 6)
         || (recipe >= 10 && recipe <= 15);
     if (!isTradeUpRecipe)
     {
