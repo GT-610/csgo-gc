@@ -287,6 +287,8 @@ ItemSchema::ItemSchema(bool loadFiles)
             recipes = GameSchemaPatch::GoldTradeUpRecipes;
         }
 
+        Platform::Print("items_game.txt patch: custom_case_previews=%d (%zu list(s)), gold_tradeup_recipes=%d\n",
+            GetConfig().CustomCasePreviews() ? 1 : 0, previews.size(), GetConfig().GoldTradeUpRecipes() ? 1 : 0);
         if (!previews.empty() || !recipes.empty())
         {
             GameSchemaPatch::Apply(previews, recipes);

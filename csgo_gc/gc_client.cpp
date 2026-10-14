@@ -339,7 +339,10 @@ ClientGC::ClientGC(uint64_t steamId)
 
     StartThread();
 
-    Platform::Print("ClientGC spawned for user %llu\n", steamId);
+#ifndef CSGO_GC_BUILD
+#define CSGO_GC_BUILD "unknown"
+#endif
+    Platform::Print("ClientGC spawned for user %llu (csgo_gc build %s)\n", steamId, CSGO_GC_BUILD);
 }
 
 ClientGC::~ClientGC()
