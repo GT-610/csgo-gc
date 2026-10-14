@@ -49,6 +49,8 @@ GCConfig::GCConfig()
     }
 
     m_destroyUsedItems = config.GetNumber("destroy_used_items", m_destroyUsedItems);
+    m_storeAllCases = config.GetNumber("store_all_cases", m_storeAllCases);
+    m_customCasePreviews = config.GetNumber("custom_case_previews", m_customCasePreviews);
     m_primeStatus = config.GetNumber("prime_status", m_primeStatus);
 
     std::string_view musicKitStatTrak =
@@ -81,6 +83,43 @@ GCConfig::GCConfig()
             weight.rarity = FromString<uint32_t>(subkey.Name());
             weight.weight = FromString<float>(subkey.String());
             m_rarityWeights.push_back(weight);
+        }
+    }
+
+    const KeyValue *casePity = config.GetSubkey("case_pity");
+    if (casePity)
+    {
+        m_casePity.enabled = casePity->GetNumber("enabled", m_casePity.enabled);
+        m_casePity.softStart = casePity->GetNumber("soft_pity_start", m_casePity.softStart);
+        m_casePity.guaranteedAt = casePity->GetNumber("guaranteed_at", m_casePity.guaranteedAt);
+        if (m_casePity.guaranteedAt < 1)
+        {
+            m_casePity.guaranteedAt = 1;
+        }
+        if (m_casePity.softStart >= m_casePity.guaranteedAt)
+        {
+            m_casePity.softStart = m_casePity.guaranteedAt - 1;
+        }
+    }
+
+    const KeyValue *matchDrops = config.GetSubkey("match_drops");
+    if (matchDrops)
+    {
+        m_matchDrops.enabled = matchDrops->GetNumber("enabled", m_matchDrops.enabled);
+        m_matchDrops.dropChance = std::clamp(matchDrops->GetNumber("drop_chance", m_matchDrops.dropChance), 0.0f, 1.0f);
+        m_matchDrops.caseChance = std::clamp(matchDrops->GetNumber("case_chance", m_matchDrops.caseChance), 0.0f, 1.0f);
+
+        const KeyValue *skinWeights = matchDrops->GetSubkey("skin_rarity_weights");
+        if (skinWeights)
+        {
+            m_matchDrops.skinRarityWeights.clear();
+            for (const KeyValue &subkey : *skinWeights)
+            {
+                RarityWeight weight;
+                weight.rarity = FromString<uint32_t>(subkey.Name());
+                weight.weight = FromString<float>(subkey.String());
+                m_matchDrops.skinRarityWeights.push_back(weight);
+            }
         }
     }
 

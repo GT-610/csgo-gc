@@ -32,8 +32,11 @@ static bool CompareRarity(const LootListItem *a, const LootListItem *b) { return
 static bool RarityLower(const LootListItem *a, uint32_t b) { return a->CaseRarity() < b; }
 static bool RarityUpper(uint32_t a, const LootListItem *b) { return a < b->CaseRarity(); }
 
-bool CaseOpening::SelectItemFromCrate(const CSOEconItem &crate, CSOEconItem &item)
+bool CaseOpening::SelectItemFromCrate(const CSOEconItem &crate, CSOEconItem &item,
+    uint32_t goldlessCases, PityResult *pityResult)
 {
+    PityResult pity;
+
     const LootList *lootList = m_itemSchema.GetCrateLootList(crate.def_index());
     if (!lootList)
     {
@@ -55,11 +58,16 @@ bool CaseOpening::SelectItemFromCrate(const CSOEconItem &crate, CSOEconItem &ite
     // must be sorted for SelectLootListItem and friends
     std::sort(lootListItems.begin(), lootListItems.end(), CompareRarity);
 
-    const LootListItem *lootListItem = SelectLootListItem(lootListItems);
+    const LootListItem *lootListItem = SelectLootListItem(lootListItems, goldlessCases, pity);
     if (!lootListItem)
     {
         assert(false);
         return false;
+    }
+
+    if (pityResult)
+    {
+        *pityResult = pity;
     }
 
     bool statTrak = ShouldMakeStatTrak(*lootListItem, *lootList, containsUnusuals);
@@ -81,9 +89,10 @@ static std::pair<size_t, size_t> FindRarityRange(const std::vector<const LootLis
     return std::make_pair(begin, end);
 }
 
-const LootListItem *CaseOpening::SelectLootListItem(const std::vector<const LootListItem *> &items)
+const LootListItem *CaseOpening::SelectLootListItem(const std::vector<const LootListItem *> &items,
+    uint32_t goldlessCases, PityResult &pity)
 {
-    uint32_t rarity = RandomRarityForItems(items);
+    uint32_t rarity = RandomRarityForItems(items, goldlessCases, pity);
 
     auto [begin, end] = FindRarityRange(items, rarity);
     if (begin == end)
@@ -96,7 +105,34 @@ const LootListItem *CaseOpening::SelectLootListItem(const std::vector<const Loot
     return items[index];
 }
 
-uint32_t CaseOpening::RandomRarityForItems(const std::vector<const LootListItem *> &items)
+float CaseOpening::PityGoldChance(float baseChance, uint32_t goldlessCases)
+{
+    const CasePityConfig &config = GetConfig().CasePity();
+    if (!config.enabled)
+    {
+        return baseChance;
+    }
+
+    // this is case number goldlessCases + 1 since the last gold
+    const uint32_t caseNumber = goldlessCases + 1;
+    if (caseNumber >= config.guaranteedAt)
+    {
+        return 1.0f;
+    }
+
+    if (caseNumber <= config.softStart)
+    {
+        return baseChance;
+    }
+
+    // ease in from the base chance toward 100% at the guaranteed case
+    float t = static_cast<float>(caseNumber - config.softStart)
+        / static_cast<float>(config.guaranteedAt - config.softStart);
+    return baseChance + (1.0f - baseChance) * t * t;
+}
+
+uint32_t CaseOpening::RandomRarityForItems(const std::vector<const LootListItem *> &items,
+    uint32_t goldlessCases, PityResult &pity)
 {
     // MUST have items and they MUST be sorted
     assert(items.size() && std::is_sorted(items.begin(), items.end(), CompareRarity));
@@ -105,6 +141,7 @@ uint32_t CaseOpening::RandomRarityForItems(const std::vector<const LootListItem 
     weights.reserve(items.size()); // overkill
 
     float totalWeight = 0;
+    float goldWeight = 0;
 
     // items are sorted by rarity, so iterate through the available rarities like this
     for (size_t i = 0; i < items.size(); i++)
@@ -112,13 +149,35 @@ uint32_t CaseOpening::RandomRarityForItems(const std::vector<const LootListItem 
         uint32_t rarity = items[i]->CaseRarity();
         float weight = GetConfig().GetRarityWeight(rarity);
 
-        weights.push_back({ rarity, weight });
-        totalWeight += weight;
+        if (rarity == ItemSchema::RarityUnusual)
+        {
+            goldWeight = weight;
+        }
+        else
+        {
+            weights.push_back({ rarity, weight });
+            totalWeight += weight;
+        }
 
         // skip over any duplicate rarities
         while (i + 1 < items.size() && items[i]->CaseRarity() == items[i + 1]->CaseRarity())
         {
             i++;
+        }
+    }
+
+    // golds are rolled first so the pity system can raise their chance. With no
+    // pity bonus this gives exactly the same odds as one weighted roll.
+    const bool hasGold = goldWeight > 0.0f;
+    if (hasGold)
+    {
+        pity.counted = true;
+        pity.baseChance = goldWeight / (goldWeight + totalWeight);
+        pity.goldChance = PityGoldChance(pity.baseChance, goldlessCases);
+        if (m_random.Float(0.0f, 1.0f) < pity.goldChance || weights.empty())
+        {
+            pity.gotGold = true;
+            return ItemSchema::RarityUnusual;
         }
     }
 
@@ -133,6 +192,12 @@ uint32_t CaseOpening::RandomRarityForItems(const std::vector<const LootListItem 
         {
             return pair.rarity;
         }
+    }
+
+    // float rounding can land exactly on totalWeight
+    if (!weights.empty())
+    {
+        return weights.back().rarity;
     }
 
     assert(false);

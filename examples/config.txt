@@ -31,6 +31,47 @@
 	"99"	"1280"
 }
 
+// case pity: counts cases opened since your last gold (knife/glove). after
+// soft_pity_start gold-less cases the gold chance starts climbing, and case
+// number guaranteed_at is always a gold. only cases that can contain a gold count.
+"case_pity"
+{
+	"enabled"			"1"
+	"soft_pity_start"	"25"
+	"guaranteed_at"		"50"
+}
+
+// end-of-match drops like old CS:GO: when a match ends you may receive a weapon
+// case or a skin from a map/operation collection. chances are 0.0 - 1.0.
+"match_drops"
+{
+	"enabled"		"1"
+	"drop_chance"	"1.0"	// chance of getting a drop at all
+	"case_chance"	"0.35"	// chance the drop is a case instead of a skin
+
+	// skin drop rarity weights (relative, like rarity_weights above)
+	"skin_rarity_weights"
+	{
+		"1"	"45"	// consumer
+		"2"	"30"	// industrial
+		"3"	"17"	// mil-spec
+		"4"	"6"		// restricted
+		"5"	"1.5"	// classified
+		"6"	"0.5"	// covert
+	}
+}
+
+// list every container (weapon cases, souvenir packages, sticker/patch/pin
+// capsules...) and the key that opens it in the in-game store, not just the
+// newest ones on the store front page. purchases are free.
+"store_all_cases"	"1"
+
+// EXPERIMENTAL: make the contents preview of custom cases (custom_cases.txt)
+// show your custom skins. this edits the game's csgo/scripts/items/items_game.txt
+// (the original is kept as items_game.txt.csgo_gc_backup and is put back when
+// this is turned off). restart the game after changing custom_cases.txt.
+"custom_case_previews"	"0"
+
 // remove keys, cases, stickers, etc. after they've been used
 "destroy_used_items"	"1"
 

@@ -186,6 +186,8 @@ public:
 
     // for case opening
     const LootList *GetCrateLootList(uint32_t crateDefIndex) const;
+    // the crate's contents from the game schema, ignoring custom_cases.txt
+    const LootList *GetOriginalCrateLootList(uint32_t crateDefIndex) const;
 
     // Legacy souvenir packages are opened through UnlockCrate with no key.
     // Distinguish them from other self-opening containers using schema data.
@@ -225,6 +227,18 @@ public:
     // gold contract: knives/gloves obtainable from the case(s) tied to a collection
     bool GetSpecialTradeUpCandidates(std::string_view collectionName,
         std::vector<const LootListItem *> &outCandidates) const;
+    // match drops: weapon cases (crates that can contain a knife/glove)
+    const std::vector<uint32_t> &GetDropCrateDefIndexes() const;
+    // every container (weapon cases, souvenir packages, sticker/patch/pin capsules...)
+    std::vector<uint32_t> GetContainerDefIndexes() const;
+    // custom_cases.txt display name for a crate, or null
+    const std::string *CustomCaseName(uint32_t crateDefIndex) const;
+    // keys that open this crate (empty when the crate needs no specific key)
+    std::vector<uint32_t> GetKeysForCrate(uint32_t crateDefIndex) const;
+    // match drops: painted skins of a rarity from collections that aren't tied to a
+    // case (map/operation collections, like old CS:GO drops). falls back to all
+    // collections when none of those have that rarity
+    bool GetDropSkinCandidates(uint32_t rarity, std::vector<const LootListItem *> &outCandidates) const;
     // gold contract: collections whose gold pool contains this knife/glove (paint kit 0 for vanilla)
     bool GetSpecialTradeUpCollections(uint32_t defIndex, uint32_t paintKitDefIndex,
         std::vector<std::string> &outCollections) const;
@@ -372,10 +386,12 @@ private:
     void ParseLootLists(const KeyValue *lootListsKey, bool unusual);
     void ParseRevolvingLootLists(const KeyValue *revolvingLootListsKey);
     void BuildSpecialTradeUpPools() const;
+    void ParseCustomCases(const KeyValue &customCasesKey);
 
     // lazily built gold trade-up pools, keyed by collection
     mutable bool m_specialPoolsBuilt = false;
     mutable std::unordered_map<std::string, std::vector<const LootListItem *>> m_specialPoolByCollection;
+    mutable std::vector<uint32_t> m_dropCrateDefIndexes;
 
     bool ParseLootListItem(LootListItem &item, std::string_view name);
     bool ApplyGeneratedAttributes(const ItemInfo &info, CSOEconItem &item) const;
@@ -400,6 +416,10 @@ private:
     std::unordered_map<std::string, ItemSet> m_itemSets;
 
     std::unordered_map<uint32_t, const LootList &> m_revolvingLootLists;
+    // custom_cases.txt: crate def index -> replacement contents
+    std::unordered_map<uint32_t, const LootList *> m_customCaseLootLists;
+    std::unordered_map<uint32_t, std::string> m_customCaseNames;
+    std::map<uint32_t, std::vector<std::string>> m_customCasePreviewEntries;
 
     friend class ItemSchemaTestFixture;
     friend class SouvenirTestFixture;

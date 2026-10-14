@@ -28,6 +28,7 @@ add_library(csgo_gc SHARED
     gc_message.cpp
     gc_server.cpp
     gc_shared.cpp
+    game_schema_patch.cpp
     gold_patterns.cpp
     graffiti.cpp
     inventory.cpp
@@ -114,6 +115,7 @@ if (BUILD_TESTING)
         graffiti.cpp
         gc_message_tests.cpp
         gc_message.cpp
+        game_schema_patch.cpp
         gold_patterns.cpp
         inventory.cpp
         music_kit.cpp
@@ -149,6 +151,7 @@ if (BUILD_TESTING)
         gc_shared.cpp
         graffiti.cpp
         gc_message.cpp
+        game_schema_patch.cpp
         gold_patterns.cpp
         inventory.cpp
         music_kit.cpp
@@ -190,6 +193,7 @@ if (BUILD_TESTING)
         gc_shared.cpp
         gc_message_non_prime_tests.cpp
         gc_message.cpp
+        game_schema_patch.cpp
         gold_patterns.cpp
         inventory.cpp
         music_kit.cpp
@@ -225,7 +229,9 @@ if (BUILD_TESTING)
 
     add_executable(item_schema_tests
         item_schema_tests.cpp
+        config.cpp
         item_schema.cpp
+        game_schema_patch.cpp
         keyvalue.cpp)
 
     target_precompile_headers(item_schema_tests PRIVATE stdafx.h)
@@ -243,6 +249,7 @@ if (BUILD_TESTING)
     add_executable(souvenir_tests
         config.cpp
         item_schema.cpp
+        game_schema_patch.cpp
         keyvalue.cpp
         souvenir.cpp
         souvenir_tests.cpp)

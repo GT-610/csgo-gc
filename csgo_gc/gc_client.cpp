@@ -484,6 +484,10 @@ void ClientGC::HandleEvent(GCEvent type, uint64_t id, const std::vector<uint8_t>
         LocalPlayerRoundMVP();
         break;
 
+    case GCEvent::LocalPlayerMatchEnd:
+        LocalPlayerMatchEnd();
+        break;
+
     case GCEvent::SyncLocalPlayerMusicKitState:
         if (buffer.size() == sizeof(uint32_t))
         {
@@ -1556,6 +1560,13 @@ static void AdaptStorePriceSheet(KeyValue &priceSheet, const ItemSchema &itemSch
         return;
     }
 
+    // added containers need a banner layout to show up in, so create it if needed
+    // (before looking up entries, since adding a subkey can move its siblings)
+    if (GetConfig().StoreAllCases() && !store->GetSubkey("store_banner_layout"))
+    {
+        store->AddSubkey("store_banner_layout");
+    }
+
     KeyValue *bannerLayout = store->GetSubkey("store_banner_layout");
     KeyValue *entries = store->GetSubkey("entries");
     if (!bannerLayout || !entries)
@@ -1644,10 +1655,49 @@ static void AdaptStorePriceSheet(KeyValue &priceSheet, const ItemSchema &itemSch
         removedCount += bannerLayout->RemoveSubkey(name);
     }
 
+    // every container (and its key) is purchasable, not only the store front page ones
+    size_t addedCaseCount = 0;
+    if (GetConfig().StoreAllCases() && priceTemplate)
+    {
+        std::vector<uint32_t> crates = itemSchema.GetContainerDefIndexes();
+        std::sort(crates.begin(), crates.end(), std::greater<uint32_t>()); // newest first
+
+        for (uint32_t crateDefIndex : crates)
+        {
+            const ItemInfo *crate = itemSchema.ItemInfoByDefIndex(crateDefIndex);
+            if (!crate || !IsStoreCrate(*crate) || !itemSchema.CanCreateItem(crateDefIndex)
+                || !EnsureStoreEntry(*entries, *crate, &*priceTemplate))
+            {
+                continue;
+            }
+
+            for (uint32_t keyDefIndex : itemSchema.GetKeysForCrate(crateDefIndex))
+            {
+                const ItemInfo *key = itemSchema.ItemInfoByDefIndex(keyDefIndex);
+                if (key && itemSchema.CanCreateItem(keyDefIndex))
+                {
+                    EnsureStoreEntry(*entries, *key, &*priceTemplate);
+                }
+            }
+
+            const std::string bannerName = std::to_string(crateDefIndex);
+            if (!bannerLayout->GetSubkey(bannerName))
+            {
+                bannerLayout->AddSubkey(bannerName).AddString("market_link", "0");
+                ++addedCaseCount;
+            }
+        }
+    }
+
     if (enabledCount)
     {
         Platform::Print("Enabled %zu market crate%s for offline store purchase\n", enabledCount,
             enabledCount == 1 ? "" : "s");
+    }
+    if (addedCaseCount)
+    {
+        Platform::Print("Added %zu more case%s/capsule%s/package%s to the store\n", addedCaseCount,
+            addedCaseCount == 1 ? "" : "s", addedCaseCount == 1 ? "" : "s", addedCaseCount == 1 ? "" : "s");
     }
     if (removedCount || removedLinkedCount)
     {
@@ -2127,6 +2177,37 @@ void ClientGC::LocalPlayerRoundMVP()
     RefreshCachedMusicKitMVPs();
     Platform::Print("LocalPlayerRoundMVP: incremented music kit %llu\n", itemId);
     SendMessageToGame(true, k_ESOMsg_Update, update);
+}
+
+void ClientGC::LocalPlayerMatchEnd()
+{
+    // cs_win_panel_match can be seen more than once for the same match (e.g. a
+    // reconnect), so allow at most one drop per minute
+    constexpr auto MinTimeBetweenDrops = std::chrono::seconds{ 60 };
+
+    auto now = std::chrono::steady_clock::now();
+    if (m_lastMatchDropTime.time_since_epoch().count() != 0
+        && now - m_lastMatchDropTime < MinTimeBetweenDrops)
+    {
+        Platform::Print("LocalPlayerMatchEnd: ignoring repeated match end\n");
+        return;
+    }
+    m_lastMatchDropTime = now;
+
+    CMsgSOSingleObject newItem;
+    std::string itemName;
+    if (!m_inventory.CreateMatchDrop(newItem, itemName))
+    {
+        return;
+    }
+
+    SendMessageToGame(true, k_ESOMsg_Create, newItem);
+
+    CMsgGCCStrike15_v2_GC2ClientTextMsg textMsg;
+    textMsg.set_id(0);
+    textMsg.set_type(0);
+    textMsg.set_payload("You received a match drop: " + itemName);
+    SendMessageToGame(false, k_EMsgGCCStrike15_v2_GC2ClientTextMsg, textMsg);
 }
 
 void ClientGC::ApplySticker(GCMessageRead &messageRead)

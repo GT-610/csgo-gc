@@ -103,6 +103,13 @@ public:
         CMsgSOSingleObject &newItem,
         CMsgGCItemCustomizationNotification &notification);
 
+    // end-of-match drop (a weapon case or a collection skin); returns false when
+    // no drop was rolled or nothing could be created
+    bool CreateMatchDrop(CMsgSOSingleObject &newItem, std::string &itemDescription);
+
+    // cases opened since the last gold, for the case pity system
+    uint32_t GoldlessCases() const { return m_goldlessCases; }
+
     bool OpenStatTrakSwapToolBundle(uint64_t bundleId,
         CMsgSOSingleObject &destroyBundle,
         std::array<CMsgSOSingleObject, 2> &newTools,
@@ -328,4 +335,5 @@ private:
     std::vector<CSOEconDefaultEquippedDefinitionInstanceClient> m_defaultEquips;
     std::set<uint64_t> m_eventFavorites;
     bool m_saveEnabled{ true };
+    uint32_t m_goldlessCases{};
 };

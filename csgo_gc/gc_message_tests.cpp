@@ -1,6 +1,8 @@
 #include "stdafx.h"
+#include "case_opening.h"
 #include "gc_client.h"
 #include "gc_message.h"
+#include "game_schema_patch.h"
 #include "keyvalue.h"
 #include "networking_client.h"
 #include "networking_server.h"
@@ -3428,6 +3430,8 @@ static bool OfflineGCRequestsReceiveMinimalResponses()
 // knife pool is a single Case Hardened Karambit.
 static void RemoveGoldTradeUpFixtures()
 {
+    TestFilesystem::RemoveFile("csgo_gc/custom_cases.txt");
+    TestFilesystem::RemoveFile("csgo_gc/price_sheet.txt");
     TestFilesystem::RemoveFile("csgo_gc/inventory.txt");
     TestFilesystem::RemoveFile("csgo_gc/unusual_loot_lists.txt");
     TestFilesystem::RemoveFile("csgo_gc/gc_loot_lists.txt");
@@ -3457,6 +3461,7 @@ static bool WriteGoldTradeUpFixtures()
     attributes.AddSubkey(std::to_string(ItemSchema::AttributeTextureWear)).AddString("attribute_type", "float");
     attributes.AddSubkey(std::to_string(ItemSchema::AttributeKillEater)).AddNumber("stored_as_integer", 1);
     attributes.AddSubkey(std::to_string(ItemSchema::AttributeKillEaterScoreType)).AddNumber("stored_as_integer", 1);
+    attributes.AddSubkey(std::to_string(ItemSchema::AttributeTournamentEventId)).AddNumber("stored_as_integer", 1);
 
     KeyValue &items = itemsGame.AddSubkey("items");
     items.AddSubkey("7").AddString("name", "weapon_ak47");
@@ -3466,7 +3471,13 @@ static bool WriteGoldTradeUpFixtures()
     karambit.AddString("item_rarity", "ancient");
     KeyValue &crate = items.AddSubkey("4001");
     crate.AddString("name", "crate_gold_test");
-    crate.AddString("loot_list_name", "crate_gold_test");
+    crate.AddSubkey("tool").AddString("restriction", "gold_test");
+    // real weapon cases point at their contents through a supply crate series
+    crate.AddSubkey("attributes").AddSubkey("set supply crate series").AddNumber("value", 77);
+    KeyValue &key = items.AddSubkey("4002");
+    key.AddString("name", "key_gold_test");
+    key.AddString("item_type", "weapon_case_key");
+    key.AddSubkey("tool").AddString("restriction", "gold_test");
 
     KeyValue &paintKits = itemsGame.AddSubkey("paint_kits");
     KeyValue &defaultKit = paintKits.AddSubkey("0");
@@ -3477,11 +3488,13 @@ static bool WriteGoldTradeUpFixtures()
     paintKits.AddSubkey("100").AddString("name", "covert_a");
     paintKits.AddSubkey("101").AddString("name", "covert_b");
     paintKits.AddSubkey("102").AddString("name", "classified_a");
+    paintKits.AddSubkey("103").AddString("name", "consumer_a");
 
     KeyValue &paintRarities = itemsGame.AddSubkey("paint_kits_rarity");
     paintRarities.AddString("covert_a", "ancient");
     paintRarities.AddString("covert_b", "ancient");
     paintRarities.AddString("classified_a", "legendary");
+    paintRarities.AddString("consumer_a", "common");
 
     KeyValue &set = itemsGame.AddSubkey("item_sets").AddSubkey("set_test");
     set.AddNumber("is_collection", 1);
@@ -3489,10 +3502,13 @@ static bool WriteGoldTradeUpFixtures()
     setItems.AddNumber("[covert_a]weapon_ak47", 1);
     setItems.AddNumber("[covert_b]weapon_ak47", 1);
     setItems.AddNumber("[classified_a]weapon_ak47", 1);
+    setItems.AddNumber("[consumer_a]weapon_ak47", 1);
 
+    itemsGame.AddSubkey("revolving_loot_lists").AddString("77", "crate_gold_test");
     KeyValue &lootList = itemsGame.AddSubkey("client_loot_lists").AddSubkey("crate_gold_test");
     lootList.AddNumber("[covert_a]weapon_ak47", 1);
     lootList.AddNumber("[covert_b]weapon_ak47", 1);
+    lootList.AddNumber("[consumer_a]weapon_ak47", 1);
     lootList.AddNumber("unusual_gold_test", 1);
 
     KeyValue unusualLootLists{ "unusual_loot_lists" };
@@ -3527,11 +3543,41 @@ static bool WriteGoldTradeUpFixtures()
         addSkin(i, 507, ItemSchema::QualityUnusual, ItemSchema::RarityAncient, 44, 0.4f);
     }
 
+    // 20..29: Classifieds for a souvenir contract, even ids are souvenirs
+    for (uint32_t i = 20; i < 30; i++)
+    {
+        const bool souvenir = i % 2 == 0;
+        addSkin(i, 7, souvenir ? ItemSchema::QualityTournament : ItemSchema::QualityUnique,
+            ItemSchema::RarityLegendary, 102, 0.3f);
+        if (souvenir)
+        {
+            inventoryItems.GetSubkey(std::to_string(i))->GetSubkey("attributes")
+                ->AddNumber(std::to_string(ItemSchema::AttributeTournamentEventId), 19);
+        }
+    }
+
+    // 100..249: cases for the pity test
+    for (uint32_t i = 100; i < 250; i++)
+    {
+        KeyValue &crateItem = inventoryItems.AddSubkey(std::to_string(i));
+        crateItem.AddNumber("def_index", 4001);
+        crateItem.AddNumber("origin", ItemOriginDrop);
+        crateItem.AddNumber("rarity", ItemSchema::RarityCommon);
+    }
+
+    KeyValue priceSheet{ "price_sheet" };
+    KeyValue &store = priceSheet.AddSubkey("store");
+    store.AddSubkey("store_banner_layout");
+    KeyValue &templateEntry = store.AddSubkey("entries").AddSubkey("price_template");
+    templateEntry.AddString("item_link", "weapon_ak47");
+    templateEntry.AddSubkey("prices").AddNumber("USD", 249);
+
     KeyValue gcLootLists{ "gc_loot_lists" };
     return schema.WriteToFile("csgo/scripts/items/items_game.txt")
         && inventory.WriteToFile("csgo_gc/inventory.txt")
         && unusualLootLists.WriteToFile("csgo_gc/unusual_loot_lists.txt")
-        && gcLootLists.WriteToFile("csgo_gc/gc_loot_lists.txt");
+        && gcLootLists.WriteToFile("csgo_gc/gc_loot_lists.txt")
+        && priceSheet.WriteToFile("csgo_gc/price_sheet.txt");
 }
 
 struct CraftOutcome
@@ -3651,6 +3697,20 @@ static bool GoldTradeUpContractsProduceKnives()
             && FindAttributeFloat(covert.createdItem, ItemSchema::AttributeTextureWear, covertWear)
             && std::fabs(covertWear - 0.2f) < 0.0001f;
 
+        // CS2 rule: souvenirs mix with normal skins and give a normal skin
+        std::vector<uint64_t> souvenirInputs;
+        for (uint32_t i = 20; i < 30; i++)
+        {
+            souvenirInputs.push_back(itemId(i));
+        }
+        CraftOutcome souvenir = SendCraft(gc, 4, souvenirInputs);
+        valid &= souvenir.responded && souvenir.responseOk
+            && souvenir.destroyCount == 10 && souvenir.created
+            && souvenir.createdItem.def_index() == 7
+            && souvenir.createdItem.quality() == ItemSchema::QualityUnique
+            && souvenir.createdItem.rarity() == ItemSchema::RarityAncient
+            && !HasAttribute(souvenir.createdItem, ItemSchema::AttributeTournamentEventId);
+
         // 5 Karambits at 0.4 -> Karambit at half the float
         CraftOutcome gold = SendCraft(gc, 5, { itemId(10), itemId(11), itemId(12), itemId(13), itemId(14) });
         float goldWear = -1.0f;
@@ -3662,6 +3722,319 @@ static bool GoldTradeUpContractsProduceKnives()
             && std::fabs(goldWear - 0.2f) < 0.0001f;
     }
 
+    RemoveGoldTradeUpFixtures();
+    return valid;
+}
+
+
+static bool CasePityGuaranteesGoldWithinLimit()
+{
+    // config.txt is absent in tests, so the defaults apply: soft pity 25, guaranteed 50
+    const float base = 0.0001f;
+    bool valid = CaseOpening::PityGoldChance(base, 0) == base
+        && CaseOpening::PityGoldChance(base, 24) == base
+        && CaseOpening::PityGoldChance(base, 30) > base
+        && CaseOpening::PityGoldChance(base, 30) < CaseOpening::PityGoldChance(base, 40)
+        && CaseOpening::PityGoldChance(base, 49) == 1.0f;
+
+    constexpr uint64_t SteamId = 76561197960265729ull;
+    auto itemId = [&](uint32_t highItemId)
+    {
+        return (static_cast<uint64_t>(highItemId) << 32) | (SteamId & UINT32_MAX);
+    };
+
+    RemoveGoldTradeUpFixtures();
+    if (!WriteGoldTradeUpFixtures())
+    {
+        RemoveGoldTradeUpFixtures();
+        return false;
+    }
+
+    {
+        ClientGC gc{ SteamId };
+
+        // the natural gold chance here is ~0.01%, so every gold below comes from pity
+        int golds = 0;
+        int sinceGold = 0;
+        for (uint32_t crate = 100; crate < 250 && valid; crate++)
+        {
+            GCMessageWrite request{ k_EMsgGCUnlockCrate };
+            request.WriteUint64(0);
+            request.WriteUint64(itemId(crate));
+            gc.PostToGC(GCEvent::Message, request.TypeMasked(), request.Data(), request.Size());
+
+            std::vector<EventData> events;
+            valid &= WaitForHostMessagesUntil(gc, k_EMsgGCItemCustomizationNotification, events);
+
+            bool gotGold = false;
+            for (const EventData &event : events)
+            {
+                CMsgSOSingleObject object;
+                CSOEconItem item;
+                if ((static_cast<uint32_t>(event.id) & ~ProtobufMask) == k_ESOMsg_Create
+                    && ParseHostProtobuf(event, object) && ParseItemObject(object, item))
+                {
+                    gotGold = item.quality() == ItemSchema::QualityUnusual;
+                }
+            }
+
+            sinceGold++;
+            if (gotGold)
+            {
+                golds++;
+                sinceGold = 0;
+            }
+            valid &= sinceGold < 50;
+        }
+
+        // 150 cases with a 50 case guarantee must produce at least 3 golds
+        valid &= golds >= 3;
+    }
+
+    RemoveGoldTradeUpFixtures();
+    return valid;
+}
+
+static bool MatchEndGivesOneDrop()
+{
+    constexpr uint64_t SteamId = 76561197960265729ull;
+
+    RemoveGoldTradeUpFixtures();
+    if (!WriteGoldTradeUpFixtures())
+    {
+        RemoveGoldTradeUpFixtures();
+        return false;
+    }
+
+    bool valid = true;
+    {
+        ClientGC gc{ SteamId };
+        gc.PostToGC(GCEvent::LocalPlayerMatchEnd, 0, nullptr, 0);
+
+        std::vector<EventData> events;
+        valid &= WaitForHostMessagesUntil(gc, k_EMsgGCCStrike15_v2_GC2ClientTextMsg, events);
+
+        int created = 0;
+        for (const EventData &event : events)
+        {
+            CMsgSOSingleObject object;
+            CSOEconItem item;
+            if ((static_cast<uint32_t>(event.id) & ~ProtobufMask) == k_ESOMsg_Create
+                && ParseHostProtobuf(event, object) && ParseItemObject(object, item))
+            {
+                created++;
+                // either the case or one of the collection's skins, marked as a new drop
+                valid &= item.origin() == ItemOriginDrop
+                    && item.inventory() == InventoryUnacknowledged(UnacknowledgedDropped)
+                    && (item.def_index() == 4001 || item.def_index() == 7);
+            }
+        }
+        valid &= created == 1;
+
+        // a repeated match end right after is ignored
+        gc.PostToGC(GCEvent::LocalPlayerMatchEnd, 0, nullptr, 0);
+        valid &= HostMessageNotReceived(gc, k_ESOMsg_Create);
+    }
+
+    RemoveGoldTradeUpFixtures();
+    return valid;
+}
+
+
+static bool StoreListsEveryWeaponCaseAndKey()
+{
+    RemoveGoldTradeUpFixtures();
+    if (!WriteGoldTradeUpFixtures())
+    {
+        RemoveGoldTradeUpFixtures();
+        return false;
+    }
+
+    bool valid = true;
+    {
+        ClientGC gc{ 76561197960265729ull };
+
+        CMsgStoreGetUserData storeData;
+        storeData.set_price_sheet_version(0);
+        SendGCProtobuf(gc, k_EMsgGCStoreGetUserData, storeData);
+
+        EventData event;
+        CMsgStoreGetUserDataResponse response;
+        constexpr std::string_view CaseBanner{
+            "\0" "4001\0" "\1" "market_link\0" "0\0",
+            sizeof("\0" "4001\0" "\1" "market_link\0" "0\0") - 1
+        };
+        constexpr std::string_view CaseEntry{
+            "\0" "crate_gold_test\0" "\1" "item_link\0" "crate_gold_test\0",
+            sizeof("\0" "crate_gold_test\0" "\1" "item_link\0" "crate_gold_test\0") - 1
+        };
+        constexpr std::string_view KeyEntry{
+            "\0" "key_gold_test\0" "\1" "item_link\0" "key_gold_test\0",
+            sizeof("\0" "key_gold_test\0" "\1" "item_link\0" "key_gold_test\0") - 1
+        };
+
+        valid &= WaitForHostMessage(gc, k_EMsgGCStoreGetUserDataResponse, event)
+            && ParseHostProtobuf(event, response)
+            && response.result() == 1;
+        const std::string &sheet = response.price_sheet();
+        valid &= sheet.find(CaseBanner) != std::string::npos
+            && sheet.find(CaseEntry) != std::string::npos
+            && sheet.find(KeyEntry) != std::string::npos;
+    }
+
+    RemoveGoldTradeUpFixtures();
+    return valid;
+}
+
+
+static bool CustomCaseReplacesContents()
+{
+    constexpr uint64_t SteamId = 76561197960265729ull;
+    auto itemId = [&](uint32_t highItemId)
+    {
+        return (static_cast<uint64_t>(highItemId) << 32) | (SteamId & UINT32_MAX);
+    };
+
+    RemoveGoldTradeUpFixtures();
+    KeyValue customCases{ "custom_cases" };
+    KeyValue &customCase = customCases.AddSubkey("4001");
+    customCase.AddSubkey("items").AddString("[covert_b]weapon_ak47", "common");
+    customCase.AddSubkey("golds").AddString("[covert_a]weapon_knife_karambit", "");
+    if (!WriteGoldTradeUpFixtures() || !customCases.WriteToFile("csgo_gc/custom_cases.txt"))
+    {
+        RemoveGoldTradeUpFixtures();
+        return false;
+    }
+
+    bool valid = true;
+    {
+        ClientGC gc{ SteamId };
+        for (uint32_t crate = 100; crate < 120 && valid; crate++)
+        {
+            GCMessageWrite request{ k_EMsgGCUnlockCrate };
+            request.WriteUint64(0);
+            request.WriteUint64(itemId(crate));
+            gc.PostToGC(GCEvent::Message, request.TypeMasked(), request.Data(), request.Size());
+
+            std::vector<EventData> events;
+            valid &= WaitForHostMessagesUntil(gc, k_EMsgGCItemCustomizationNotification, events);
+
+            int created = 0;
+            for (const EventData &event : events)
+            {
+                CMsgSOSingleObject object;
+                CSOEconItem item;
+                uint32_t paintKit = 0;
+                if ((static_cast<uint32_t>(event.id) & ~ProtobufMask) == k_ESOMsg_Create
+                    && ParseHostProtobuf(event, object) && ParseItemObject(object, item))
+                {
+                    created++;
+                    valid &= FindAttributeUint32(item, ItemSchema::AttributeTexturePrefab, paintKit);
+                    const bool customSkin = item.def_index() == 7 && paintKit == 101
+                        && item.rarity() == ItemSchema::RarityCommon;
+                    const bool customGold = item.def_index() == 507 && paintKit == 100
+                        && item.quality() == ItemSchema::QualityUnusual;
+                    valid &= customSkin || customGold;
+                }
+            }
+            valid &= created == 1;
+        }
+    }
+
+    RemoveGoldTradeUpFixtures();
+    return valid;
+}
+
+
+static bool CustomCasePreviewPatchesOnlyTargetLists()
+{
+    const std::string original =
+        "\"items_game\"\n"
+        "{\n"
+        "\t// a comment with { braces } and \"quotes\n"
+        "\t\"revolving_loot_lists\" { \"1\" \"crate_one\" }\n"
+        "\t\"client_loot_lists\"\n"
+        "\t{\n"
+        "\t\t\"crate_one\"\n"
+        "\t\t{\n"
+        "\t\t\t\"crate_one_rare\"\t\"1\"\n"
+        "\t\t}\n"
+        "\t\t\"crate_two\" { \"[x]weapon_ak47\" \"1\" }\n"
+        "\t}\n"
+        "\t\"other\" { \"crate_one\" { \"keep\" \"1\" } }\n"
+        "}\n";
+
+    GameSchemaPatch::LootListPreviews previews;
+    previews["crate_one"] = { "[am_aqua_flecks]weapon_ak47", "[am_gold_brick]weapon_awp" };
+
+    std::string text = original;
+    bool valid = GameSchemaPatch::PatchLootLists(text, previews) == 1
+        && text.find("\"[am_aqua_flecks]weapon_ak47\"") != std::string::npos
+        && text.find("\"[am_gold_brick]weapon_awp\"") != std::string::npos
+        && text.find("crate_one_rare") == std::string::npos
+        && text.find("\"crate_two\" { \"[x]weapon_ak47\" \"1\" }") != std::string::npos
+        && text.find("\"keep\" \"1\"") != std::string::npos
+        && text.find("// a comment with { braces }") != std::string::npos;
+
+    // the result still parses and has the new contents
+    KeyValue parsed{ "root" };
+    if (FILE *f = fopen("patched_schema_test.txt", "wb"))
+    {
+        fwrite(text.data(), 1, text.size(), f);
+        fclose(f);
+    }
+    valid &= parsed.ParseFromFile("patched_schema_test.txt");
+    TestFilesystem::RemoveFile("patched_schema_test.txt");
+    const KeyValue *itemsGame = parsed.GetSubkey("items_game");
+    const KeyValue *lists = itemsGame ? itemsGame->GetSubkey("client_loot_lists") : nullptr;
+    const KeyValue *crateOne = lists ? lists->GetSubkey("crate_one") : nullptr;
+    valid &= crateOne && crateOne->SubkeyCount() == 2;
+    return valid;
+}
+
+static bool CustomCasePreviewBacksUpAndRestores()
+{
+    RemoveGoldTradeUpFixtures();
+    TestFilesystem::RemoveFile(GameSchemaPatch::BackupPath);
+    if (!WriteGoldTradeUpFixtures())
+    {
+        RemoveGoldTradeUpFixtures();
+        return false;
+    }
+
+    auto readFile = [](const char *path)
+    {
+        std::string data;
+        if (FILE *f = fopen(path, "rb"))
+        {
+            char buffer[4096];
+            size_t read;
+            while ((read = fread(buffer, 1, sizeof(buffer), f)) > 0)
+            {
+                data.append(buffer, read);
+            }
+            fclose(f);
+        }
+        return data;
+    };
+
+    const std::string original = readFile(GameSchemaPatch::SchemaPath);
+    GameSchemaPatch::LootListPreviews previews;
+    previews["crate_gold_test"] = { "[covert_b]weapon_ak47" };
+
+    bool valid = !original.empty()
+        && strcmp(GameSchemaPatch::OriginalSchemaPath(), GameSchemaPatch::SchemaPath) == 0
+        && GameSchemaPatch::Apply(previews)
+        && readFile(GameSchemaPatch::BackupPath) == original
+        && readFile(GameSchemaPatch::SchemaPath) != original
+        && strcmp(GameSchemaPatch::OriginalSchemaPath(), GameSchemaPatch::BackupPath) == 0
+        && !GameSchemaPatch::Apply(previews) // already up to date
+        && GameSchemaPatch::Restore()
+        && readFile(GameSchemaPatch::SchemaPath) == original
+        && readFile(GameSchemaPatch::BackupPath).empty()
+        && !GameSchemaPatch::Restore();
+
+    TestFilesystem::RemoveFile(GameSchemaPatch::BackupPath);
     RemoveGoldTradeUpFixtures();
     return valid;
 }
@@ -3694,6 +4067,12 @@ int main()
         { "StatTrakSwapToolTwoPackCreatesTwoTools", StatTrakSwapToolTwoPackCreatesTwoTools },
         { "UnusualStatTrakKnivesCanSwapCounters", UnusualStatTrakKnivesCanSwapCounters },
         { "GoldTradeUpContractsProduceKnives", GoldTradeUpContractsProduceKnives },
+        { "CasePityGuaranteesGoldWithinLimit", CasePityGuaranteesGoldWithinLimit },
+        { "MatchEndGivesOneDrop", MatchEndGivesOneDrop },
+        { "StoreListsEveryWeaponCaseAndKey", StoreListsEveryWeaponCaseAndKey },
+        { "CustomCaseReplacesContents", CustomCaseReplacesContents },
+        { "CustomCasePreviewPatchesOnlyTargetLists", CustomCasePreviewPatchesOnlyTargetLists },
+        { "CustomCasePreviewBacksUpAndRestores", CustomCasePreviewBacksUpAndRestores },
         { "StorePurchasesFinalizeTransactionally", StorePurchasesFinalizeTransactionally },
         { "LegacyStorePriceSheetMatchesClientSchema",
             LegacyStorePriceSheetMatchesClientSchema },
