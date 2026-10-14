@@ -3459,6 +3459,7 @@ static bool WriteGoldTradeUpFixtures()
     attributes.AddSubkey(std::to_string(ItemSchema::AttributeTextureWear)).AddString("attribute_type", "float");
     attributes.AddSubkey(std::to_string(ItemSchema::AttributeKillEater)).AddNumber("stored_as_integer", 1);
     attributes.AddSubkey(std::to_string(ItemSchema::AttributeKillEaterScoreType)).AddNumber("stored_as_integer", 1);
+    attributes.AddSubkey(std::to_string(ItemSchema::AttributeTournamentEventId)).AddNumber("stored_as_integer", 1);
 
     KeyValue &items = itemsGame.AddSubkey("items");
     items.AddSubkey("7").AddString("name", "weapon_ak47");
@@ -3536,6 +3537,19 @@ static bool WriteGoldTradeUpFixtures()
     for (uint32_t i = 10; i <= 14; i++)
     {
         addSkin(i, 507, ItemSchema::QualityUnusual, ItemSchema::RarityAncient, 44, 0.4f);
+    }
+
+    // 20..29: Classifieds for a souvenir contract, even ids are souvenirs
+    for (uint32_t i = 20; i < 30; i++)
+    {
+        const bool souvenir = i % 2 == 0;
+        addSkin(i, 7, souvenir ? ItemSchema::QualityTournament : ItemSchema::QualityUnique,
+            ItemSchema::RarityLegendary, 102, 0.3f);
+        if (souvenir)
+        {
+            inventoryItems.GetSubkey(std::to_string(i))->GetSubkey("attributes")
+                ->AddNumber(std::to_string(ItemSchema::AttributeTournamentEventId), 19);
+        }
     }
 
     // 100..249: cases for the pity test
@@ -3678,6 +3692,20 @@ static bool GoldTradeUpContractsProduceKnives()
             && FindAttributeUint32(covert.createdItem, ItemSchema::AttributeTexturePrefab, paintKit) && paintKit == 44
             && FindAttributeFloat(covert.createdItem, ItemSchema::AttributeTextureWear, covertWear)
             && std::fabs(covertWear - 0.2f) < 0.0001f;
+
+        // CS2 rule: souvenirs mix with normal skins and give a normal skin
+        std::vector<uint64_t> souvenirInputs;
+        for (uint32_t i = 20; i < 30; i++)
+        {
+            souvenirInputs.push_back(itemId(i));
+        }
+        CraftOutcome souvenir = SendCraft(gc, 4, souvenirInputs);
+        valid &= souvenir.responded && souvenir.responseOk
+            && souvenir.destroyCount == 10 && souvenir.created
+            && souvenir.createdItem.def_index() == 7
+            && souvenir.createdItem.quality() == ItemSchema::QualityUnique
+            && souvenir.createdItem.rarity() == ItemSchema::RarityAncient
+            && !HasAttribute(souvenir.createdItem, ItemSchema::AttributeTournamentEventId);
 
         // 5 Karambits at 0.4 -> Karambit at half the float
         CraftOutcome gold = SendCraft(gc, 5, { itemId(10), itemId(11), itemId(12), itemId(13), itemId(14) });
