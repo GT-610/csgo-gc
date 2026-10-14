@@ -53,6 +53,21 @@ endif()
 
 target_precompile_headers(csgo_gc PRIVATE stdafx.h)
 
+# show which commit a build came from in the game console
+find_package(Git QUIET)
+set(CSGO_GC_BUILD "unknown")
+if (GIT_FOUND)
+    execute_process(COMMAND ${GIT_EXECUTABLE} rev-parse --short HEAD
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        OUTPUT_VARIABLE CSGO_GC_BUILD
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET)
+    if (NOT CSGO_GC_BUILD)
+        set(CSGO_GC_BUILD "unknown")
+    endif()
+endif()
+target_compile_definitions(csgo_gc PRIVATE CSGO_GC_BUILD="${CSGO_GC_BUILD}")
+
 set_target_properties(csgo_gc PROPERTIES PREFIX "")
 
 if (MSVC)

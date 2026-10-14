@@ -1,6 +1,9 @@
 #include "stdafx.h"
 #include "game_schema_patch.h"
 
+#include <cerrno>
+#include <filesystem>
+
 static bool ReadWholeFile(const char *path, std::string &out)
 {
     FILE *f = fopen(path, "rb");
@@ -348,12 +351,24 @@ bool GameSchemaPatch::InsertRecipes(std::string &text, const std::string &recipe
     return false;
 }
 
+static std::string AbsolutePath(const char *path)
+{
+    std::error_code error;
+    std::filesystem::path absolute = std::filesystem::absolute(path, error);
+    return error ? std::string{ path } : absolute.string();
+}
+
 bool GameSchemaPatch::Apply(const LootListPreviews &previews, const std::string &recipesText)
 {
+    const std::string schemaPath = AbsolutePath(SchemaPath);
+    Platform::Print("items_game.txt patch: file %s, backup %s\n", schemaPath.c_str(),
+        FileExists(BackupPath) ? "exists" : "not created yet");
+
     std::string original;
     if (!ReadWholeFile(OriginalSchemaPath(), original))
     {
-        Platform::Print("could not read %s, not patching it\n", SchemaPath);
+        Platform::Print("items_game.txt patch: could not read %s (errno %d), not patching it\n",
+            OriginalSchemaPath(), errno);
         return false;
     }
 
@@ -366,29 +381,32 @@ bool GameSchemaPatch::Apply(const LootListPreviews &previews, const std::string 
 
     if (!recipesText.empty() && !InsertRecipes(patched, recipesText))
     {
-        Platform::Print("items_game.txt has no recipes block, gold trade-up recipes not added\n");
+        Platform::Print("items_game.txt patch: no recipes block found, gold trade-up recipes not added\n");
     }
 
     std::string current;
     if (ReadWholeFile(SchemaPath, current) && current == patched)
     {
-        return false; // already up to date
+        Platform::Print("items_game.txt patch: already up to date (%zu case preview(s)%s)\n",
+            replaced, recipesText.empty() ? "" : ", gold trade-up recipes");
+        return false;
     }
 
     if (!FileExists(BackupPath) && !WriteWholeFile(BackupPath, original))
     {
-        Platform::Print("could not back up %s, not patching it\n", SchemaPath);
+        Platform::Print("items_game.txt patch: could not create the backup %s (errno %d), not patching\n",
+            BackupPath, errno);
         return false;
     }
 
     if (!WriteWholeFile(SchemaPath, patched))
     {
-        Platform::Print("could not write %s\n", SchemaPath);
+        Platform::Print("items_game.txt patch: could not write %s (errno %d)\n", schemaPath.c_str(), errno);
         return false;
     }
 
-    Platform::Print("Updated %s (%zu case preview(s)%s), restart the game to see the changes\n",
-        SchemaPath, replaced, recipesText.empty() ? "" : ", gold trade-up recipes");
+    Platform::Print("items_game.txt patch: updated %s (%zu case preview(s)%s), restart the game to see the changes\n",
+        schemaPath.c_str(), replaced, recipesText.empty() ? "" : ", gold trade-up recipes");
     return true;
 }
 
