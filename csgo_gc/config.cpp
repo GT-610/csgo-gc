@@ -50,6 +50,14 @@ GCConfig::GCConfig()
 
     m_destroyUsedItems = config.GetNumber("destroy_used_items", m_destroyUsedItems);
     m_storeAllCases = config.GetNumber("store_all_cases", m_storeAllCases);
+    m_storeHideIndividualItems = config.GetNumber("store_hide_individual_items", m_storeHideIndividualItems);
+    if (const KeyValue *storeContainers = config.GetSubkey("store_containers"))
+    {
+        m_storeWeaponCases = storeContainers->GetNumber("weapon_cases", m_storeWeaponCases);
+        m_storeSouvenirPackages = storeContainers->GetNumber("souvenir_packages", m_storeSouvenirPackages);
+        m_storeCapsules = storeContainers->GetNumber("capsules", m_storeCapsules);
+        m_storeOtherContainers = storeContainers->GetNumber("other", m_storeOtherContainers);
+    }
     m_customCasePreviews = config.GetNumber("custom_case_previews", m_customCasePreviews);
     m_goldTradeUpRecipes = config.GetNumber("gold_tradeup_recipes", m_goldTradeUpRecipes);
     m_primeStatus = config.GetNumber("prime_status", m_primeStatus);

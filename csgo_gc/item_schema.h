@@ -231,6 +231,18 @@ public:
     const std::vector<uint32_t> &GetDropCrateDefIndexes() const;
     // every container (weapon cases, souvenir packages, sticker/patch/pin capsules...)
     std::vector<uint32_t> GetContainerDefIndexes() const;
+
+    enum class ContainerKind
+    {
+        WeaponCase,
+        SouvenirPackage,
+        Capsule, // sticker, autograph and patch capsules
+        Other, // graffiti boxes, pin capsules, music kit boxes, ...
+    };
+    ContainerKind GetContainerKind(uint32_t defIndex) const;
+
+    // store coupons that give one sticker/graffiti/music kit/... rather than a container
+    bool IsSingleItemCoupon(uint32_t defIndex) const;
     // custom_cases.txt display name for a crate, or null
     const std::string *CustomCaseName(uint32_t crateDefIndex) const;
     // keys that open this crate (empty when the crate needs no specific key)

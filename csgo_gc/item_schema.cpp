@@ -2412,6 +2412,74 @@ std::vector<uint32_t> ItemSchema::GetContainerDefIndexes() const
     return containers;
 }
 
+ItemSchema::ContainerKind ItemSchema::GetContainerKind(uint32_t defIndex) const
+{
+    const ItemInfo *info = ItemInfoByDefIndex(defIndex);
+    if (!info)
+    {
+        return ContainerKind::Other;
+    }
+
+    // weapon cases are the containers with a knife/glove pool
+    const std::vector<uint32_t> &cases = GetDropCrateDefIndexes();
+    if (std::find(cases.begin(), cases.end(), defIndex) != cases.end())
+    {
+        return ContainerKind::WeaponCase;
+    }
+
+    auto anyPrefabContains = [&](std::string_view text)
+    {
+        for (const std::string &prefab : info->m_prefabs)
+        {
+            if (prefab.find(text) != std::string::npos)
+            {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    if (anyPrefabContains("souvenir"))
+    {
+        return ContainerKind::SouvenirPackage;
+    }
+
+    const std::string &name = info->m_name;
+    if (anyPrefabContains("sticker_capsule") || anyPrefabContains("signature_capsule")
+        || anyPrefabContains("patch_capsule")
+        || name.compare(0, 18, "crate_sticker_pack") == 0
+        || name.compare(0, 20, "crate_signature_pack") == 0
+        || name.compare(0, 16, "crate_patch_pack") == 0)
+    {
+        return ContainerKind::Capsule;
+    }
+
+    return ContainerKind::Other;
+}
+
+bool ItemSchema::IsSingleItemCoupon(uint32_t defIndex) const
+{
+    const ItemInfo *info = ItemInfoByDefIndex(defIndex);
+    if (!info || !info->m_isCoupon)
+    {
+        return false;
+    }
+
+    auto it = m_lootLists.find(info->m_lootListName);
+    if (it == m_lootLists.end() || it->second.items.size() != 1 || !it->second.subLists.empty())
+    {
+        return false;
+    }
+
+    // a coupon for a container (a capsule, a collection package...) is a pack, keep it
+    const LootListItem &item = it->second.items.front();
+    if (!item.itemInfo)
+    {
+        return false;
+    }
+    return !(item.itemInfo->m_supplyCrateSeries || !item.itemInfo->m_lootListName.empty());
+}
+
 std::vector<uint32_t> ItemSchema::GetKeysForCrate(uint32_t crateDefIndex) const
 {
     std::vector<uint32_t> keys;

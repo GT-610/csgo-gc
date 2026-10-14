@@ -70,6 +70,11 @@ public:
 
     bool DestroyUsedItems() const { return m_destroyUsedItems; }
     bool StoreAllCases() const { return m_storeAllCases; }
+    bool StoreWeaponCases() const { return m_storeWeaponCases; }
+    bool StoreSouvenirPackages() const { return m_storeSouvenirPackages; }
+    bool StoreCapsules() const { return m_storeCapsules; }
+    bool StoreOtherContainers() const { return m_storeOtherContainers; }
+    bool StoreHideIndividualItems() const { return m_storeHideIndividualItems; }
     bool CustomCasePreviews() const { return m_customCasePreviews; }
     bool GoldTradeUpRecipes() const { return m_goldTradeUpRecipes; }
 
@@ -112,6 +117,11 @@ private:
 
     bool m_destroyUsedItems{ true };
     bool m_storeAllCases{ true };
+    bool m_storeWeaponCases{ true };
+    bool m_storeSouvenirPackages{ true };
+    bool m_storeCapsules{ true };
+    bool m_storeOtherContainers{ false };
+    bool m_storeHideIndividualItems{ true };
     bool m_customCasePreviews{ false };
     bool m_goldTradeUpRecipes{ true };
 
