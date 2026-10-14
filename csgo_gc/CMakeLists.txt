@@ -43,7 +43,8 @@ add_library(csgo_gc SHARED
     rcon_server.cpp
     saved_item_shuffles.cpp
     souvenir.cpp
-    steam_hook.cpp)
+    steam_hook.cpp
+    tradeup_hook.cpp)
 
 if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
     target_sources(csgo_gc PRIVATE platform_windows.cpp)
