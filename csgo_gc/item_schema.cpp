@@ -2164,25 +2164,24 @@ bool ItemSchema::GetSpecialTradeUpCandidates(std::string_view collectionName,
     return !outCandidates.empty();
 }
 
-uint32_t ItemSchema::RollRandomSpecialItemFromCollection(const std::string &collectionId) const
+bool ItemSchema::GetSpecialTradeUpCollections(uint32_t defIndex, uint32_t paintKitDefIndex,
+    std::vector<std::string> &outCollections) const
 {
     BuildSpecialTradeUpPools();
 
-    auto it = m_specialPoolByCollection.find(collectionId);
-    if (it != m_specialPoolByCollection.end() && !it->second.empty())
+    outCollections.clear();
+    const uint64_t key = (static_cast<uint64_t>(defIndex) << 32) | paintKitDefIndex;
+    for (const auto &pair : m_specialPoolByCollection)
     {
-        size_t rolledIndex = rand() % it->second.size();
-        return it->second[rolledIndex]->itemInfo->m_defIndex;
-    }
-
-    if (!m_specialPoolByCollection.empty())
-    {
-        auto fallbackIt = m_specialPoolByCollection.begin();
-        if (fallbackIt != m_specialPoolByCollection.end() && !fallbackIt->second.empty())
+        for (const LootListItem *item : pair.second)
         {
-            return fallbackIt->second.front()->itemInfo->m_defIndex;
+            if (PaintedItemKey(*item) == key)
+            {
+                outCollections.push_back(pair.first);
+                break;
+            }
         }
     }
 
-    return 400; // Hard fallback safety knife definition ID
+    return !outCollections.empty();
 }
