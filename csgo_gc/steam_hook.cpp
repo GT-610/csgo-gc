@@ -18,6 +18,7 @@
 #include "platform.h"
 #include "rcon_server.h"
 #include "saved_item_shuffles.h"
+#include "tradeup_hook.h"
 #include <funchook.h>
 #include <ctime>
 #include <limits>
@@ -438,6 +439,8 @@ static void UpdateGameEventListeners()
     // leave stale listeners behind in engine.dll's event manager.
     if (s_clientGC)
     {
+        TryInstallTradeUpHook();
+
         if (!s_clientRoundMVPListenerRegistered)
         {
             if (s_gameEventManager->AddListener(&s_clientGameEventListener, "round_mvp", false))
