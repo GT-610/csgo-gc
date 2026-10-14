@@ -2106,6 +2106,7 @@ void ItemSchema::BuildSpecialTradeUpPools() const
             crate.regularKeys.insert(PaintedItemKey(*item));
         }
         crates.push_back(std::move(crate));
+        m_dropCrateDefIndexes.push_back(info.m_defIndex);
     }
 
     for (const auto &pair : m_itemSets)
@@ -2161,6 +2162,48 @@ bool ItemSchema::GetSpecialTradeUpCandidates(std::string_view collectionName,
     }
 
     outCandidates = it->second;
+    return !outCandidates.empty();
+}
+
+const std::vector<uint32_t> &ItemSchema::GetDropCrateDefIndexes() const
+{
+    BuildSpecialTradeUpPools();
+    return m_dropCrateDefIndexes;
+}
+
+bool ItemSchema::GetDropSkinCandidates(uint32_t rarity, std::vector<const LootListItem *> &outCandidates) const
+{
+    BuildSpecialTradeUpPools();
+
+    std::vector<const LootListItem *> caseCollectionCandidates;
+    outCandidates.clear();
+
+    for (const auto &pair : m_itemSets)
+    {
+        const ItemSet &itemSet = pair.second;
+        if (!itemSet.isCollection)
+        {
+            continue;
+        }
+
+        const bool fromCase = m_specialPoolByCollection.count(pair.first) != 0;
+        for (const LootListItem &item : itemSet.items)
+        {
+            if (item.type != LootListItemPaintable || !item.itemInfo || !item.paintKitInfo
+                || item.rarity != rarity)
+            {
+                continue;
+            }
+
+            (fromCase ? caseCollectionCandidates : outCandidates).push_back(&item);
+        }
+    }
+
+    if (outCandidates.empty())
+    {
+        outCandidates = std::move(caseCollectionCandidates);
+    }
+
     return !outCandidates.empty();
 }
 

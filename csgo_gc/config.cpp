@@ -84,6 +84,43 @@ GCConfig::GCConfig()
         }
     }
 
+    const KeyValue *casePity = config.GetSubkey("case_pity");
+    if (casePity)
+    {
+        m_casePity.enabled = casePity->GetNumber("enabled", m_casePity.enabled);
+        m_casePity.softStart = casePity->GetNumber("soft_pity_start", m_casePity.softStart);
+        m_casePity.guaranteedAt = casePity->GetNumber("guaranteed_at", m_casePity.guaranteedAt);
+        if (m_casePity.guaranteedAt < 1)
+        {
+            m_casePity.guaranteedAt = 1;
+        }
+        if (m_casePity.softStart >= m_casePity.guaranteedAt)
+        {
+            m_casePity.softStart = m_casePity.guaranteedAt - 1;
+        }
+    }
+
+    const KeyValue *matchDrops = config.GetSubkey("match_drops");
+    if (matchDrops)
+    {
+        m_matchDrops.enabled = matchDrops->GetNumber("enabled", m_matchDrops.enabled);
+        m_matchDrops.dropChance = std::clamp(matchDrops->GetNumber("drop_chance", m_matchDrops.dropChance), 0.0f, 1.0f);
+        m_matchDrops.caseChance = std::clamp(matchDrops->GetNumber("case_chance", m_matchDrops.caseChance), 0.0f, 1.0f);
+
+        const KeyValue *skinWeights = matchDrops->GetSubkey("skin_rarity_weights");
+        if (skinWeights)
+        {
+            m_matchDrops.skinRarityWeights.clear();
+            for (const KeyValue &subkey : *skinWeights)
+            {
+                RarityWeight weight;
+                weight.rarity = FromString<uint32_t>(subkey.Name());
+                weight.weight = FromString<float>(subkey.String());
+                m_matchDrops.skinRarityWeights.push_back(weight);
+            }
+        }
+    }
+
     m_vacBanned = config.GetNumber("vac_banned", m_vacBanned);
     m_commendedFriendly = config.GetNumber("cmd_friendly", m_commendedFriendly);
     m_commendedTeaching = config.GetNumber("cmd_teaching", m_commendedTeaching);

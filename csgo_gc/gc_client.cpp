@@ -484,6 +484,10 @@ void ClientGC::HandleEvent(GCEvent type, uint64_t id, const std::vector<uint8_t>
         LocalPlayerRoundMVP();
         break;
 
+    case GCEvent::LocalPlayerMatchEnd:
+        LocalPlayerMatchEnd();
+        break;
+
     case GCEvent::SyncLocalPlayerMusicKitState:
         if (buffer.size() == sizeof(uint32_t))
         {
@@ -2127,6 +2131,37 @@ void ClientGC::LocalPlayerRoundMVP()
     RefreshCachedMusicKitMVPs();
     Platform::Print("LocalPlayerRoundMVP: incremented music kit %llu\n", itemId);
     SendMessageToGame(true, k_ESOMsg_Update, update);
+}
+
+void ClientGC::LocalPlayerMatchEnd()
+{
+    // cs_win_panel_match can be seen more than once for the same match (e.g. a
+    // reconnect), so allow at most one drop per minute
+    constexpr auto MinTimeBetweenDrops = std::chrono::seconds{ 60 };
+
+    auto now = std::chrono::steady_clock::now();
+    if (m_lastMatchDropTime.time_since_epoch().count() != 0
+        && now - m_lastMatchDropTime < MinTimeBetweenDrops)
+    {
+        Platform::Print("LocalPlayerMatchEnd: ignoring repeated match end\n");
+        return;
+    }
+    m_lastMatchDropTime = now;
+
+    CMsgSOSingleObject newItem;
+    std::string itemName;
+    if (!m_inventory.CreateMatchDrop(newItem, itemName))
+    {
+        return;
+    }
+
+    SendMessageToGame(true, k_ESOMsg_Create, newItem);
+
+    CMsgGCCStrike15_v2_GC2ClientTextMsg textMsg;
+    textMsg.set_id(0);
+    textMsg.set_type(0);
+    textMsg.set_payload("You received a match drop: " + itemName);
+    SendMessageToGame(false, k_EMsgGCCStrike15_v2_GC2ClientTextMsg, textMsg);
 }
 
 void ClientGC::ApplySticker(GCMessageRead &messageRead)

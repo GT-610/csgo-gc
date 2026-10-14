@@ -469,6 +469,11 @@ void Inventory::ReadFromFile()
         m_playerXp = playerState->GetNumber<int>("xp");
     }
 
+    if (playerState)
+    {
+        m_goldlessCases = playerState->GetNumber<uint32_t>("cases_since_gold", 0);
+    }
+
     const KeyValue *itemsKey = inventoryKey.GetSubkey("items");
     if (itemsKey)
     {
@@ -720,6 +725,7 @@ bool Inventory::WriteToFile() const
         playerState.AddNumber("configured_xp", m_configuredPlayerXp);
         playerState.AddNumber("level", m_playerLevel);
         playerState.AddNumber("xp", m_playerXp);
+        playerState.AddNumber("cases_since_gold", m_goldlessCases);
     }
 
     {
@@ -1418,10 +1424,32 @@ bool Inventory::UnlockCrate(uint64_t crateId,
     CaseOpening caseOpening{ m_itemSchema, m_random };
 
     CSOEconItem temp;
-    if (!caseOpening.SelectItemFromCrate(crate->second, temp))
+    CaseOpening::PityResult pity;
+    if (!caseOpening.SelectItemFromCrate(crate->second, temp, m_goldlessCases, &pity))
     {
         assert(false);
         return false;
+    }
+
+    if (pity.counted)
+    {
+        if (pity.gotGold)
+        {
+            Platform::Print("Case pity: gold after %u case(s) (chance was %.2f%%), counter reset\n",
+                m_goldlessCases + 1, pity.goldChance * 100.0f);
+            m_goldlessCases = 0;
+        }
+        else
+        {
+            m_goldlessCases++;
+            const CasePityConfig &pityConfig = GetConfig().CasePity();
+            if (pityConfig.enabled)
+            {
+                Platform::Print("Case pity: %u/%u cases without a gold (next gold chance %.2f%%)\n",
+                    m_goldlessCases, pityConfig.guaranteedAt,
+                    CaseOpening::PityGoldChance(pity.baseChance, m_goldlessCases) * 100.0f);
+            }
+        }
     }
 
     CSOEconItem &item = CreateItem(temp);
@@ -1444,6 +1472,111 @@ bool Inventory::UnlockCrate(uint64_t crateId,
         }
     }
 
+    return true;
+}
+
+bool Inventory::CreateMatchDrop(CMsgSOSingleObject &newItem, std::string &itemDescription)
+{
+    const MatchDropConfig &config = GetConfig().MatchDrops();
+    if (!config.enabled)
+    {
+        return false;
+    }
+
+    if (m_random.Float(0.0f, 1.0f) >= config.dropChance)
+    {
+        Platform::Print("Match drop: no drop this match\n");
+        return false;
+    }
+
+    const std::vector<uint32_t> &crates = m_itemSchema.GetDropCrateDefIndexes();
+    bool dropCase = !crates.empty() && m_random.Float(0.0f, 1.0f) < config.caseChance;
+
+    // skin drop: weighted rarity roll over the rarities that actually have skins
+    const LootListItem *skin = nullptr;
+    if (!dropCase)
+    {
+        struct Option
+        {
+            float weight;
+            std::vector<const LootListItem *> candidates;
+        };
+
+        std::vector<Option> options;
+        float totalWeight = 0.0f;
+        for (const RarityWeight &rarityWeight : config.skinRarityWeights)
+        {
+            if (rarityWeight.weight <= 0.0f)
+            {
+                continue;
+            }
+
+            Option option{ rarityWeight.weight, {} };
+            if (m_itemSchema.GetDropSkinCandidates(rarityWeight.rarity, option.candidates))
+            {
+                totalWeight += option.weight;
+                options.push_back(std::move(option));
+            }
+        }
+
+        if (!options.empty())
+        {
+            float value = m_random.Float(0.0f, totalWeight);
+            const Option *chosen = &options.back();
+            for (const Option &option : options)
+            {
+                if (value < option.weight)
+                {
+                    chosen = &option;
+                    break;
+                }
+                value -= option.weight;
+            }
+
+            skin = chosen->candidates[m_random.Integer<size_t>(0, chosen->candidates.size() - 1)];
+        }
+        else if (!crates.empty())
+        {
+            dropCase = true;
+        }
+    }
+
+    if (dropCase)
+    {
+        uint32_t crateDefIndex = crates[m_random.Integer<size_t>(0, crates.size() - 1)];
+        CSOEconItem &item = CreateItem(crateDefIndex, ItemOriginDrop, UnacknowledgedDropped);
+        ToSingleObject(newItem, item);
+
+        const ItemInfo *info = m_itemSchema.ItemInfoByDefIndex(crateDefIndex);
+        itemDescription = info ? info->m_name : std::to_string(crateDefIndex);
+        Platform::Print("Match drop: case %s (def %u, item %llu)\n",
+            itemDescription.c_str(), crateDefIndex, static_cast<unsigned long long>(item.id()));
+        WriteToFile();
+        return true;
+    }
+
+    if (!skin)
+    {
+        Platform::Print("Match drop: schema has no droppable cases or skins\n");
+        return false;
+    }
+
+    CSOEconItem temp;
+    if (!m_itemSchema.CreateItemFromLootListItem(m_random, *skin, false, ItemOriginDrop,
+        UnacknowledgedDropped, temp))
+    {
+        Platform::Print("Match drop: failed to create skin def %u\n", skin->itemInfo->m_defIndex);
+        return false;
+    }
+
+    CSOEconItem &item = CreateItem(temp);
+    ToSingleObject(newItem, item);
+
+    itemDescription = skin->itemInfo->m_name;
+    Platform::Print("Match drop: skin %s paint %u rarity %u (item %llu)\n",
+        itemDescription.c_str(), skin->paintKitInfo->m_defIndex, skin->rarity,
+        static_cast<unsigned long long>(item.id()));
+    WriteToFile();
     return true;
 }
 
@@ -3582,7 +3715,7 @@ bool Inventory::TradeUp(const std::vector<uint64_t> &inputItemIds,
     if (goldContract)
     {
         // same as unboxing: knives/gloves keep the ★ (unusual) quality even when StatTrak
-        outputItem.set_rarity(selectedCandidate->rarity ? selectedCandidate->rarity : ItemSchema::RarityAncient);
+        outputItem.set_rarity(selectedCandidate->rarity ? selectedCandidate->rarity : static_cast<uint32_t>(ItemSchema::RarityAncient));
         outputItem.set_quality(ItemSchema::QualityUnusual);
     }
     else
@@ -3654,7 +3787,7 @@ bool Inventory::TradeUp(const std::vector<uint64_t> &inputItemIds,
 
     // recipe ids: 0..5 by input rarity (Consumer..Covert), +10 for StatTrak.
     // Gold-for-gold reuses the Covert recipe id.
-    const uint32_t recipeRarity = contractType == ContractType::GoldToGold ? ItemSchema::RarityAncient : inputRarity;
+    const uint32_t recipeRarity = contractType == ContractType::GoldToGold ? static_cast<uint32_t>(ItemSchema::RarityAncient) : inputRarity;
     responseRecipeIndex = static_cast<int16_t>(recipeRarity - ItemSchema::RarityCommon
         + (hasStatTrak ? 10 : 0));
 

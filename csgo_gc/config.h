@@ -10,6 +10,32 @@ struct RarityWeight
     float weight;
 };
 
+// case opening pity: the gold chance climbs after softStart gold-less cases
+// and the guaranteedAt-th gold-less case is always a gold
+struct CasePityConfig
+{
+    bool enabled{ true };
+    uint32_t softStart{ 25 };
+    uint32_t guaranteedAt{ 50 };
+};
+
+// end-of-match item drops, modeled on old CS:GO weekly drops
+struct MatchDropConfig
+{
+    bool enabled{ true };
+    float dropChance{ 1.0f }; // chance of a drop when a match ends
+    float caseChance{ 0.35f }; // chance that a drop is a case rather than a skin
+    // skin drop rarity weights (old CS:GO drops were almost always Consumer/Industrial)
+    std::vector<RarityWeight> skinRarityWeights{
+        { ItemSchema::RarityCommon, 45 },
+        { ItemSchema::RarityUncommon, 30 },
+        { ItemSchema::RarityRare, 17 },
+        { ItemSchema::RarityMythical, 6 },
+        { ItemSchema::RarityLegendary, 1.5f },
+        { ItemSchema::RarityAncient, 0.5f },
+    };
+};
+
 // for Platform::Print calls
 enum LogOutput
 {
@@ -58,6 +84,9 @@ public:
 
     float GetRarityWeight(uint32_t rarity) const;
 
+    const CasePityConfig &CasePity() const { return m_casePity; }
+    const MatchDropConfig &MatchDrops() const { return m_matchDrops; }
+
 private:
     LogOutput m_logOutput{ LogOutputConsole };
 
@@ -104,6 +133,9 @@ private:
         { ItemSchema::RarityAncient, 3200 },
         { ItemSchema::RarityUnusual, 1280 },
     };
+
+    CasePityConfig m_casePity;
+    MatchDropConfig m_matchDrops;
 };
 
 const GCConfig &GetConfig();

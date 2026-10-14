@@ -81,6 +81,7 @@ enum SOTypeId : uint32_t
 // CSOEconItem origin
 enum ItemOrigin
 {
+    ItemOriginDrop = 0,
     ItemOriginPurchased = 2,
     ItemOriginTraded = 3,
     ItemOriginCrate = 8,

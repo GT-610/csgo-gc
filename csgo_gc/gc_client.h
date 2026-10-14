@@ -87,6 +87,8 @@ private:
     void IncrementKillCountAttribute(GCMessageRead &messageRead);
     // Increment the equipped StatTrak music kit when the local player receives round MVP.
     void LocalPlayerRoundMVP();
+    // Roll an end-of-match item drop.
+    void LocalPlayerMatchEnd();
     void ApplySticker(GCMessageRead &messageRead);
     void RequestPrestigeCoin(GCMessageRead &messageRead);
     void StoreGetUserData(GCMessageRead &messageRead);
@@ -136,6 +138,9 @@ private:
     Inventory m_inventory;
     std::atomic<int32_t> m_localUserId{};
     std::atomic<int32_t> m_cachedMusicKitMVPs{ -1 };
+
+    // guards against the match end event firing more than once per match
+    std::chrono::steady_clock::time_point m_lastMatchDropTime{};
 
     // microtransactions, we only have one going at a time
     uint64_t m_transactionId{};

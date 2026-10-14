@@ -285,6 +285,14 @@ public:
         }
 
         const char *eventName = event->GetName();
+        if (!strcmp(eventName, "cs_win_panel_match"))
+        {
+            // end-of-match scoreboard: roll a match drop
+            Platform::Print("Listener saw cs_win_panel_match, requesting match drop\n");
+            s_clientGC->m_gc.PostToGC(GCEvent::LocalPlayerMatchEnd, 0, nullptr, 0);
+            return;
+        }
+
         if (!strcmp(eventName, "round_start"))
         {
             int localPlayer = s_engineClient->GetLocalPlayer();
@@ -396,6 +404,7 @@ static ClientGameEventListener s_clientGameEventListener;
 static ServerRoundMVPEventListener s_serverRoundMVPEventListener;
 static bool s_clientRoundMVPListenerRegistered = false;
 static bool s_clientRoundStartListenerRegistered = false;
+static bool s_clientMatchEndListenerRegistered = false;
 static bool s_serverRoundMVPListenerRegistered = false;
 
 static void InitializeClientGameInterfaces()
@@ -454,10 +463,24 @@ static void UpdateGameEventListeners()
                 Platform::Print("Failed to register round_start listener\n");
             }
         }
+
+        if (!s_clientMatchEndListenerRegistered)
+        {
+            if (s_gameEventManager->AddListener(&s_clientGameEventListener, "cs_win_panel_match", false))
+            {
+                s_clientMatchEndListenerRegistered = true;
+                Platform::Print("Registered cs_win_panel_match listener\n");
+            }
+            else
+            {
+                Platform::Print("Failed to register cs_win_panel_match listener\n");
+            }
+        }
     }
     else
     {
-        if (s_clientRoundMVPListenerRegistered || s_clientRoundStartListenerRegistered)
+        if (s_clientRoundMVPListenerRegistered || s_clientRoundStartListenerRegistered
+            || s_clientMatchEndListenerRegistered)
         {
             s_gameEventManager->RemoveListener(&s_clientGameEventListener);
             if (s_clientRoundMVPListenerRegistered)
@@ -470,6 +493,7 @@ static void UpdateGameEventListeners()
             }
             s_clientRoundMVPListenerRegistered = false;
             s_clientRoundStartListenerRegistered = false;
+            s_clientMatchEndListenerRegistered = false;
         }
     }
 

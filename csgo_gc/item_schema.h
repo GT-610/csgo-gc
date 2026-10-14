@@ -225,6 +225,12 @@ public:
     // gold contract: knives/gloves obtainable from the case(s) tied to a collection
     bool GetSpecialTradeUpCandidates(std::string_view collectionName,
         std::vector<const LootListItem *> &outCandidates) const;
+    // match drops: weapon cases (crates that can contain a knife/glove)
+    const std::vector<uint32_t> &GetDropCrateDefIndexes() const;
+    // match drops: painted skins of a rarity from collections that aren't tied to a
+    // case (map/operation collections, like old CS:GO drops). falls back to all
+    // collections when none of those have that rarity
+    bool GetDropSkinCandidates(uint32_t rarity, std::vector<const LootListItem *> &outCandidates) const;
     // gold contract: collections whose gold pool contains this knife/glove (paint kit 0 for vanilla)
     bool GetSpecialTradeUpCollections(uint32_t defIndex, uint32_t paintKitDefIndex,
         std::vector<std::string> &outCollections) const;
@@ -376,6 +382,7 @@ private:
     // lazily built gold trade-up pools, keyed by collection
     mutable bool m_specialPoolsBuilt = false;
     mutable std::unordered_map<std::string, std::vector<const LootListItem *>> m_specialPoolByCollection;
+    mutable std::vector<uint32_t> m_dropCrateDefIndexes;
 
     bool ParseLootListItem(LootListItem &item, std::string_view name);
     bool ApplyGeneratedAttributes(const ItemInfo &info, CSOEconItem &item) const;
