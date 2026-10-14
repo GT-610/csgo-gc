@@ -382,6 +382,7 @@ private:
     void ParseLootLists(const KeyValue *lootListsKey, bool unusual);
     void ParseRevolvingLootLists(const KeyValue *revolvingLootListsKey);
     void BuildSpecialTradeUpPools() const;
+    void ParseCustomCases(const KeyValue &customCasesKey);
 
     // lazily built gold trade-up pools, keyed by collection
     mutable bool m_specialPoolsBuilt = false;
@@ -411,6 +412,8 @@ private:
     std::unordered_map<std::string, ItemSet> m_itemSets;
 
     std::unordered_map<uint32_t, const LootList &> m_revolvingLootLists;
+    // custom_cases.txt: crate def index -> replacement contents
+    std::unordered_map<uint32_t, const LootList *> m_customCaseLootLists;
 
     friend class ItemSchemaTestFixture;
     friend class SouvenirTestFixture;

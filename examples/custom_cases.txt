@@ -1,0 +1,64 @@
+// Custom cases: replace what an existing case gives you when you open it.
+// Copy this file to csgo_gc/custom_cases.txt in your game folder to use it.
+//
+// Each block is keyed by the def index of an existing case. The case keeps its
+// in-game name, icon and key, and the "contents" preview when you inspect it
+// still shows the original skins (that comes from the game files), but opening
+// it rolls from the lists below instead. Pick an old case you don't care about.
+//
+// Items are written like the game's loot lists: "[paint_kit_name]weapon_name".
+// Any paint kit can go on any weapon, including unused/unreleased paint kits,
+// as long as the name exists in csgo/scripts/items/items_game.txt ("paint_kits").
+//
+// "items": the value is the rarity the skin should roll as:
+//     common, uncommon, rare, mythical, legendary, ancient (covert)
+//   leave it empty ("") to use the paint kit's own rarity.
+// "golds": knives/gloves (rolled at the gold rate; the case pity system applies).
+//
+// Which finishes look right on other weapons? Rough rule by paint kit prefix:
+//   aa_ (fades), am_ (anodized multicolor), an_ (anodized), so_ (solid),
+//   hy_ (hydrographic), sp_ (spray) are generic and usually fine anywhere.
+//   cu_ (custom paint) and gs_ (gunsmith) are painted for one weapon's model
+//   and usually look scrambled on anything else.
+//   aq_ (patina) and am_ kits with drawn artwork (e.g. Kumicho Dragon, Cartel)
+//   can sit oddly; abstract ones (galaxy, gold brick, quartz) look best.
+// Unknown names are skipped with a message in the console. Try new combos with
+// the RCON give command and inspect them before putting them in a case.
+//
+// Odds per rarity come from "rarity_weights" in config.txt, same as real cases.
+// Like real cases, 1 in 10 unboxes is StatTrak (gloves never are).
+
+// example: replaces the original CS:GO Weapon Case (def 4001)
+"4001"
+{
+	"items"
+	{
+		"[aq_oiled]weapon_ak47"							"rare"
+		"[am_zebra]weapon_usp_silencer"					"rare"
+		"[an_tiger_orange]weapon_glock"					"rare"
+		"[am_marble_fade]weapon_deagle"					"mythical"
+		"[am_doppler_phase2]weapon_m4a1_silencer"		"mythical"
+		"[am_gamma_doppler_phase2]weapon_awp"			"legendary"
+		"[am_ruby_marbleized]weapon_ak47"				"ancient"
+		"[am_sapphire_marbleized]weapon_awp"			"ancient"
+	}
+
+	"golds"
+	{
+		// Twilight Galaxy (Glock-18 finish)
+		"[am_aqua_flecks]weapon_knife_karambit"			""
+		"[am_aqua_flecks]weapon_knife_butterfly"		""
+		// Gold Brick (MAC-10 finish)
+		"[am_gold_brick]weapon_knife_m9_bayonet"		""
+		"[am_gold_brick]weapon_knife_butterfly"			""
+		// Copper Galaxy (Five-SeveN finish)
+		"[am_copper_flecks]weapon_knife_karambit"		""
+		// Cobalt Quartz (Dual Berettas finish)
+		"[am_crystallized_blue]weapon_bayonet"			""
+		// Amber Fade (R8 Revolver finish)
+		"[aa_fade_metallic_revolver]weapon_knife_flip"	""
+		// regular Ruby / Sapphire for the lucky ones
+		"[am_ruby_marbleized]weapon_knife_karambit"		""
+		"[am_sapphire_marbleized]weapon_knife_karambit"	""
+	}
+}

@@ -241,6 +241,126 @@ ItemSchema::ItemSchema(bool loadFiles)
     {
         ParseRevolvingLootLists(revolvingLootListsKey);
     }
+
+    // optional: replace the contents of existing cases with custom ones
+    {
+        KeyValue customCases{ "custom_cases" };
+        if (customCases.ParseFromFile("csgo_gc/custom_cases.txt"))
+        {
+            ParseCustomCases(customCases);
+        }
+    }
+}
+
+// custom_cases.txt format:
+//   "<crate def index>"            the case whose look and name are reused
+//   {
+//       "items" { "[paint_kit]weapon_name" "<rarity name or empty>" ... }
+//       "golds" { "[paint_kit]weapon_knife_x" "" ... }
+//   }
+// Rarity names: common, uncommon, rare, mythical, legendary, ancient. When the
+// value isn't a rarity name the paint kit's own rarity is used.
+void ItemSchema::ParseCustomCases(const KeyValue &customCasesKey)
+{
+    const std::pair<std::string_view, uint32_t> rarityNames[] = {
+        { "common", RarityCommon },
+        { "uncommon", RarityUncommon },
+        { "rare", RarityRare },
+        { "mythical", RarityMythical },
+        { "legendary", RarityLegendary },
+        { "ancient", RarityAncient },
+    };
+
+    auto parseItems = [&](const KeyValue *itemsKey, LootList &list, bool golds)
+    {
+        if (!itemsKey)
+        {
+            return;
+        }
+
+        for (const KeyValue &entry : *itemsKey)
+        {
+            // validate "[paint_kit]weapon" first: ParseLootListItem asserts on unknown paint kits
+            std::string_view name = entry.Name();
+            size_t close = name.find(']');
+            bool known = name.size() > 2 && name[0] == '[' && close != std::string_view::npos
+                && PaintKitInfoByName(name.substr(1, close - 1))
+                && ItemInfoByName(name.substr(close + 1));
+
+            LootListItem item;
+            if (!known || !ParseLootListItem(item, name))
+            {
+                Platform::Print("custom_cases: skipping unknown item %s\n", std::string{ entry.Name() }.c_str());
+                continue;
+            }
+
+            if (golds)
+            {
+                item.quality = QualityUnusual;
+            }
+            else
+            {
+                for (const auto &pair : rarityNames)
+                {
+                    if (pair.first == entry.String())
+                    {
+                        item.rarity = pair.second;
+                    }
+                }
+            }
+
+            if (item.rarity < RarityCommon || item.rarity > RarityImmortal)
+            {
+                item.rarity = golds ? RarityAncient : RarityCommon;
+            }
+
+            list.items.push_back(item);
+        }
+    };
+
+    for (const KeyValue &caseKey : customCasesKey)
+    {
+        uint32_t crateDefIndex = FromString<uint32_t>(caseKey.Name());
+        const ItemInfo *crateInfo = ItemInfoByDefIndex(crateDefIndex);
+        if (!crateInfo)
+        {
+            Platform::Print("custom_cases: no item with def index %s\n", std::string{ caseKey.Name() }.c_str());
+            continue;
+        }
+
+        const std::string baseName = "custom_case_" + std::to_string(crateDefIndex);
+
+        LootList &regular = m_lootLists[baseName + "_items"];
+        regular = LootList{};
+        parseItems(caseKey.GetSubkey("items"), regular, false);
+
+        LootList &golds = m_lootLists[baseName + "_golds"];
+        golds = LootList{};
+        golds.isUnusual = true;
+        parseItems(caseKey.GetSubkey("golds"), golds, true);
+
+        if (regular.items.empty() && golds.items.empty())
+        {
+            Platform::Print("custom_cases: case %u has no valid items, ignoring\n", crateDefIndex);
+            continue;
+        }
+
+        // the case opener expects a list to have either items or sublists
+        LootList &root = m_lootLists[baseName];
+        root = LootList{};
+        if (!regular.items.empty())
+        {
+            root.subLists.push_back(&regular);
+        }
+        if (!golds.items.empty())
+        {
+            root.subLists.push_back(&golds);
+        }
+
+        m_customCaseLootLists[crateDefIndex] = &root;
+        Platform::Print("custom_cases: %s (%u) now has %zu skins and %zu golds\n",
+            crateInfo->m_name.c_str(), crateDefIndex, regular.items.size(), golds.items.size());
+    }
 }
 
 static std::string DecodeAttributeString(std::string_view data)
@@ -460,6 +580,12 @@ bool ItemSchema::SetAttributeString(CSOEconItemAttribute *attribute, std::string
 
 const LootList *ItemSchema::GetCrateLootList(uint32_t crateDefIndex) const
 {
+    auto customSearch = m_customCaseLootLists.find(crateDefIndex);
+    if (customSearch != m_customCaseLootLists.end())
+    {
+        return customSearch->second;
+    }
+
     auto itemSearch = m_itemInfo.find(crateDefIndex);
     if (itemSearch == m_itemInfo.end())
     {
