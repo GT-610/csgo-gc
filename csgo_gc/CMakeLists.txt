@@ -28,6 +28,7 @@ add_library(csgo_gc SHARED
     gc_message.cpp
     gc_server.cpp
     gc_shared.cpp
+    gold_patterns.cpp
     graffiti.cpp
     inventory.cpp
     item_schema.cpp
@@ -113,6 +114,7 @@ if (BUILD_TESTING)
         graffiti.cpp
         gc_message_tests.cpp
         gc_message.cpp
+        gold_patterns.cpp
         inventory.cpp
         music_kit.cpp
         game_types.cpp
@@ -147,6 +149,7 @@ if (BUILD_TESTING)
         gc_shared.cpp
         graffiti.cpp
         gc_message.cpp
+        gold_patterns.cpp
         inventory.cpp
         music_kit.cpp
         game_types.cpp
@@ -187,6 +190,7 @@ if (BUILD_TESTING)
         gc_shared.cpp
         gc_message_non_prime_tests.cpp
         gc_message.cpp
+        gold_patterns.cpp
         inventory.cpp
         music_kit.cpp
         game_types.cpp

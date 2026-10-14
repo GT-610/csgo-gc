@@ -2621,7 +2621,7 @@ void ClientGC::Craft(GCMessageRead &messageRead)
 {
     // Trade-up contract message format:
     // int16_t recipe/filter
-    // int16_t itemCount (should be 10)
+    // int16_t itemCount (10 for a normal contract, 5 for a gold contract)
     // uint64_t itemIds[itemCount]
     
     int16_t recipe = static_cast<int16_t>(messageRead.ReadUint16());
@@ -2654,9 +2654,9 @@ void ClientGC::Craft(GCMessageRead &messageRead)
         return;
     }
 
-    if (itemCount != 10)
+    if (itemCount != 10 && itemCount != 5)
     {
-        Platform::Print("Trade-up requires exactly 10 items, got %d\n", itemCount);
+        Platform::Print("Trade-up requires exactly 10 items (or 5 for a gold contract), got %d\n", itemCount);
         sendResponse(recipe, k_EGCMsgResponseInvalid);
         return;
     }

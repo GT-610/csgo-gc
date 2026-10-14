@@ -222,9 +222,12 @@ public:
     std::string GetCollectionDisplayName(std::string_view collectionName) const;
     bool GetTradeUpCandidates(std::string_view collectionName, uint32_t outputRarity,
         std::vector<const LootListItem *> &outCandidates) const;
-// gold contract: knives/gloves obtainable from the case(s) tied to a collection
+    // gold contract: knives/gloves obtainable from the case(s) tied to a collection
     bool GetSpecialTradeUpCandidates(std::string_view collectionName,
         std::vector<const LootListItem *> &outCandidates) const;
+    // gold contract: collections whose gold pool contains this knife/glove (paint kit 0 for vanilla)
+    bool GetSpecialTradeUpCollections(uint32_t defIndex, uint32_t paintKitDefIndex,
+        std::vector<std::string> &outCollections) const;
     uint32_t GetPaintedRarity(uint32_t defIndex, uint32_t paintKitDefIndex, uint32_t fallbackRarity) const;
     bool IsKeyToolDefIndex(uint32_t defIndex) const;
     bool IsNameTagToolDefIndex(uint32_t defIndex) const;
@@ -235,8 +238,6 @@ public:
     bool CanNameDefIndex(uint32_t defIndex) const;
     bool CanStatTrakSwapDefIndex(uint32_t defIndex) const;
     std::vector<uint32_t> PrestigeMedalDefIndexes(uint32_t year) const;
-    mutable bool m_specialPoolsBuilt = false;
-    mutable std::unordered_map<std::string, std::vector<const LootListItem *>> m_specialPoolByCollection;
 
 public:
     // these could be parsed from the item schema but reduce code complexity by hardcoding them
@@ -252,10 +253,7 @@ public:
         RarityImmortal = 7,
 
         RarityUnusual = 99
-    }; // <-- Must be completely AFTER this closing semi-colon
-
-    // Rolls a random unusual/gold definition index (Knife/Glove) from your schema lists
-     uint32_t RollRandomSpecialItemFromCollection(const std::string &collectionId) const;
+    };
 
     enum Quality
     {
@@ -374,6 +372,10 @@ private:
     void ParseLootLists(const KeyValue *lootListsKey, bool unusual);
     void ParseRevolvingLootLists(const KeyValue *revolvingLootListsKey);
     void BuildSpecialTradeUpPools() const;
+
+    // lazily built gold trade-up pools, keyed by collection
+    mutable bool m_specialPoolsBuilt = false;
+    mutable std::unordered_map<std::string, std::vector<const LootListItem *>> m_specialPoolByCollection;
 
     bool ParseLootListItem(LootListItem &item, std::string_view name);
     bool ApplyGeneratedAttributes(const ItemInfo &info, CSOEconItem &item) const;

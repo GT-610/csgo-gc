@@ -128,8 +128,13 @@ public:
         CMsgSOSingleObject &destroy,
         CMsgGCItemCustomizationNotification &notification);
 
+    // The equipped StatTrak music kit, or 0 when none is equipped. Music kits are
+    // not StatTrak in the same way weapons are: the counter is gated on the kill
+    // eater score type being the music kit value.
     uint64_t EquippedStatTrakMusicKitItemId() const;
 
+    // The "kill eater" counter of the given music kit, or 0 when the item is
+    // absent or has no counter.
     uint32_t MusicKitMVPCount(uint64_t musicKitItemId) const;
 
     bool IncrementKillCountAttribute(uint64_t itemId, uint32_t amount, CMsgSOSingleObject &update);
@@ -206,14 +211,21 @@ public:
     const ItemSchema &GetItemSchema() const { return m_itemSchema; }
     std::string GetCustomName(const CSOEconItem &item) const;
 
-    static bool TradeUp(const std::vector<uint64_t>& inputItemIds,
-        std::vector<CMsgSOSingleObject>& destroyItems,
-        CMsgSOSingleObject& newItem,
-        int16_t responseRecipeIndex,
-        CSOEconItem** outCraftedItem);
+    // Trade-up contract: craft 10 items of same rarity into 1 item of next rarity,
+    // 5 Coverts into 1 knife/glove, or 5 knives/gloves into 1 better knife/glove
+    // Returns true on success, false on validation failure
+    bool TradeUp(const std::vector<uint64_t> &inputItemIds,
+        std::vector<CMsgSOSingleObject> &destroyItems,
+        CMsgSOSingleObject &newItem,
+        int16_t &responseRecipeIndex,
+        CSOEconItem **outCraftedItem = nullptr);
 
+    // returns the item id and adds the item to the provided CMsgSOMultipleObjects
+    // on failure returns 0 and does nothing
     uint64_t PurchaseItem(uint32_t defIndex, std::vector<CMsgSOSingleObject> &update);
 
+    // Creates an item granted through RCON with the traded acquisition reason.
+    // Returns the item id on success, or 0 and an error string on failure.
     uint64_t CreateRconItem(uint32_t defIndex,
         const ParameterizedItemOptions &options,
         CMsgSOSingleObject &update,
@@ -238,8 +250,11 @@ public:
 private:
     uint32_t AccountId() const;
 
+    // allocates an empty item, sets id and account_id fields
+    // pass zero as highItemId to generate a new one
     CSOEconItem &AllocateItem(uint32_t highItemId);
 
+    // create a new item of a specific type
     CSOEconItem &CreateItem(const CSOEconItem &copyFrom);
     CSOEconItem &CreateItem(uint32_t defIndex, ItemOrigin origin, UnacknowledgedType unacknowledgedType);
 
@@ -251,6 +266,7 @@ private:
     bool WriteToFile() const;
     void WriteItem(KeyValue &itemKey, const CSOEconItem &item) const;
 
+    // helper, only called via EquipItem
     bool UnequipItemForClass(uint64_t itemId, uint32_t classId, CMsgSOMultipleObjects &update);
     void UnequipSlotForClass(uint32_t classId, uint32_t slotId, CMsgSOMultipleObjects &update);
 
@@ -260,12 +276,15 @@ private:
     bool ActivateTournamentAccessItem(ItemMap::iterator accessItem,
         const TournamentAccessInfo &access, UseItemResult &result);
 
+    // move this to the item schema maybe?
     void ItemToPreviewDataBlock(const CSOEconItem &item, CEconItemPreviewDataBlock &block);
 
+    // helpers for serializing items to CMsgSOMultipleObjects and CMsgSOSingleObject
     void AddToMultipleObjects(CMsgSOMultipleObjects &message, SOTypeId type, const google::protobuf::MessageLite &object);
     void ToSingleObject(CMsgSOSingleObject &message, SOTypeId type, const google::protobuf::MessageLite &object);
     uint64_t AdvanceVersion();
 
+    // helpers for above..
     void AddToMultipleObjects(CMsgSOMultipleObjects &message, const CSOEconItem &object)
     {
         AddToMultipleObjects(message, SOTypeItem, object);
@@ -291,10 +310,10 @@ private:
     void EmbedStorageReference(CSOEconItem &item, uint64_t storageId);
     void StripStorageReference(CSOEconItem &item);
     bool ModifyStorageCounter(CSOEconItem &storage, int delta);
-    void ConsumeToolItem(uint64_t toolId, CMsgSOSingleObject &rem);
+
+    void ConsumeToolItem(uint64_t toolId, CMsgSOSingleObject &removalMsg);
 
     const uint64_t m_steamId;
-    bool hasCovertTradeUpInput;
     const int m_configuredPlayerLevel;
     const int m_configuredPlayerXp;
     int m_playerLevel;

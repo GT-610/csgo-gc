@@ -3423,6 +3423,249 @@ static bool OfflineGCRequestsReceiveMinimalResponses()
         && Platform::g_printCount.load(std::memory_order_relaxed) == printCountBefore;
 }
 
+// Gold trade-up fixture: one collection ("set_test") with two Covert AK skins,
+// a case whose regular list contains that collection's skins and whose
+// knife pool is a single Case Hardened Karambit.
+static void RemoveGoldTradeUpFixtures()
+{
+    TestFilesystem::RemoveFile("csgo_gc/inventory.txt");
+    TestFilesystem::RemoveFile("csgo_gc/unusual_loot_lists.txt");
+    TestFilesystem::RemoveFile("csgo_gc/gc_loot_lists.txt");
+    TestFilesystem::RemoveFile("csgo/scripts/items/items_game.txt");
+    TestFilesystem::RemoveDirectory("csgo/scripts/items");
+    TestFilesystem::RemoveDirectory("csgo/scripts");
+    TestFilesystem::RemoveDirectory("csgo");
+    TestFilesystem::RemoveDirectory("csgo_gc");
+}
+
+static bool WriteGoldTradeUpFixtures()
+{
+    if (!TestFilesystem::MakeDirectory("csgo")
+        || !TestFilesystem::MakeDirectory("csgo/scripts")
+        || !TestFilesystem::MakeDirectory("csgo/scripts/items")
+        || !TestFilesystem::MakeDirectory("csgo_gc"))
+    {
+        return false;
+    }
+
+    KeyValue schema{ "root" };
+    KeyValue &itemsGame = schema.AddSubkey("items_game");
+
+    KeyValue &attributes = itemsGame.AddSubkey("attributes");
+    attributes.AddSubkey(std::to_string(ItemSchema::AttributeTexturePrefab)).AddNumber("stored_as_integer", 1);
+    attributes.AddSubkey(std::to_string(ItemSchema::AttributeTextureSeed)).AddNumber("stored_as_integer", 1);
+    attributes.AddSubkey(std::to_string(ItemSchema::AttributeTextureWear)).AddString("attribute_type", "float");
+    attributes.AddSubkey(std::to_string(ItemSchema::AttributeKillEater)).AddNumber("stored_as_integer", 1);
+    attributes.AddSubkey(std::to_string(ItemSchema::AttributeKillEaterScoreType)).AddNumber("stored_as_integer", 1);
+
+    KeyValue &items = itemsGame.AddSubkey("items");
+    items.AddSubkey("7").AddString("name", "weapon_ak47");
+    KeyValue &karambit = items.AddSubkey("507");
+    karambit.AddString("name", "weapon_knife_karambit");
+    karambit.AddString("item_quality", "unusual");
+    karambit.AddString("item_rarity", "ancient");
+    KeyValue &crate = items.AddSubkey("4001");
+    crate.AddString("name", "crate_gold_test");
+    crate.AddString("loot_list_name", "crate_gold_test");
+
+    KeyValue &paintKits = itemsGame.AddSubkey("paint_kits");
+    KeyValue &defaultKit = paintKits.AddSubkey("0");
+    defaultKit.AddString("name", "default");
+    defaultKit.AddNumber("wear_remap_min", 0.0f);
+    defaultKit.AddNumber("wear_remap_max", 1.0f);
+    paintKits.AddSubkey("44").AddString("name", "aq_oiled");
+    paintKits.AddSubkey("100").AddString("name", "covert_a");
+    paintKits.AddSubkey("101").AddString("name", "covert_b");
+    paintKits.AddSubkey("102").AddString("name", "classified_a");
+
+    KeyValue &paintRarities = itemsGame.AddSubkey("paint_kits_rarity");
+    paintRarities.AddString("covert_a", "ancient");
+    paintRarities.AddString("covert_b", "ancient");
+    paintRarities.AddString("classified_a", "legendary");
+
+    KeyValue &set = itemsGame.AddSubkey("item_sets").AddSubkey("set_test");
+    set.AddNumber("is_collection", 1);
+    KeyValue &setItems = set.AddSubkey("items");
+    setItems.AddNumber("[covert_a]weapon_ak47", 1);
+    setItems.AddNumber("[covert_b]weapon_ak47", 1);
+    setItems.AddNumber("[classified_a]weapon_ak47", 1);
+
+    KeyValue &lootList = itemsGame.AddSubkey("client_loot_lists").AddSubkey("crate_gold_test");
+    lootList.AddNumber("[covert_a]weapon_ak47", 1);
+    lootList.AddNumber("[covert_b]weapon_ak47", 1);
+    lootList.AddNumber("unusual_gold_test", 1);
+
+    KeyValue unusualLootLists{ "unusual_loot_lists" };
+    unusualLootLists.AddSubkey("unusual_gold_test").AddNumber("[aq_oiled]weapon_knife_karambit", 1);
+
+    KeyValue inventory{ "inventory" };
+    inventory.AddNumber("format_version", 1);
+    KeyValue &inventoryItems = inventory.AddSubkey("items");
+
+    auto addSkin = [&](uint32_t highItemId, uint32_t defIndex, uint32_t quality, uint32_t rarity,
+        uint32_t paintKit, float wear)
+    {
+        KeyValue &item = inventoryItems.AddSubkey(std::to_string(highItemId));
+        item.AddNumber("def_index", defIndex);
+        item.AddNumber("quality", quality);
+        item.AddNumber("origin", ItemOriginCrate);
+        item.AddNumber("rarity", rarity);
+        KeyValue &itemAttributes = item.AddSubkey("attributes");
+        itemAttributes.AddNumber(std::to_string(ItemSchema::AttributeTexturePrefab), paintKit);
+        itemAttributes.AddNumber(std::to_string(ItemSchema::AttributeTextureSeed), 1);
+        itemAttributes.AddNumber(std::to_string(ItemSchema::AttributeTextureWear), wear);
+    };
+
+    // 1..5: Coverts, 6: Classified, 10..14: Karambits
+    for (uint32_t i = 1; i <= 5; i++)
+    {
+        addSkin(i, 7, ItemSchema::QualityUnique, ItemSchema::RarityAncient, i % 2 ? 100 : 101, 0.2f);
+    }
+    addSkin(6, 7, ItemSchema::QualityUnique, ItemSchema::RarityLegendary, 102, 0.2f);
+    for (uint32_t i = 10; i <= 14; i++)
+    {
+        addSkin(i, 507, ItemSchema::QualityUnusual, ItemSchema::RarityAncient, 44, 0.4f);
+    }
+
+    KeyValue gcLootLists{ "gc_loot_lists" };
+    return schema.WriteToFile("csgo/scripts/items/items_game.txt")
+        && inventory.WriteToFile("csgo_gc/inventory.txt")
+        && unusualLootLists.WriteToFile("csgo_gc/unusual_loot_lists.txt")
+        && gcLootLists.WriteToFile("csgo_gc/gc_loot_lists.txt");
+}
+
+struct CraftOutcome
+{
+    bool responded{};
+    bool responseOk{};
+    bool responseDenied{};
+    int destroyCount{};
+    bool created{};
+    CSOEconItem createdItem;
+};
+
+static CraftOutcome SendCraft(ClientGC &gc, int16_t recipe, const std::vector<uint64_t> &itemIds)
+{
+    GCMessageWrite request{ k_EMsgGCCraft };
+    request.WriteUint16(static_cast<uint16_t>(recipe));
+    request.WriteUint16(static_cast<uint16_t>(itemIds.size()));
+    for (uint64_t id : itemIds)
+    {
+        request.WriteUint64(id);
+    }
+    gc.PostToGC(GCEvent::Message, request.TypeMasked(), request.Data(), request.Size());
+
+    CraftOutcome outcome;
+    std::vector<EventData> events;
+    if (!WaitForHostMessagesUntil(gc, k_EMsgGCCraftResponse, events))
+    {
+        return outcome;
+    }
+
+    constexpr size_t responseBodyOffset = sizeof(uint32_t) + sizeof(uint32_t)
+        + sizeof(uint64_t) + sizeof(uint16_t) + sizeof(uint64_t) + sizeof(uint64_t);
+
+    for (const EventData &event : events)
+    {
+        const uint32_t type = static_cast<uint32_t>(event.id) & ~ProtobufMask;
+        if (type == k_ESOMsg_Create)
+        {
+            CMsgSOSingleObject object;
+            outcome.created = ParseHostProtobuf(event, object) && ParseItemObject(object, outcome.createdItem);
+        }
+        else if (type == k_ESOMsg_Destroy)
+        {
+            outcome.destroyCount++;
+        }
+        else if (type == k_EMsgGCCraftResponse)
+        {
+            outcome.responded = true;
+            outcome.responseOk = ValueAt(event.buffer.data(), responseBodyOffset + sizeof(int16_t),
+                static_cast<uint32_t>(k_EGCMsgResponseOK));
+            outcome.responseDenied = ValueAt(event.buffer.data(), responseBodyOffset + sizeof(int16_t),
+                static_cast<uint32_t>(k_EGCMsgResponseDenied));
+        }
+    }
+
+    return outcome;
+}
+
+static bool FindAttributeUint32(const CSOEconItem &item, uint32_t defIndex, uint32_t &value)
+{
+    for (const CSOEconItemAttribute &attribute : item.attribute())
+    {
+        if (attribute.def_index() == defIndex && attribute.value_bytes().size() == sizeof(uint32_t))
+        {
+            std::memcpy(&value, attribute.value_bytes().data(), sizeof(value));
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool FindAttributeFloat(const CSOEconItem &item, uint32_t defIndex, float &value)
+{
+    uint32_t bits = 0;
+    if (!FindAttributeUint32(item, defIndex, bits))
+    {
+        return false;
+    }
+    std::memcpy(&value, &bits, sizeof(value));
+    return true;
+}
+
+static bool GoldTradeUpContractsProduceKnives()
+{
+    constexpr uint64_t SteamId = 76561197960265729ull;
+    auto itemId = [&](uint32_t highItemId)
+    {
+        return (static_cast<uint64_t>(highItemId) << 32) | (SteamId & UINT32_MAX);
+    };
+
+    RemoveGoldTradeUpFixtures();
+    if (!WriteGoldTradeUpFixtures())
+    {
+        RemoveGoldTradeUpFixtures();
+        return false;
+    }
+
+    bool valid = true;
+    {
+        ClientGC gc{ SteamId };
+
+        // a Classified mixed into Coverts is rejected and nothing is destroyed
+        CraftOutcome mixed = SendCraft(gc, 5, { itemId(1), itemId(2), itemId(3), itemId(4), itemId(6) });
+        valid &= mixed.responded && mixed.responseDenied
+            && mixed.destroyCount == 0 && !mixed.created;
+
+        // 5 Coverts -> Karambit
+        CraftOutcome covert = SendCraft(gc, 5, { itemId(1), itemId(2), itemId(3), itemId(4), itemId(5) });
+        float covertWear = -1.0f;
+        uint32_t paintKit = 0;
+        valid &= covert.responded && covert.responseOk
+            && covert.destroyCount == 5 && covert.created
+            && covert.createdItem.def_index() == 507
+            && covert.createdItem.quality() == ItemSchema::QualityUnusual
+            && covert.createdItem.rarity() == ItemSchema::RarityAncient
+            && FindAttributeUint32(covert.createdItem, ItemSchema::AttributeTexturePrefab, paintKit) && paintKit == 44
+            && FindAttributeFloat(covert.createdItem, ItemSchema::AttributeTextureWear, covertWear)
+            && std::fabs(covertWear - 0.2f) < 0.0001f;
+
+        // 5 Karambits at 0.4 -> Karambit at half the float
+        CraftOutcome gold = SendCraft(gc, 5, { itemId(10), itemId(11), itemId(12), itemId(13), itemId(14) });
+        float goldWear = -1.0f;
+        valid &= gold.responded && gold.responseOk
+            && gold.destroyCount == 5 && gold.created
+            && gold.createdItem.def_index() == 507
+            && gold.createdItem.quality() == ItemSchema::QualityUnusual
+            && FindAttributeFloat(gold.createdItem, ItemSchema::AttributeTextureWear, goldWear)
+            && std::fabs(goldWear - 0.2f) < 0.0001f;
+    }
+
+    RemoveGoldTradeUpFixtures();
+    return valid;
+}
+
 int main()
 {
     struct TestCase
@@ -3450,6 +3693,7 @@ int main()
             BaseItemCustomizationsPreserveRemainingState },
         { "StatTrakSwapToolTwoPackCreatesTwoTools", StatTrakSwapToolTwoPackCreatesTwoTools },
         { "UnusualStatTrakKnivesCanSwapCounters", UnusualStatTrakKnivesCanSwapCounters },
+        { "GoldTradeUpContractsProduceKnives", GoldTradeUpContractsProduceKnives },
         { "StorePurchasesFinalizeTransactionally", StorePurchasesFinalizeTransactionally },
         { "LegacyStorePriceSheetMatchesClientSchema",
             LegacyStorePriceSheetMatchesClientSchema },

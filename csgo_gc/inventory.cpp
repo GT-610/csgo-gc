@@ -8,6 +8,7 @@
 #include "keyvalue.h"
 #include "random.h"
 #include "souvenir.h"
+#include "gold_patterns.h"
 
 constexpr const char *InventoryFilePath = "csgo_gc/inventory.txt";
 constexpr uint64_t StatsSubscriptionCycleSeconds = 30ull * 24 * 60 * 60;
@@ -182,25 +183,8 @@ void Inventory::ToSingleObject(CMsgSOSingleObject &message, SOTypeId type, const
 
     message.set_version(AdvanceVersion());
     message.mutable_owner_soid()->set_type(SoIdTypeSteamId);
-
-    message.set_type_id(type);
     message.mutable_owner_soid()->set_id(m_steamId);
 
-    // 1. Inspect the underlying network transmission package safely using reflection string matching
-    if (object.GetTypeName() == "CSOEconItem")
-    {
-        CSOEconItem &econItem = const_cast<CSOEconItem&>(static_cast<const CSOEconItem&>(object));
-        
-        // INTERCEPTOR MASK: If it's a true database Covert skin (6)
-        if (econItem.rarity() == 6)
-        {
-            // Lie to the client's local Panorama rules so the grid unlocks
-            econItem.set_rarity(5); // Reports as Pink (Classified) over network streams
-            econItem.set_def_index(4600); // Temporarily report as an eligible pass card to bypass client-side filters!
-        }
-    }
-
-    // 2. Finalize writing data arrays out to network payload buffers
     message.set_type_id(type);
     message.set_object_data(object.SerializeAsString());
 }
@@ -445,9 +429,9 @@ CSOEconItem &Inventory::CreateItem(const CSOEconItem &copyFrom)
     return item;
 }
 
-CSOEconItem& Inventory::CreateItem(uint32_t defIndex, ItemOrigin origin, UnacknowledgedType unacknowledgedType)
+CSOEconItem &Inventory::CreateItem(uint32_t defIndex, ItemOrigin origin, UnacknowledgedType unacknowledgedType)
 {
-    CSOEconItem& item = AllocateItem(0);
+    CSOEconItem &item = AllocateItem(0);
     m_itemSchema.CreateItem(defIndex, origin, unacknowledgedType, item);
     return item;
 }
@@ -886,40 +870,34 @@ void Inventory::BuildCacheSubscription(CMsgSOCacheSubscribed &message, bool serv
     message.mutable_owner_soid()->set_type(SoIdTypeSteamId);
     message.mutable_owner_soid()->set_id(m_steamId);
 
-    
-        CMsgSOCacheSubscribed_SubscribedType* object = message.add_objects(); 
-        object->set_type_id(SOType_EconItem);
+    {
+        CMsgSOCacheSubscribed_SubscribedType *object = message.add_objects();
+        object->set_type_id(SOTypeItem);
 
-        for (const auto& pair : m_items)
+        for (const auto &pair : m_items)
         {
             if (server && !pair.second.equipped_state_size())
             {
                 continue;
             }
 
-            CSOEconItem mutableItem = pair.second;
-            if (mutableItem.rarity() == 6)
-            {
-                mutableItem.set_rarity(5);
-                mutableItem.set_def_index(4600);
-            }
-
-            object->add_object_data(mutableItem.SerializeAsString());
+            object->add_object_data(pair.second.SerializeAsString());
         }
-    
+    }
 
-           CSOPersonaDataPublic personaData;
-           personaData.set_player_level(m_playerLevel);
-           personaData.set_elevated_state(GetConfig().PrimeStatus());
+    {
+        CSOPersonaDataPublic personaData;
+        personaData.set_player_level(m_playerLevel);
+        personaData.set_elevated_state(GetConfig().PrimeStatus());
 
-            object = message.add_objects();
-            object->set_type_id(SOTypePersonaDataPublic);
-            object->add_object_data(personaData.SerializeAsString());
-
+        CMsgSOCacheSubscribed_SubscribedType *object = message.add_objects();
+        object->set_type_id(SOTypePersonaDataPublic);
+        object->add_object_data(personaData.SerializeAsString());
+    }
 
     if (!m_seasonalOperations.empty())
     {
-        object = message.add_objects();
+        CMsgSOCacheSubscribed_SubscribedType *object = message.add_objects();
         object->set_type_id(SOTypeAccountSeasonalOperation);
         for (const auto &entry : m_seasonalOperations)
         {
@@ -936,7 +914,7 @@ void Inventory::BuildCacheSubscription(CMsgSOCacheSubscribed &message, bool serv
             recurringSubscription.set_time_initiated(subscription->timeInitiated);
             recurringSubscription.set_time_next_cycle(subscription->timeNextCycle);
 
-            object = message.add_objects();
+            CMsgSOCacheSubscribed_SubscribedType *object = message.add_objects();
             object->set_type_id(SOTypeAccountRecurringSubscription);
             object->add_object_data(recurringSubscription.SerializeAsString());
         }
@@ -947,13 +925,13 @@ void Inventory::BuildCacheSubscription(CMsgSOCacheSubscribed &message, bool serv
         accountClient.set_bonus_xp_usedflags(16); // caught cheater lobbies, overwatch bonus etc
         accountClient.set_elevated_state(GetConfig().PrimeStatus() ? ElevatedStatePrime : ElevatedStateNo);
 
-        object = message.add_objects();
+        CMsgSOCacheSubscribed_SubscribedType *object = message.add_objects();
         object->set_type_id(SOTypeGameAccountClient);
         object->add_object_data(accountClient.SerializeAsString());
     }
 
     {
-        object = message.add_objects();
+        CMsgSOCacheSubscribed_SubscribedType *object = message.add_objects();
         object->set_type_id(SOTypeDefaultEquippedDefinitionInstanceClient);
 
         for (const CSOEconDefaultEquippedDefinitionInstanceClient &defaultEquip : m_defaultEquips)
@@ -2487,7 +2465,7 @@ void Inventory::LogInventoryConsistency() const
 
             std::vector<std::string> collections;
             if (!m_itemSchema.GetCollectionsForPaintedItem(item.def_index(), paintKitDefIndex, collections)
-                && !m_itemSchema.inventory->m_itemSchema(paintKitDefIndex, collections))
+                && !m_itemSchema.GetCollectionsForPaintKit(paintKitDefIndex, collections))
             {
                 issueCount++;
                 Platform::Print("InventoryCheck: painted item %llu has no collection mapping (def %u, paint %u)\n",
@@ -3191,53 +3169,57 @@ void Inventory::DestroyItem(ItemMap::iterator iterator, CMsgSOSingleObject &mess
     m_items.erase(iterator);
 }
 
-// Drop-in replacement for Inventory::TradeUp.
-//
-// Every line I changed or added is tagged [5C]. Everything else is your
-// original code, untouched.
-//
-// Requires ItemSchema::GetSpecialTradeUpCandidates (see ItemSchema_gold_pool.cpp).
-// Everything else uses schema methods that already exist.
-
-bool Inventory::TradeUp(const std::vector<uint64_t>& inputItemIds,
-    std::vector<CMsgSOSingleObject>& destroyItems,
-    CMsgSOSingleObject& newItem,
-    int16_t responseRecipeIndex,
-    CSOEconItem** outCraftedItem)
+// Trade-up contracts:
+//   10 skins of one rarity (Consumer..Classified) -> 1 skin of the next rarity
+//    5 Covert skins                               -> 1 knife/glove ("gold")
+//    5 knives/gloves                              -> 1 knife/glove with a better
+//                                                    float and best-of-5 pattern
+// Gold outputs come from the knife/glove pool of the case(s) linked to the
+// collection of each input, weighted by input count. StatTrak in = StatTrak out
+// (gloves are excluded from StatTrak gold outputs since they can't be StatTrak).
+bool Inventory::TradeUp(const std::vector<uint64_t> &inputItemIds,
+    std::vector<CMsgSOSingleObject> &destroyItems,
+    CMsgSOSingleObject &newItem,
+    int16_t &responseRecipeIndex,
+    CSOEconItem **outCraftedItem)
 {
-    // Simply reference the class tracking member variable
-    hasCovertTradeUpInput = false;
+    enum class ContractType
+    {
+        Standard,   // 10 same rarity -> next rarity
+        CovertToGold,
+        GoldToGold,
+    };
 
     constexpr size_t StandardTradeUpCount = 10;
     constexpr size_t GoldTradeUpCount = 5;
-    constexpr uint32_t FirstKnifeGloveDefIndex = 500;
-
-    std::string collectionId;
-    uint32_t outputRarity = 0;
-    bool isGoldContract = false;
-    float avgWear = 0.0f;
+    // unusual (gold) StatTraks are only valid below this def index, i.e. knives not gloves
+    constexpr uint32_t MaxStatTrakUnusualDefIndex = 1000;
+    // gold-for-gold: output float is the inputs' normalized average times this
+    constexpr float GoldUpgradeFloatFactor = 0.5f;
 
     const size_t inputCount = inputItemIds.size();
-    const bool goldContract = inputCount == GoldTradeUpCount;
-
-    if (!goldContract && inputCount != StandardTradeUpCount)
+    if (inputCount != StandardTradeUpCount && inputCount != GoldTradeUpCount)
     {
-        Platform::Print("Trade-up requires exactly 5 or 10 items, got %zu\n", inputCount);
+        Platform::Print("Trade-up requires exactly %zu or %zu items, got %zu\n",
+            StandardTradeUpCount, GoldTradeUpCount, inputCount);
         return false;
     }
 
     std::vector<ItemMap::iterator> inputItems;
     inputItems.reserve(inputCount);
 
+    bool contractTypeSet = false;
+    ContractType contractType = ContractType::Standard;
     uint32_t inputRarity = 0;
     bool statTrakSet = false;
     bool hasStatTrak = false;
-    float totalWear = 0.0f;
+    float totalWear = 0.0f;           // raw floats (classic CS:GO formula)
+    float totalNormalizedWear = 0.0f; // floats normalized to each skin's range (gold contracts)
     int wearCount = 0;
 
     std::map<std::string, int> collectionCounts;
     std::unordered_set<uint64_t> uniqueInputItemIds;
-    uniqueInputItemIds.reserve(inputItemIds.size());
+    uniqueInputItemIds.reserve(inputCount);
 
     struct TradeUpItemDebug
     {
@@ -3250,18 +3232,11 @@ bool Inventory::TradeUp(const std::vector<uint64_t>& inputItemIds,
         std::string collectionId;
     };
 
-    bool hasKillEater = false;
-    bool hasNonWeaponScoreType = false;
-
-    isGoldContract = goldContract;
-    hasCovertTradeUpInput = false;
-    hasStatTrak = false;
-
-    auto printItemDebug = [&](const char* prefix, const TradeUpItemDebug& debug)
+    auto printItemDebug = [this](const char *prefix, const TradeUpItemDebug &debug)
     {
         Platform::Print("%s item %llu: def %u, paint %u, stored rarity %u, painted rarity %u, quality %u, collection %s (%s)\n",
             prefix,
-            debug.itemId,
+            static_cast<unsigned long long>(debug.itemId),
             debug.defIndex,
             debug.paintKitDefIndex,
             debug.storedRarity,
@@ -3271,24 +3246,22 @@ bool Inventory::TradeUp(const std::vector<uint64_t>& inputItemIds,
             GetCollectionName(m_itemSchema, debug.collectionId).c_str());
     };
 
-    for (size_t i = 0; i < inputItemIds.size(); i++)
+    for (uint64_t itemId : inputItemIds)
     {
-        uint64_t itemId = inputItemIds[i];
-
         if (!uniqueInputItemIds.insert(itemId).second)
         {
-            Platform::Print("Trade-up item %llu was submitted more than once\n", itemId);
+            Platform::Print("Trade-up item %llu was submitted more than once\n", static_cast<unsigned long long>(itemId));
             return false;
         }
 
         auto it = m_items.find(itemId);
         if (it == m_items.end())
         {
-            Platform::Print("Trade-up item %llu not found\n", itemId);
+            Platform::Print("Trade-up item %llu not found\n", static_cast<unsigned long long>(itemId));
             return false;
         }
 
-        const CSOEconItem& item = it->second;
+        const CSOEconItem &item = it->second;
         inputItems.push_back(it);
 
         TradeUpItemDebug debug;
@@ -3297,50 +3270,51 @@ bool Inventory::TradeUp(const std::vector<uint64_t>& inputItemIds,
         debug.storedRarity = item.rarity();
         debug.quality = item.quality();
 
+        const bool isGold = item.quality() == ItemSchema::QualityUnusual;
+
+        // vanilla knives have no paint kit; everything else must have one
         uint32_t paintKitDefIndex = 0;
-        if (!GetItemPaintKitDefIndex(item, m_itemSchema, paintKitDefIndex))
+        if (!GetItemPaintKitDefIndex(item, m_itemSchema, paintKitDefIndex) && !isGold)
         {
             Platform::Print("Trade-up item %llu has no paint kit (def %u, stored rarity %u, quality %u)\n",
-                itemId, item.def_index(), item.rarity(), item.quality());
+                static_cast<unsigned long long>(itemId), item.def_index(), item.rarity(), item.quality());
             return false;
         }
-
         debug.paintKitDefIndex = paintKitDefIndex;
-        uint32_t rarity = item.rarity();
+
+        uint32_t rarity = paintKitDefIndex
+            ? m_itemSchema.GetPaintedRarity(item.def_index(), paintKitDefIndex, item.rarity())
+            : item.rarity();
         debug.paintedRarity = rarity;
 
-        if (goldContract)
+        // work out which contract this item belongs to
+        ContractType itemContract;
+        if (isGold)
         {
-            if (rarity != ItemSchema::RarityAncient)
-            {
-                printItemDebug("Gold trade-up requires covert inputs", debug);
-                return false;
-            }
-
-            const ItemInfo* inputInfo = m_itemSchema.ItemInfoByDefIndex(item.def_index());
-            if (!inputInfo || inputInfo->m_quality == ItemSchema::QualityUnusual
-                || item.def_index() >= FirstKnifeGloveDefIndex)
-            {
-                printItemDebug("Gold trade-up cannot use knives or gloves", debug);
-                return false;
-            }
+            itemContract = ContractType::GoldToGold;
         }
-        else if (rarity < ItemSchema::RarityCommon || rarity > ItemSchema::RarityLegendary)
+        else if (rarity == ItemSchema::RarityAncient)
+        {
+            itemContract = ContractType::CovertToGold;
+        }
+        else if (rarity >= ItemSchema::RarityCommon && rarity <= ItemSchema::RarityLegendary)
+        {
+            itemContract = ContractType::Standard;
+        }
+        else
         {
             printItemDebug("Trade-up item has invalid rarity", debug);
             return false;
         }
 
-        if (rarity == 6)
+        if (!contractTypeSet)
         {
-            isGoldContract = true;
-            hasCovertTradeUpInput = true;
+            contractType = itemContract;
+            contractTypeSet = true;
         }
-        else if (inputRarity != 0 && rarity != inputRarity)
+        else if (itemContract != contractType)
         {
-            Platform::Print("Trade-up items must all be same painted rarity (expected %u, got %u)\n",
-                inputRarity, rarity);
-            printItemDebug("Mismatched trade-up rarity", debug);
+            printItemDebug("Trade-up items must all be the same tier (all same-rarity skins, all Coverts, or all knives/gloves)", debug);
             return false;
         }
 
@@ -3348,35 +3322,49 @@ bool Inventory::TradeUp(const std::vector<uint64_t>& inputItemIds,
         {
             inputRarity = rarity;
         }
-
-        std::vector<std::string> collections;
-        if (m_itemSchema.GetCollectionsForPaintedItem(item.def_index(), paintKitDefIndex, collections) == false)
+        else if (contractType == ContractType::Standard && rarity != inputRarity)
         {
-            if (m_itemSchema.GetCollectionsForPaintKit(paintKitDefIndex, collections) == false)
+            Platform::Print("Trade-up items must all be same painted rarity (expected %u, got %u)\n",
+                inputRarity, rarity);
+            printItemDebug("Mismatched trade-up rarity", debug);
+            return false;
+        }
+
+        // collection lookup: skins via their collection, golds via the case pool they drop from
+        std::vector<std::string> collections;
+        if (contractType == ContractType::GoldToGold)
+        {
+            if (!m_itemSchema.GetSpecialTradeUpCollections(item.def_index(), paintKitDefIndex, collections))
             {
-                Platform::Print("Trade-up item %llu has no collection mapping (def %u, paint %u, stored rarity %u, painted rarity %u, quality %u)\n",
-                    itemId, item.def_index(), paintKitDefIndex, item.rarity(), rarity, item.quality());
+                printItemDebug("Knife/glove is not in any case pool linked to a collection", debug);
                 return false;
             }
+        }
+        else if (!m_itemSchema.GetCollectionsForPaintedItem(item.def_index(), paintKitDefIndex, collections)
+            && !m_itemSchema.GetCollectionsForPaintKit(paintKitDefIndex, collections))
+        {
+            Platform::Print("Trade-up item %llu has no collection mapping (def %u, paint %u, stored rarity %u, painted rarity %u, quality %u)\n",
+                static_cast<unsigned long long>(itemId), item.def_index(), paintKitDefIndex, item.rarity(), rarity, item.quality());
+            return false;
         }
 
         if (collections.empty())
         {
-            Platform::Print("Trade-up item %llu has an empty collection list (def %u, paint %u)\n",
-                (unsigned long long)itemId, item.def_index(), paintKitDefIndex);
+            printItemDebug("Trade-up item has an empty collection list", debug);
             return false;
         }
 
         std::sort(collections.begin(), collections.end());
-        const std::string& inputCollectionId = collections.front();
-        debug.collectionId = inputCollectionId;
-        collectionCounts[inputCollectionId]++;
+        const std::string &collectionId = collections.front();
+        debug.collectionId = collectionId;
+        collectionCounts[collectionId]++;
 
         printItemDebug("Trade-up input", debug);
+
         bool hasWear = false;
-        hasKillEater = false;
-        hasNonWeaponScoreType = false;
-        for (const CSOEconItemAttribute& attr : item.attribute())
+        bool hasKillEater = false;
+        bool hasWeaponKillEaterScoreType = false;
+        for (const CSOEconItemAttribute &attr : item.attribute())
         {
             if (attr.def_index() == ItemSchema::AttributeKillEater)
             {
@@ -3384,47 +3372,56 @@ bool Inventory::TradeUp(const std::vector<uint64_t>& inputItemIds,
             }
             else if (attr.def_index() == ItemSchema::AttributeKillEaterScoreType)
             {
-                hasNonWeaponScoreType = m_itemSchema.AttributeUint32(&attr) != 0;
+                hasWeaponKillEaterScoreType = m_itemSchema.AttributeUint32(&attr) == 0;
             }
             else if (attr.def_index() == ItemSchema::AttributeTextureWear)
             {
                 hasWear = true;
-                float wear = m_itemSchema.AttributeFloat(&attr);
+                const float wear = m_itemSchema.AttributeFloat(&attr);
                 float normalized = wear;
-                const PaintKitInfo* kitInfo = m_itemSchema.PaintKitInfoByDefIndex(paintKitDefIndex);
-                if (kitInfo)
+                const PaintKitInfo *kitInfo = m_itemSchema.PaintKitInfoByDefIndex(paintKitDefIndex);
+                if (kitInfo && kitInfo->m_maxFloat > kitInfo->m_minFloat)
                 {
-                    float span = kitInfo->m_maxFloat - kitInfo->m_minFloat;
-                    if (span > 0.0f)
-                    {
-                        normalized = (wear - kitInfo->m_minFloat) / span;
-                    }
+                    normalized = (wear - kitInfo->m_minFloat) / (kitInfo->m_maxFloat - kitInfo->m_minFloat);
                 }
-                totalWear += normalized;
+                totalWear += wear;
+                totalNormalizedWear += normalized;
                 wearCount++;
             }
         }
 
-        if (!hasWear)
+        // vanilla knives have no float; every painted input needs one
+        if (!hasWear && paintKitDefIndex != 0)
         {
             Platform::Print("Trade-up item %llu has no wear attribute; cannot calculate contract output float\n",
-                itemId);
+                static_cast<unsigned long long>(itemId));
             printItemDebug("Missing trade-up wear", debug);
             return false;
         }
 
-        const bool hasWeaponKillEaterScoreType = hasKillEater && !hasNonWeaponScoreType;
+        // StatTrak knives keep unusual quality, so for golds only the kill eater matters
+        bool itemStatTrak;
+        bool itemValid;
+        if (contractType == ContractType::GoldToGold)
+        {
+            itemStatTrak = hasKillEater && hasWeaponKillEaterScoreType;
+            itemValid = !hasKillEater || itemStatTrak;
+        }
+        else
+        {
+            const bool itemNormalTradeUp = (item.quality() == ItemSchema::QualityUnique
+                || item.quality() == ItemSchema::QualityTournament)
+                && !hasKillEater;
+            itemStatTrak = item.quality() == ItemSchema::QualityStrange
+                && hasKillEater
+                && hasWeaponKillEaterScoreType;
+            itemValid = itemNormalTradeUp || itemStatTrak;
+        }
 
-        bool itemNormalTradeUp = (item.quality() == ItemSchema::QualityUnique
-            || item.quality() == ItemSchema::QualityTournament)
-            && !hasKillEater;
-        bool itemStatTrak = item.quality() == ItemSchema::QualityStrange
-            && hasKillEater
-            && hasWeaponKillEaterScoreType;
-        if (!itemNormalTradeUp && !itemStatTrak)
+        if (!itemValid)
         {
             Platform::Print("Trade-up item %llu has unsupported quality/state (kill eater=%d, weapon score type=%d)\n",
-                itemId, hasKillEater ? 1 : 0, hasWeaponKillEaterScoreType ? 1 : 0);
+                static_cast<unsigned long long>(itemId), hasKillEater ? 1 : 0, hasWeaponKillEaterScoreType ? 1 : 0);
             printItemDebug("Unsupported trade-up item", debug);
             return false;
         }
@@ -3443,36 +3440,80 @@ bool Inventory::TradeUp(const std::vector<uint64_t>& inputItemIds,
         }
     }
 
-    if (wearCount > 0)
+    const bool goldContract = contractType != ContractType::Standard;
+    const size_t requiredCount = goldContract ? GoldTradeUpCount : StandardTradeUpCount;
+    if (inputCount != requiredCount)
     {
-        avgWear = totalWear / static_cast<float>(wearCount);
-        if (avgWear < 0.0f) avgWear = 0.0f;
-        if (avgWear > 1.0f) avgWear = 1.0f;
+        Platform::Print("%s trade-up requires exactly %zu items, got %zu\n",
+            goldContract ? "Gold" : "Standard", requiredCount, inputCount);
+        return false;
     }
 
-    outputRarity = isGoldContract ? 99 : inputRarity + 1;
-    if (!isGoldContract && outputRarity > ItemSchema::RarityAncient)
+    // average float: raw for standard contracts (classic CS:GO), normalized for gold contracts
+    float avgWear = 0.15f;
+    if (wearCount > 0)
+    {
+        avgWear = (goldContract ? totalNormalizedWear : totalWear) / static_cast<float>(wearCount);
+    }
+    else if (goldContract)
+    {
+        // all vanilla inputs: no float to average
+        avgWear = m_random.Float(0.0f, 1.0f);
+    }
+
+    if (contractType == ContractType::GoldToGold)
+    {
+        avgWear *= GoldUpgradeFloatFactor;
+    }
+    avgWear = std::clamp(avgWear, 0.0f, 1.0f);
+
+    const uint32_t outputRarity = inputRarity + 1;
+    if (!goldContract && outputRarity > ItemSchema::RarityAncient)
     {
         Platform::Print("Cannot trade up items of rarity %u (max output is ancient)\n", inputRarity);
         return false;
     }
 
-    auto getCandidates = [&](const std::string& collection, std::vector<const LootListItem*>& out) -> bool
+    // gold candidates: drop gloves from StatTrak contracts since gloves can't be StatTrak
+    auto getCandidates = [&](const std::string &collection, std::vector<const LootListItem *> &out) -> bool
     {
-        bool ok = isGoldContract
-            ? m_itemSchema.GetSpecialTradeUpCandidates(collection, out)
-            : m_itemSchema.GetTradeUpCandidates(collection, outputRarity, out);
-        return ok && !out.empty();
+        out.clear();
+        if (!goldContract)
+        {
+            return m_itemSchema.GetTradeUpCandidates(collection, outputRarity, out) && !out.empty();
+        }
+
+        if (!m_itemSchema.GetSpecialTradeUpCandidates(collection, out))
+        {
+            return false;
+        }
+
+        out.erase(std::remove_if(out.begin(), out.end(), [&](const LootListItem *candidate)
+        {
+            return !candidate || !candidate->itemInfo
+                || (hasStatTrak && candidate->itemInfo->m_defIndex >= MaxStatTrakUnusualDefIndex);
+        }), out.end());
+
+        return !out.empty();
     };
 
     std::vector<std::string> weightedCollections;
-    for (const auto& pair : collectionCounts)
+    for (const auto &pair : collectionCounts)
     {
-        const std::string& collection = pair.first;
-        std::vector<const LootListItem*> candidates;
+        const std::string &collection = pair.first;
+        std::vector<const LootListItem *> candidates;
         if (!getCandidates(collection, candidates))
         {
-            Platform::Print("%s Collection has no trade-up candidates...\n", collection.c_str());
+            if (goldContract)
+            {
+                Platform::Print("%s Collection has no knife/glove pool%s; rejecting contract with %d input item(s) from this collection\n",
+                    GetCollectionName(m_itemSchema, collection).c_str(), hasStatTrak ? " that allows StatTrak" : "", pair.second);
+            }
+            else
+            {
+                Platform::Print("%s Collection has no trade-up candidates at output rarity %u; rejecting contract with %d input item(s) from this collection\n",
+                    GetCollectionName(m_itemSchema, collection).c_str(), outputRarity, pair.second);
+            }
             return false;
         }
 
@@ -3482,53 +3523,39 @@ bool Inventory::TradeUp(const std::vector<uint64_t>& inputItemIds,
             weightedCollections.push_back(collection);
         }
 
-        float percentage = (float)count / (float)inputItemIds.size() * 100.0f;
+        float percentage = static_cast<float>(count) / static_cast<float>(inputCount) * 100.0f;
         Platform::Print("%s Collection: %.1f%%\n", GetCollectionName(m_itemSchema, collection).c_str(), percentage);
     }
 
     if (weightedCollections.empty())
     {
-        Platform::Print("No valid trade-up collections with rarity %u\n", outputRarity);
+        Platform::Print("No valid trade-up collections\n");
         return false;
     }
 
-    size_t roll = rand() % weightedCollections.size();
-    const std::string& selectedCollection = weightedCollections[roll];
-    Platform::Print("RNG roll: %zu, selected collection %s\n", roll, selectedCollection.c_str());
+    uint32_t roll = m_random.Integer<uint32_t>(0, static_cast<uint32_t>(weightedCollections.size() - 1));
+    const std::string &selectedCollection = weightedCollections[roll];
+    Platform::Print("RNG roll: %u, selected collection %s (%s)\n", roll, selectedCollection.c_str(),
+        GetCollectionName(m_itemSchema, selectedCollection).c_str());
 
-    std::vector<const LootListItem*> outputCandidates;
+    std::vector<const LootListItem *> outputCandidates;
     if (!getCandidates(selectedCollection, outputCandidates))
     {
-        Platform::Print("No trade-up candidates for collection %s at rarity %u\n",
-            selectedCollection.c_str(), outputRarity);
+        Platform::Print("No trade-up candidates for collection %s\n", selectedCollection.c_str());
         return false;
     }
 
-    std::vector<const LootListItem*> validCandidates;
+    std::vector<const LootListItem *> validCandidates;
     validCandidates.reserve(outputCandidates.size());
-
-    for (size_t j = 0; j < outputCandidates.size(); j++)
+    for (const LootListItem *candidate : outputCandidates)
     {
-        const LootListItem* candidate = outputCandidates[j];
-
         if (!candidate || !candidate->itemInfo)
         {
             continue;
         }
-        if (!candidate->paintKitInfo)
-        {
-            if (isGoldContract)
-            {
-                validCandidates.push_back(candidate);
-            }
-            continue;
-        }
 
-        float minWear = candidate->paintKitInfo->m_minFloat;
-        float maxWear = candidate->paintKitInfo->m_maxFloat;
-        float mappedWear = minWear + avgWear * (maxWear - minWear);
-
-        if (mappedWear < minWear || mappedWear > maxWear)
+        // vanilla knives are valid gold outputs; standard outputs must be painted
+        if (!candidate->paintKitInfo && !goldContract)
         {
             continue;
         }
@@ -3538,124 +3565,107 @@ bool Inventory::TradeUp(const std::vector<uint64_t>& inputItemIds,
 
     if (validCandidates.empty())
     {
-        Platform::Print("No valid trade-up candidates after float filtering for collection %s\n",
-            selectedCollection.c_str());
+        Platform::Print("No valid trade-up candidates for collection %s\n", selectedCollection.c_str());
         return false;
     }
 
-    uint32_t candidateIndex = Random::Integer<uint32_t>(0, static_cast<uint32_t>(validCandidates.size() - 1));
-    const LootListItem* selectedCandidate = validCandidates[candidateIndex];
+    uint32_t candidateIndex = m_random.Integer<uint32_t>(0, static_cast<uint32_t>(validCandidates.size() - 1));
+    const LootListItem *selectedCandidate = validCandidates[candidateIndex];
 
-    CSOEconItem& outputItem = AllocateItem(0);
+    CSOEconItem &outputItem = AllocateItem(0);
 
     outputItem.set_def_index(selectedCandidate->itemInfo->m_defIndex);
     outputItem.set_inventory(InventoryUnacknowledged(UnacknowledgedRecycling));
     outputItem.set_quantity(1);
     outputItem.set_level(1);
     outputItem.set_origin(ItemOriginCrate);
-    outputItem.set_rarity(goldContract && selectedCandidate->rarity ? selectedCandidate->rarity : outputRarity);
-
     if (goldContract)
     {
-        outputItem.set_quality(hasStatTrak
-            ? ItemSchema::QualityStrange
-            : (selectedCandidate->quality ? selectedCandidate->quality : ItemSchema::QualityUnusual));
+        // same as unboxing: knives/gloves keep the ★ (unusual) quality even when StatTrak
+        outputItem.set_rarity(selectedCandidate->rarity ? selectedCandidate->rarity : ItemSchema::RarityAncient);
+        outputItem.set_quality(ItemSchema::QualityUnusual);
     }
     else
     {
+        outputItem.set_rarity(outputRarity);
         outputItem.set_quality(hasStatTrak ? ItemSchema::QualityStrange : ItemSchema::QualityUnique);
     }
     outputItem.set_flags(0);
     outputItem.set_in_use(false);
 
-    float outputWear = avgWear;
-
+    float outputWear = 0.0f;
+    uint32_t outputSeed = 0;
+    uint32_t outputPatternScore = 0;
     if (selectedCandidate->paintKitInfo)
     {
-        uint32_t paintKitId = selectedCandidate->paintKitInfo->m_defIndex;
+        const uint32_t paintKitId = selectedCandidate->paintKitInfo->m_defIndex;
 
-        CSOEconItemAttribute* paintAttr = outputItem.add_attribute();
+        // gold-for-gold rolls the pattern once per input and keeps the best one
+        const int seedRolls = contractType == ContractType::GoldToGold ? static_cast<int>(inputCount) : 1;
+        outputSeed = m_random.Integer<uint32_t>(GoldPatterns::SeedMin, GoldPatterns::SeedMax);
+        outputPatternScore = GoldPatterns::Score(outputItem.def_index(), paintKitId, outputSeed);
+        for (int i = 1; i < seedRolls; i++)
+        {
+            uint32_t seed = m_random.Integer<uint32_t>(GoldPatterns::SeedMin, GoldPatterns::SeedMax);
+            uint32_t score = GoldPatterns::Score(outputItem.def_index(), paintKitId, seed);
+            if (score > outputPatternScore)
+            {
+                outputSeed = seed;
+                outputPatternScore = score;
+            }
+        }
+
+        CSOEconItemAttribute *paintAttr = outputItem.add_attribute();
         paintAttr->set_def_index(ItemSchema::AttributeTexturePrefab);
         m_itemSchema.SetAttributeUint32(paintAttr, paintKitId);
 
-        CSOEconItemAttribute* seedAttr = outputItem.add_attribute();
+        CSOEconItemAttribute *seedAttr = outputItem.add_attribute();
         seedAttr->set_def_index(ItemSchema::AttributeTextureSeed);
-        m_itemSchema.SetAttributeUint32(seedAttr, Random::Integer<uint32_t>(0, 1000));
+        m_itemSchema.SetAttributeUint32(seedAttr, outputSeed);
 
-        float minWear = selectedCandidate->paintKitInfo->m_minFloat;
-        float maxWear = selectedCandidate->paintKitInfo->m_maxFloat;
+        const float minWear = selectedCandidate->paintKitInfo->m_minFloat;
+        const float maxWear = selectedCandidate->paintKitInfo->m_maxFloat;
         outputWear = minWear + avgWear * (maxWear - minWear);
 
-        CSOEconItemAttribute* wearAttr = outputItem.add_attribute();
+        CSOEconItemAttribute *wearAttr = outputItem.add_attribute();
         wearAttr->set_def_index(ItemSchema::AttributeTextureWear);
         m_itemSchema.SetAttributeFloat(wearAttr, outputWear);
     }
 
     if (hasStatTrak)
     {
-        CSOEconItemAttribute* killAttr = outputItem.add_attribute();
+        CSOEconItemAttribute *killAttr = outputItem.add_attribute();
         killAttr->set_def_index(ItemSchema::AttributeKillEater);
         m_itemSchema.SetAttributeUint32(killAttr, 0);
 
-        CSOEconItemAttribute* scoreTypeAttr = outputItem.add_attribute();
+        CSOEconItemAttribute *scoreTypeAttr = outputItem.add_attribute();
         scoreTypeAttr->set_def_index(ItemSchema::AttributeKillEaterScoreType);
         m_itemSchema.SetAttributeUint32(scoreTypeAttr, 0);
     }
 
-    destroyItems.reserve(inputItemIds.size());
-    for (uint64_t inputId : inputItemIds)
+    destroyItems.reserve(inputItems.size());
+    for (auto it : inputItems)
     {
-        auto it = m_items.find(inputId);
-        if (it == m_items.end())
-        {
-            Platform::Print("Trade-up input %llu vanished before destroy\n", (unsigned long long)inputId);
-            continue;
-        }
-        CMsgSOSingleObject& destroy = destroyItems.emplace_back();
+        CMsgSOSingleObject &destroy = destroyItems.emplace_back();
         DestroyItem(it, destroy);
-    }
-
-    if (inputRarity == 6 || hasCovertTradeUpInput)
-    {
-        uint32_t goldDefIndex = m_itemSchema.RollRandomSpecialItemFromCollection(selectedCollection);
-        outputItem.set_def_index(goldDefIndex);
-        outputItem.set_rarity(99);
-
-        if (hasStatTrak)
-        {
-            if (goldDefIndex < 5027)
-            {
-                outputItem.set_quality(ItemSchema::QualityStrange);
-                auto* killAttribute = outputItem.add_attribute();
-                killAttribute->set_def_index(80);
-                killAttribute->set_value_bytes(std::string("\x00\x00\x00\x00", 4));
-            }
-            else
-            {
-                outputItem.set_quality(ItemSchema::QualityNormal);
-            }
-        }
     }
 
     ToSingleObject(newItem, outputItem);
 
-    if (inputRarity == 6)
-    {
-        responseRecipeIndex = hasStatTrak ? 15 : 5;
-    }
-    else
-    {
-        responseRecipeIndex = static_cast<int16_t>(inputRarity - ItemSchema::RarityCommon + (hasStatTrak ? 10 : 0));
-    }
+    // recipe ids: 0..5 by input rarity (Consumer..Covert), +10 for StatTrak.
+    // Gold-for-gold reuses the Covert recipe id.
+    const uint32_t recipeRarity = contractType == ContractType::GoldToGold ? ItemSchema::RarityAncient : inputRarity;
+    responseRecipeIndex = static_cast<int16_t>(recipeRarity - ItemSchema::RarityCommon
+        + (hasStatTrak ? 10 : 0));
 
     if (outCraftedItem)
     {
         *outCraftedItem = &outputItem;
     }
 
-    Platform::Print("Trade-up complete: created item %llu from collection %s (%s), def %u, rarity %u, wear %.4f, stattrak=%d\n",
-        (unsigned long long)outputItem.id(), selectedCollection.c_str(), GetCollectionName(m_itemSchema, selectedCollection).c_str(),
-        outputItem.def_index(), selectedCandidate->rarity, outputWear, hasStatTrak ? 1 : 0);
+    Platform::Print("Trade-up complete: created item %llu from collection %s (%s), def %u, rarity %u, quality %u, wear %.4f, seed %u (pattern score %u), stattrak=%d\n",
+        static_cast<unsigned long long>(outputItem.id()), selectedCollection.c_str(), GetCollectionName(m_itemSchema, selectedCollection).c_str(),
+        outputItem.def_index(), outputItem.rarity(), outputItem.quality(), outputWear, outputSeed, outputPatternScore, hasStatTrak ? 1 : 0);
 
     return true;
 }
