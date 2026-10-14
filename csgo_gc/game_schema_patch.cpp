@@ -3,6 +3,7 @@
 
 #include <cerrno>
 #include <filesystem>
+#include <regex>
 
 static bool ReadWholeFile(const char *path, std::string &out)
 {
@@ -351,6 +352,101 @@ bool GameSchemaPatch::InsertRecipes(std::string &text, const std::string &recipe
     return false;
 }
 
+// finds the body of items_game/recipes: [begin, end) between its braces
+static bool FindRecipesBlock(const std::string &text, size_t &begin, size_t &end)
+{
+    std::vector<std::string> stack;
+    std::string lastString;
+    bool haveLastString = false;
+
+    for (size_t i = 0; i < text.size(); i++)
+    {
+        char c = text[i];
+
+        if (c == '/' && i + 1 < text.size() && text[i + 1] == '/')
+        {
+            while (i < text.size() && text[i] != '\n')
+            {
+                i++;
+            }
+            continue;
+        }
+
+        if (c == '"')
+        {
+            size_t start = ++i;
+            while (i < text.size() && text[i] != '"')
+            {
+                if (text[i] == '\\' && i + 1 < text.size())
+                {
+                    i++;
+                }
+                i++;
+            }
+            lastString.assign(text, start, i - start);
+            haveLastString = true;
+            continue;
+        }
+
+        if (c == '{')
+        {
+            stack.push_back(haveLastString ? lastString : std::string{});
+            haveLastString = false;
+            if (stack.size() == 2 && stack[0] == "items_game" && stack[1] == "recipes")
+            {
+                begin = i + 1;
+            }
+            continue;
+        }
+
+        if (c == '}')
+        {
+            if (stack.size() == 2 && stack[0] == "items_game" && stack[1] == "recipes")
+            {
+                end = i;
+                return true;
+            }
+
+            if (!stack.empty())
+            {
+                stack.pop_back();
+            }
+            haveLastString = false;
+        }
+    }
+
+    return false;
+}
+
+size_t GameSchemaPatch::RelaxTradeUpQuality(std::string &text)
+{
+    size_t begin = 0, end = 0;
+    if (!FindRecipesBlock(text, begin, end))
+    {
+        return 0;
+    }
+
+    // "field" "*quality" "operator" "string==" "value" "unique"
+    //   -> "field" "*quality" "operator" "string!=" "value" "unusual"
+    static const std::regex condition{
+        R"re(("field"\s+"\*quality"\s+"operator"\s+)"string=="(\s+"value"\s+)"unique")re" };
+
+    std::string body = text.substr(begin, end - begin);
+    size_t count = 0;
+    for (auto it = std::sregex_iterator(body.begin(), body.end(), condition); it != std::sregex_iterator(); ++it)
+    {
+        count++;
+    }
+
+    if (count)
+    {
+        body = std::regex_replace(body, condition, R"($1"string!="$2"unusual")");
+        text.replace(begin, end - begin, body);
+    }
+
+    return count;
+}
+
 static std::string AbsolutePath(const char *path)
 {
     std::error_code error;
@@ -358,7 +454,7 @@ static std::string AbsolutePath(const char *path)
     return error ? std::string{ path } : absolute.string();
 }
 
-bool GameSchemaPatch::Apply(const LootListPreviews &previews, const std::string &recipesText)
+bool GameSchemaPatch::Apply(const LootListPreviews &previews, const std::string &recipesText, bool mixQualities)
 {
     const std::string schemaPath = AbsolutePath(SchemaPath);
     Platform::Print("items_game.txt patch: file %s, backup %s\n", schemaPath.c_str(),
@@ -384,11 +480,21 @@ bool GameSchemaPatch::Apply(const LootListPreviews &previews, const std::string 
         Platform::Print("items_game.txt patch: no recipes block found, gold trade-up recipes not added\n");
     }
 
+    size_t relaxed = 0;
+    if (mixQualities)
+    {
+        relaxed = RelaxTradeUpQuality(patched);
+        if (!relaxed)
+        {
+            Platform::Print("items_game.txt patch: no normal-quality trade-up recipes found to allow StatTrak mixing\n");
+        }
+    }
+
     std::string current;
     if (ReadWholeFile(SchemaPath, current) && current == patched)
     {
-        Platform::Print("items_game.txt patch: already up to date (%zu case preview(s)%s)\n",
-            replaced, recipesText.empty() ? "" : ", gold trade-up recipes");
+        Platform::Print("items_game.txt patch: already up to date (%zu case preview(s)%s%s)\n",
+            replaced, recipesText.empty() ? "" : ", gold trade-up recipes", relaxed ? ", StatTrak mixing" : "");
         return false;
     }
 
@@ -405,8 +511,9 @@ bool GameSchemaPatch::Apply(const LootListPreviews &previews, const std::string 
         return false;
     }
 
-    Platform::Print("items_game.txt patch: updated %s (%zu case preview(s)%s), restart the game to see the changes\n",
-        schemaPath.c_str(), replaced, recipesText.empty() ? "" : ", gold trade-up recipes");
+    Platform::Print("items_game.txt patch: updated %s (%zu case preview(s)%s%s), restart the game to see the changes\n",
+        schemaPath.c_str(), replaced, recipesText.empty() ? "" : ", gold trade-up recipes",
+        relaxed ? ", StatTrak mixing" : "");
     return true;
 }
 

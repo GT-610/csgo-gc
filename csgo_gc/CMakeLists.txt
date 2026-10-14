@@ -44,7 +44,8 @@ add_library(csgo_gc SHARED
     saved_item_shuffles.cpp
     souvenir.cpp
     steam_hook.cpp
-    tradeup_hook.cpp)
+    tradeup_hook.cpp
+    panorama_hook.cpp)
 
 if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
     target_sources(csgo_gc PRIVATE platform_windows.cpp)
@@ -141,12 +142,14 @@ if (BUILD_TESTING)
         keyvalue.cpp
         networking_client.cpp
         networking_server.cpp
+        panorama_hook.cpp
         souvenir.cpp)
 
     target_precompile_headers(gc_message_tests PRIVATE stdafx.h)
     target_link_libraries(gc_message_tests PRIVATE
         MbedTLS::mbedcrypto
         csgo_gc_protobufs
+        funchook-static
         steam_api
         Threads::Threads)
 

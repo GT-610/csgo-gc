@@ -60,6 +60,8 @@ GCConfig::GCConfig()
     }
     m_customCasePreviews = config.GetNumber("custom_case_previews", m_customCasePreviews);
     m_goldTradeUpRecipes = config.GetNumber("gold_tradeup_recipes", m_goldTradeUpRecipes);
+    m_caseStoreMenu = config.GetNumber("case_store_menu", m_caseStoreMenu);
+    m_tradeUpMixStatTrak = config.GetNumber("tradeup_mix_stattrak", m_tradeUpMixStatTrak);
     m_primeStatus = config.GetNumber("prime_status", m_primeStatus);
 
     std::string_view musicKitStatTrak =
@@ -108,6 +110,18 @@ GCConfig::GCConfig()
         if (m_casePity.softStart >= m_casePity.guaranteedAt)
         {
             m_casePity.softStart = m_casePity.guaranteedAt - 1;
+        }
+
+        if (const KeyValue *boost = casePity->GetSubkey("rarity_boost"))
+        {
+            m_casePity.rarityBoost.clear();
+            for (const KeyValue &subkey : *boost)
+            {
+                RarityWeight weight;
+                weight.rarity = FromString<uint32_t>(subkey.Name());
+                weight.weight = std::max(FromString<float>(subkey.String()), 0.0f);
+                m_casePity.rarityBoost.push_back(weight);
+            }
         }
     }
 

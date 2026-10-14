@@ -39,6 +39,16 @@
 	"enabled"			"1"
 	"soft_pity_start"	"25"
 	"guaranteed_at"		"50"
+
+	// while you wait for a gold, purples, pinks and reds get more likely. each
+	// rarity's chance is multiplied by up to this much, climbing case by case
+	// until guaranteed_at (1 = no boost). resets with the pity counter.
+	"rarity_boost"
+	{
+		"4"	"3"	// restricted (purple)
+		"5"	"5"	// classified (pink)
+		"6"	"8"	// covert (red)
+	}
 }
 
 // end-of-match drops like old CS:GO: when a match ends you may receive a weapon
@@ -79,12 +89,24 @@
 // kits...). coupons that give a capsule or package are kept.
 "store_hide_individual_items"	"1"
 
+// adds a Case Store button (shopping cart) to the main menu's left bar: every
+// weapon case, souvenir package and capsule from store_containers on one big,
+// searchable screen. Buy gets the case and its key together; clicking a case
+// shows its contents.
+"case_store_menu"	"1"
+
 // lets the trade-up screen accept 5 Coverts (or 5 knives/gloves) for a
 // knife/glove. the game's own trade-up rules live in its items_game.txt and
 // have no recipe for this, so csgo_gc adds one to that file (the original is
 // kept as items_game.txt.csgo_gc_backup and put back when this and
 // custom_case_previews are both 0). restart the game after the first launch.
 "gold_tradeup_recipes"	"1"
+
+// lets StatTrak, normal and Souvenir skins of the same rarity go into one
+// contract. the chance of a StatTrak result is the share of StatTrak inputs
+// (all StatTrak = always StatTrak, 3 of 10 = 30%). like gold_tradeup_recipes
+// this edits items_game.txt, so restart the game after changing it.
+"tradeup_mix_stattrak"	"1"
 
 // EXPERIMENTAL: make the contents preview of custom cases (custom_cases.txt)
 // show your custom skins. this edits the game's csgo/scripts/items/items_game.txt

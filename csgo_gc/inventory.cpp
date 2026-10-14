@@ -3353,6 +3353,7 @@ bool Inventory::TradeUp(const std::vector<uint64_t> &inputItemIds,
     uint32_t inputRarity = 0;
     bool statTrakSet = false;
     bool hasStatTrak = false;
+    size_t statTrakInputCount = 0;
     float totalWear = 0.0f;           // raw floats (classic CS:GO formula)
     float totalNormalizedWear = 0.0f; // floats normalized to each skin's range (gold contracts)
     int wearCount = 0;
@@ -3566,12 +3567,13 @@ bool Inventory::TradeUp(const std::vector<uint64_t> &inputItemIds,
             return false;
         }
 
+        statTrakInputCount += itemStatTrak ? 1 : 0;
         if (!statTrakSet)
         {
             hasStatTrak = itemStatTrak;
             statTrakSet = true;
         }
-        else if (itemStatTrak != hasStatTrak)
+        else if (itemStatTrak != hasStatTrak && !GetConfig().TradeUpMixStatTrak())
         {
             Platform::Print("Trade-up items must all be StatTrak or all non-StatTrak (expected stattrak=%d, got stattrak=%d)\n",
                 hasStatTrak ? 1 : 0, itemStatTrak ? 1 : 0);
@@ -3587,6 +3589,16 @@ bool Inventory::TradeUp(const std::vector<uint64_t> &inputItemIds,
         Platform::Print("%s trade-up requires exactly %zu items, got %zu\n",
             goldContract ? "Gold" : "Standard", requiredCount, inputCount);
         return false;
+    }
+
+    // mixed StatTrak and normal inputs: the share of StatTrak inputs is the
+    // chance of a StatTrak result
+    if (statTrakInputCount > 0 && statTrakInputCount < inputCount)
+    {
+        const float statTrakChance = static_cast<float>(statTrakInputCount) / static_cast<float>(inputCount);
+        hasStatTrak = m_random.Float(0.0f, 1.0f) < statTrakChance;
+        Platform::Print("Trade-up: %zu of %zu inputs are StatTrak, %.0f%% StatTrak chance, result stattrak=%d\n",
+            statTrakInputCount, inputCount, statTrakChance * 100.0f, hasStatTrak ? 1 : 0);
     }
 
     // average float: raw for standard contracts (classic CS:GO), normalized for gold contracts

@@ -17,6 +17,7 @@ public:
     // rather than cached, because a server can change its game mode mid-session.
     bool MusicKitStatTrakActive() const;
     std::string RunRconCommand(std::string command);
+    const ItemSchema &GetItemSchema() const { return m_inventory.GetItemSchema(); }
     static std::string RconCommandUsageList();
 
 private:

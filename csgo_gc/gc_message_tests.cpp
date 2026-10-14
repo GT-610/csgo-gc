@@ -6,8 +6,10 @@
 #include "keyvalue.h"
 #include "networking_client.h"
 #include "networking_server.h"
+#include "panorama_hook.h"
 #include "test_filesystem.h"
 
+#include <cmath>
 #include <cstring>
 #include <cstdio>
 
@@ -4081,6 +4083,103 @@ static bool GoldTradeUpRecipesAreAddedToSchema()
     return valid;
 }
 
+static bool PanoramaPatchLetsKnivesIntoContracts()
+{
+    // the two entries from the final CS:GO scripts/common/item_context_entries.js
+    std::string source =
+        "\t\t\tname: 'tradeup_add',\n"
+        "\t\t\tAvailableForItem: function ( id ) {\n"
+        "\t\t\t\tvar slot = ItemInfo.GetSlotSubPosition(id);\n"
+        "\t\t\t\treturn slot && slot !==\"melee\" && slot !==\"c4\" && slot !==\"clothing_hands\" && !ItemInfo.IsEquippalbleButNotAWeapon(id) &&\n"
+        "\t\t\t\t\t( InventoryAPI.CanTradeUp( id ) || InventoryAPI.GetNumItemsNeededToTradeUp( id ) > 0 );\n"
+        "\t\t\tname: 'tradeup_remove',\n"
+        "\t\t\t\treturn slot && slot !==\"melee\" && slot !==\"c4\" && slot !==\"clothing_hands\" && !ItemInfo.IsEquippalbleButNotAWeapon(id);\n"
+        "\t\t\tname: 'equip_ct', AvailableForItem: function ( id ) { return slot !== \"melee\"; }\n";
+
+    int changes = PanoramaHook::PatchItemContextEntries(source);
+    bool valid = changes == 2
+        && source.find("slot && slot !==\"c4\" &&\n") != std::string::npos
+        && source.find("slot && slot !==\"c4\";") != std::string::npos
+        && source.find("clothing_hands") == std::string::npos
+        && source.find("return slot !== \"melee\";") != std::string::npos; // other entries untouched
+
+    std::string unrelated = "var x = 1;";
+    valid &= PanoramaHook::PatchItemContextEntries(unrelated) == 0 && unrelated == "var x = 1;";
+    valid &= PanoramaHook::CaseStoreScript().find("var CsgoGcCaseStore") != std::string::npos
+        && PanoramaHook::CaseStoreScript().find("SetData: _SetData") != std::string::npos;
+    return valid;
+}
+
+static bool CaseStoreDataListsCasesWithKeys()
+{
+    RemoveGoldTradeUpFixtures();
+    if (!WriteGoldTradeUpFixtures())
+    {
+        RemoveGoldTradeUpFixtures();
+        return false;
+    }
+
+    bool valid;
+    {
+        ClientGC gc{ 76561197960265729ull };
+        std::string data = PanoramaHook::BuildCaseStoreData(gc.GetItemSchema());
+        valid = data.size() > 2 && data.front() == '[' && data.back() == ']'
+            && data.find("[4001,4002,0]") != std::string::npos // crate, its key, weapon case
+            && data.find("[4002,") == std::string::npos; // keys aren't listed on their own
+    }
+
+    RemoveGoldTradeUpFixtures();
+    return valid;
+}
+
+static bool TradeUpRecipesAcceptStatTrakWhenMixing()
+{
+    std::string text =
+        "\"items_game\"\n"
+        "{\n"
+        "\t\"recipes\"\n"
+        "\t{\n"
+        "\t\t\"0\" { \"input_items\" { \"10\" { \"conditions\" {\n"
+        "\t\t\t\"1\"\n\t\t\t{\n\t\t\t\t\"field\"\t\t\"*quality\"\n\t\t\t\t\"operator\"\t\t\"string==\"\n"
+        "\t\t\t\t\"value\"\t\t\"unique\"\n\t\t\t\t\"required\"\t\t\"1\"\n\t\t\t}\n"
+        "\t\t} } } }\n"
+        "\t\t\"5\" { \"input_items\" { \"5\" { \"conditions\" {\n"
+        "\t\t\t\"1\" { \"field\" \"*quality\" \"operator\" \"string==\" \"value\" \"unique\" \"required\" \"1\" }\n"
+        "\t\t} } } }\n"
+        "\t\t\"10\" { \"input_items\" { \"10\" { \"conditions\" {\n"
+        "\t\t\t\"1\" { \"field\" \"*quality\" \"operator\" \"string==\" \"value\" \"strange\" \"required\" \"1\" }\n"
+        "\t\t} } } }\n"
+        "\t}\n"
+        "\t\"other\" { \"field\" \"*quality\" \"operator\" \"string==\" \"value\" \"unique\" }\n"
+        "}\n";
+
+    size_t changed = GameSchemaPatch::RelaxTradeUpQuality(text);
+    size_t unusual = 0;
+    for (size_t pos = text.find("\"string!=\""); pos != std::string::npos; pos = text.find("\"string!=\"", pos + 1))
+    {
+        unusual++;
+    }
+
+    bool valid = changed == 2 && unusual == 2
+        && text.find("\"value\" \"strange\"") != std::string::npos // StatTrak-only recipe untouched
+        && text.find("\"other\" { \"field\" \"*quality\" \"operator\" \"string==\" \"value\" \"unique\" }") != std::string::npos;
+
+    std::string noRecipes = "\"items_game\" { \"items\" { } }";
+    valid &= GameSchemaPatch::RelaxTradeUpQuality(noRecipes) == 0;
+    return valid;
+}
+
+static bool PityBoostsBetterRaritiesBeforeGold()
+{
+    // defaults: purple x3, pink x5, red x8 by the guaranteed case (50)
+    auto near = [](float a, float b) { return std::fabs(a - b) < 0.001f; };
+    return near(CaseOpening::PityRarityBoost(ItemSchema::RarityMythical, 0), 1.0f)
+        && near(CaseOpening::PityRarityBoost(ItemSchema::RarityAncient, 25), 4.5f)
+        && near(CaseOpening::PityRarityBoost(ItemSchema::RarityLegendary, 50), 5.0f)
+        && near(CaseOpening::PityRarityBoost(ItemSchema::RarityAncient, 200), 8.0f)
+        && near(CaseOpening::PityRarityBoost(ItemSchema::RarityRare, 40), 1.0f); // blues unchanged
+}
+
 int main()
 {
     struct TestCase
@@ -4116,6 +4215,10 @@ int main()
         { "CustomCasePreviewPatchesOnlyTargetLists", CustomCasePreviewPatchesOnlyTargetLists },
         { "CustomCasePreviewBacksUpAndRestores", CustomCasePreviewBacksUpAndRestores },
         { "GoldTradeUpRecipesAreAddedToSchema", GoldTradeUpRecipesAreAddedToSchema },
+        { "PanoramaPatchLetsKnivesIntoContracts", PanoramaPatchLetsKnivesIntoContracts },
+        { "CaseStoreDataListsCasesWithKeys", CaseStoreDataListsCasesWithKeys },
+        { "TradeUpRecipesAcceptStatTrakWhenMixing", TradeUpRecipesAcceptStatTrakWhenMixing },
+        { "PityBoostsBetterRaritiesBeforeGold", PityBoostsBetterRaritiesBeforeGold },
         { "StorePurchasesFinalizeTransactionally", StorePurchasesFinalizeTransactionally },
         { "LegacyStorePriceSheetMatchesClientSchema",
             LegacyStorePriceSheetMatchesClientSchema },

@@ -31,9 +31,15 @@ namespace GameSchemaPatch
     // when there is no recipes block
     bool InsertRecipes(std::string &schemaText, const std::string &recipesText);
 
+    // lets trade-up recipes that take normal items (quality "unique") take
+    // StatTrak and Souvenir items too, so they can be mixed in one contract.
+    // knives/gloves (quality "unusual") stay out. returns the number of recipe
+    // conditions changed
+    size_t RelaxTradeUpQuality(std::string &schemaText);
+
     // writes the patched schema (backing up the original first). returns true
     // when the game file changed and a restart is needed to see it
-    bool Apply(const LootListPreviews &previews, const std::string &recipesText);
+    bool Apply(const LootListPreviews &previews, const std::string &recipesText, bool mixQualities = false);
 
     // puts the original file back if it was patched. returns true when restored
     bool Restore();

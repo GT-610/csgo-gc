@@ -17,6 +17,14 @@ struct CasePityConfig
     bool enabled{ true };
     uint32_t softStart{ 25 };
     uint32_t guaranteedAt{ 50 };
+    // while waiting for a gold, Restricted/Classified/Covert get more likely:
+    // their weight is multiplied by up to this much, climbing steadily from
+    // the first gold-less case to guaranteed_at (1 = no boost)
+    std::vector<RarityWeight> rarityBoost{
+        { 4, 3.0f }, // restricted (purple)
+        { 5, 5.0f }, // classified (pink)
+        { 6, 8.0f }, // covert (red)
+    };
 };
 
 // end-of-match item drops, modeled on old CS:GO weekly drops
@@ -77,6 +85,8 @@ public:
     bool StoreHideIndividualItems() const { return m_storeHideIndividualItems; }
     bool CustomCasePreviews() const { return m_customCasePreviews; }
     bool GoldTradeUpRecipes() const { return m_goldTradeUpRecipes; }
+    bool CaseStoreMenu() const { return m_caseStoreMenu; }
+    bool TradeUpMixStatTrak() const { return m_tradeUpMixStatTrak; }
 
     MusicKit::StatTrakGate MusicKitStatTrakGate() const { return m_musicKitStatTrakGate; }
 
@@ -124,6 +134,8 @@ private:
     bool m_storeHideIndividualItems{ true };
     bool m_customCasePreviews{ false };
     bool m_goldTradeUpRecipes{ true };
+    bool m_caseStoreMenu{ true };
+    bool m_tradeUpMixStatTrak{ true };
 
     // Music kit StatTrak follows competitive rules by default, matching the only
     // scope the official backend ever supported.

@@ -19,6 +19,7 @@
 #include "rcon_server.h"
 #include "saved_item_shuffles.h"
 #include "tradeup_hook.h"
+#include "panorama_hook.h"
 #include <funchook.h>
 #include <ctime>
 #include <limits>
@@ -1796,6 +1797,10 @@ static void (*Og_SteamGameServer_RunCallbacks)();
 
 static void Hk_SteamAPI_RegisterCallback(class CCallbackBase *pCallback, int iCallback)
 {
+    // client.dll registers its callbacks while loading, which is after
+    // panorama.dll is loaded and before the main menu's scripts run
+    PanoramaHook::TryInstall();
+
     if (GetCallbackHooks().RegisterCallback(pCallback, iCallback))
     {
         return;
@@ -1835,6 +1840,13 @@ static void Hk_SteamAPI_RunCallbacks()
     Og_SteamAPI_RunCallbacks();
 
     UpdateGameEventListeners();
+
+    PanoramaHook::TryInstall();
+    if (s_clientGC && GetConfig().CaseStoreMenu() && !PanoramaHook::HasCaseStoreData())
+    {
+        PanoramaHook::SetCaseStoreData(PanoramaHook::BuildCaseStoreData(s_clientGC->m_gc.GetItemSchema()));
+    }
+    PanoramaHook::Tick();
 
     if (s_clientGC)
     {
