@@ -481,6 +481,10 @@
 		"[sporty_poison_frog_blue_white]sporty_gloves"		""
 		"[motorcycle_basic_green_orange]motorcycle_gloves"		""
 		"[operation10_poison_frog_black_yellow]studded_brokenfang_gloves"		""
+		// Callhood knives (need custom_paint_kits.txt and the textures)
+		"[csgogc_watchmen_bayonet_comedian_s_smiley_2]weapon_bayonet"		""
+		"[csgogc_summer_karambit_ice_cream]weapon_knife_karambit"		""
+		"[csgogc_watchmen_karambit_comedian_s_smiley_1]weapon_knife_karambit"		""
 	}
 }
 
@@ -669,6 +673,10 @@
 		"[slick_snakeskin]slick_gloves"		""
 		"[slick_chainmail_knight]slick_gloves"		""
 		"[slick_chainmail_gold]slick_gloves"		""
+		// Callhood knives (need custom_paint_kits.txt and the textures)
+		"[csgogc_watchmen_huntsman_comedian_s_smiley_1]weapon_knife_tactical"		""
+		"[csgogc_summer_butterfly_waves]weapon_knife_butterfly"		""
+		"[csgogc_summer_huntsman_aloha]weapon_knife_tactical"		""
 	}
 }
 
@@ -854,6 +862,10 @@
 		"[motorcycle_mono_boom]motorcycle_gloves"		""
 		"[specialist_forest_brown]specialist_gloves"		""
 		"[handwrap_leathery_fabric_green_camo]leather_handwraps"		""
+		// Callhood knives (need custom_paint_kits.txt and the textures)
+		"[csgogc_watchmen_butterfly_rorschach]weapon_knife_butterfly"		""
+		"[csgogc_summer_gut_aloha]weapon_knife_gut"		""
+		"[csgogc_watchmen_gut_comedian_s_smiley]weapon_knife_gut"		""
 	}
 }
 
@@ -1042,6 +1054,10 @@
 		"[handwrap_leathery_fabric_nuclear]leather_handwraps"		""
 		"[handwrap_leathery_fabric_beige_camo]leather_handwraps"		""
 		"[handwrap_leathery_catskulls_bw]leather_handwraps"		""
+		// Callhood knives (need custom_paint_kits.txt and the textures)
+		"[csgogc_summer_gut_voley]weapon_knife_gut"		""
+		"[csgogc_watchmen_butterfly_comedian_s_smiley_2]weapon_knife_butterfly"		""
+		"[csgogc_summer_huntsman_water_elemental]weapon_knife_tactical"		""
 	}
 }
 
@@ -1226,6 +1242,10 @@
 		"[handwrap_leathery]leather_handwraps"		""
 		"[operation10_floral]studded_brokenfang_gloves"		""
 		"[sporty_military]sporty_gloves"		""
+		// Callhood knives (need custom_paint_kits.txt and the textures)
+		"[csgogc_summer_karambit_aloha]weapon_knife_karambit"		""
+		"[csgogc_summer_bayonet_waves]weapon_bayonet"		""
+		"[csgogc_watchmen_m9_rorschach]weapon_knife_m9_bayonet"		""
 	}
 }
 
@@ -1414,6 +1434,10 @@
 		"[sporty_fade]sporty_gloves"		""
 		"[mayan_green]sporty_gloves"		""
 		"[specialist_green_red_black]specialist_gloves"		""
+		// Callhood knives (need custom_paint_kits.txt and the textures)
+		"[csgogc_watchmen_m9_mars_thinking]weapon_knife_m9_bayonet"		""
+		"[csgogc_watchmen_gut_mars_thinking]weapon_knife_gut"		""
+		"[csgogc_watchmen_falchion_comedian_s_smiley_1]weapon_knife_falchion"		""
 	}
 }
 
@@ -1598,6 +1622,10 @@
 		"[slick_plaid_purple]slick_gloves"		""
 		"[specialist_emerald_web]specialist_gloves"		""
 		"[slick_red]slick_gloves"		""
+		// Callhood knives (need custom_paint_kits.txt and the textures)
+		"[csgogc_watchmen_gut_comedian_s_smiley]weapon_knife_gut"		""
+		"[csgogc_watchmen_falchion_mars_thinking]weapon_knife_falchion"		""
+		"[csgogc_summer_m9_water_elemental]weapon_knife_m9_bayonet"		""
 	}
 }
 
@@ -1786,6 +1814,10 @@
 		"[motorcycle_doppler_phase2]motorcycle_gloves"		""
 		"[motorcycle_checker_flag_green]motorcycle_gloves"		""
 		"[handwrap_leathery_fabric_yellow_camo]leather_handwraps"		""
+		// Callhood knives (need custom_paint_kits.txt and the textures)
+		"[csgogc_summer_huntsman_waves]weapon_knife_tactical"		""
+		"[csgogc_watchmen_bayonet_rorschach]weapon_bayonet"		""
+		"[csgogc_watchmen_bayonet_comedian_s_smiley_1]weapon_bayonet"		""
 	}
 }
 
@@ -1970,6 +2002,10 @@
 		"[handwrap_camo_grey]leather_handwraps"		""
 		"[operation10_metalic_green]studded_brokenfang_gloves"		""
 		"[bloodhound_hydra_snakeskin_brass]studded_hydra_gloves"		""
+		// Callhood knives (need custom_paint_kits.txt and the textures)
+		"[csgogc_summer_butterfly_voley]weapon_knife_butterfly"		""
+		"[csgogc_summer_karambit_waves]weapon_knife_karambit"		""
+		"[csgogc_watchmen_karambit_comedian_s_smiley_2]weapon_knife_karambit"		""
 	}
 }
 
@@ -2158,6 +2194,10 @@
 		"[operation10_poison_frog_red_green]studded_brokenfang_gloves"		""
 		"[dark_metal_leather]studded_bloodhound_gloves"		""
 		"[sporty_red]sporty_gloves"		""
+		// Callhood knives (need custom_paint_kits.txt and the textures)
+		"[csgogc_watchmen_karambit_inkblot]weapon_knife_karambit"		""
+		"[csgogc_watchmen_bayonet_comedian_s_smiley_2]weapon_bayonet"		""
+		"[csgogc_watchmen_flip_rorschach]weapon_knife_flip"		""
 	}
 }
 // "Black Market Case": gold only, 500 stars. Every knife in every finish: the official ones,
@@ -2757,6 +2797,9 @@
 		"[am_crystallized_dark_green]weapon_bayonet"		""
 		"[aa_vertigo_blue]weapon_bayonet"		""
 		"[am_carbon_fiber]weapon_bayonet"		""
+		"[csgogc_watchmen_bayonet_comedian_s_smiley_2]weapon_bayonet"		""
+		"[csgogc_summer_karambit_ice_cream]weapon_knife_karambit"		""
+		"[csgogc_watchmen_karambit_comedian_s_smiley_1]weapon_knife_karambit"		""
 		"[am_intelligence_grey]weapon_knife_skeleton"		""
 		"[am_fuschia]weapon_knife_skeleton"		""
 		"[so_night]weapon_knife_gypsy_jackknife"		""
@@ -2796,6 +2839,9 @@
 		"[am_chainmail]weapon_knife_gypsy_jackknife"		""
 		"[an_emerald]weapon_knife_gypsy_jackknife"		""
 		"[am_geometric_steps]weapon_knife_gypsy_jackknife"		""
+		"[csgogc_watchmen_huntsman_comedian_s_smiley_1]weapon_knife_tactical"		""
+		"[csgogc_summer_butterfly_waves]weapon_knife_butterfly"		""
+		"[csgogc_summer_huntsman_aloha]weapon_knife_tactical"		""
 		"[am_intelligence_magenta]weapon_knife_stiletto"		""
 		"[am_circuitboard_orange]weapon_knife_stiletto"		""
 		"[aa_fade_red_blue]weapon_knife_stiletto"		""
@@ -2828,6 +2874,9 @@
 		"[am_ddpat_purple]weapon_knife_butterfly"		""
 		"[am_urban]weapon_knife_butterfly"		""
 		"[am_ossify]weapon_knife_butterfly"		""
+		"[csgogc_watchmen_butterfly_rorschach]weapon_knife_butterfly"		""
+		"[csgogc_summer_gut_aloha]weapon_knife_gut"		""
+		"[csgogc_watchmen_gut_comedian_s_smiley]weapon_knife_gut"		""
 		"[so_purple]weapon_knife_canis"		""
 		"[am_gamma_doppler_phase2]weapon_knife_canis"		""
 		"[aa_wiring_yellow]weapon_knife_canis"		""
@@ -2861,6 +2910,9 @@
 		"[aa_fade_red_blue]weapon_knife_m9_bayonet"		""
 		"[am_ren_red]weapon_knife_m9_bayonet"		""
 		"[am_crystallized_dark]weapon_knife_m9_bayonet"		""
+		"[csgogc_summer_gut_voley]weapon_knife_gut"		""
+		"[csgogc_watchmen_butterfly_comedian_s_smiley_2]weapon_knife_butterfly"		""
+		"[csgogc_summer_huntsman_water_elemental]weapon_knife_tactical"		""
 		"[an_titanium30v]weapon_knife_falchion"		""
 		"[am_zebra_dark]weapon_knife_falchion"		""
 		"[aa_fade_red_blue]weapon_knife_falchion"		""
@@ -2889,6 +2941,9 @@
 		"[am_ddpatdense_silver]weapon_knife_skeleton"		""
 		"[am_intelligence_magenta]weapon_knife_skeleton"		""
 		"[am_ossify]weapon_knife_skeleton"		""
+		"[csgogc_summer_karambit_aloha]weapon_knife_karambit"		""
+		"[csgogc_summer_bayonet_waves]weapon_bayonet"		""
+		"[csgogc_watchmen_m9_rorschach]weapon_knife_m9_bayonet"		""
 		"[aa_flames]weapon_knife_butterfly"		""
 		"[aa_vertigo_red]weapon_knife_butterfly"		""
 		"[aq_steel_knife]weapon_knife_outdoor"		""
@@ -2919,6 +2974,9 @@
 		"[aa_pandora]weapon_knife_css"		""
 		"[am_chainmail]weapon_knife_css"		""
 		"[aa_ruins_green]weapon_knife_css"		""
+		"[csgogc_watchmen_m9_mars_thinking]weapon_knife_m9_bayonet"		""
+		"[csgogc_watchmen_gut_mars_thinking]weapon_knife_gut"		""
+		"[csgogc_watchmen_falchion_comedian_s_smiley_1]weapon_knife_falchion"		""
 		"[am_marked_up]weapon_knife_survival_bowie"		""
 		"[am_tigers_brown]weapon_knife_survival_bowie"		""
 		"[am_kimono_sunrise]weapon_knife_survival_bowie"		""
@@ -2947,6 +3005,8 @@
 		"[am_fuschia]weapon_knife_widowmaker"		""
 		"[am_ddpatdense_peacock]weapon_knife_widowmaker"		""
 		"[am_mirage_flowers_metalic]weapon_knife_widowmaker"		""
+		"[csgogc_watchmen_falchion_mars_thinking]weapon_knife_falchion"		""
+		"[csgogc_summer_m9_water_elemental]weapon_knife_m9_bayonet"		""
 		"[am_circuitboard_orange]weapon_knife_tactical"		""
 		"[aa_wiring]weapon_knife_tactical"		""
 		"[am_veneto2]weapon_knife_gut"		""
@@ -2970,6 +3030,9 @@
 		"[am_ddpat_purple]weapon_knife_css"		""
 		"[am_zebra_dark]weapon_knife_css"		""
 		"[an_emerald]weapon_knife_css"		""
+		"[csgogc_summer_huntsman_waves]weapon_knife_tactical"		""
+		"[csgogc_watchmen_bayonet_rorschach]weapon_bayonet"		""
+		"[csgogc_watchmen_bayonet_comedian_s_smiley_1]weapon_bayonet"		""
 		"[aa_vertigo]weapon_knife_karambit"		""
 		"[an_red]weapon_knife_karambit"		""
 		"[am_gold_brick]weapon_knife_karambit"		""
@@ -2994,6 +3057,9 @@
 		"[am_chainmail]weapon_knife_push"		""
 		"[aa_desert_bloom_bright]weapon_knife_m9_bayonet"		""
 		"[am_copper_flecks]weapon_knife_m9_bayonet"		""
+		"[csgogc_summer_butterfly_voley]weapon_knife_butterfly"		""
+		"[csgogc_summer_karambit_waves]weapon_knife_karambit"		""
+		"[csgogc_watchmen_karambit_comedian_s_smiley_2]weapon_knife_karambit"		""
 		"[hy_ocean_knife]weapon_knife_falchion"		""
 		"[aa_ruins_green]weapon_knife_falchion"		""
 		"[aa_ancient_brown]weapon_knife_falchion"		""
@@ -3016,6 +3082,8 @@
 		"[am_scales_bravo]weapon_knife_gut"		""
 		"[aa_wiring_yellow]weapon_knife_gut"		""
 		"[am_turqoise_halftone]weapon_knife_gut"		""
+		"[csgogc_watchmen_karambit_inkblot]weapon_knife_karambit"		""
+		"[csgogc_watchmen_flip_rorschach]weapon_knife_flip"		""
 		"[aa_ancient_brown]weapon_bayonet"		""
 		"[aa_ancient_brown]weapon_knife_m9_bayonet"		""
 		"[aa_ancient_brown]weapon_knife_karambit"		""
@@ -4621,6 +4689,55 @@
 		"[an_titanium30v]weapon_knife_stiletto"		""
 		"[an_titanium30v]weapon_knife_ursus"		""
 		"[an_titanium30v]weapon_knife_gypsy_jackknife"		""
+		"[csgogc_watchmen_bayonet_manhattan]weapon_bayonet"		""
+		"[csgogc_watchmen_bayonet_mars_thinking]weapon_bayonet"		""
+		"[csgogc_watchmen_bowie_comedian_s_smiley_1]weapon_knife_survival_bowie"		""
+		"[csgogc_watchmen_bowie_rorschach]weapon_knife_survival_bowie"		""
+		"[csgogc_watchmen_butterfly_comedian_s_smiley_1]weapon_knife_butterfly"		""
+		"[csgogc_watchmen_butterfly_manhattan]weapon_knife_butterfly"		""
+		"[csgogc_watchmen_butterfly_mars_thinking]weapon_knife_butterfly"		""
+		"[csgogc_watchmen_falchion_comedian_s_smiley_2]weapon_knife_falchion"		""
+		"[csgogc_watchmen_falchion_manhattan]weapon_knife_falchion"		""
+		"[csgogc_watchmen_falchion_rorschach]weapon_knife_falchion"		""
+		"[csgogc_watchmen_flip_comedian_s_smiley_1]weapon_knife_flip"		""
+		"[csgogc_watchmen_flip_comedian_s_smiley_2]weapon_knife_flip"		""
+		"[csgogc_watchmen_flip_manhattan]weapon_knife_flip"		""
+		"[csgogc_watchmen_flip_mars_thinking]weapon_knife_flip"		""
+		"[csgogc_watchmen_gut_manhattan]weapon_knife_gut"		""
+		"[csgogc_watchmen_gut_rorschach]weapon_knife_gut"		""
+		"[csgogc_watchmen_gut_who_watches_the_watchmen]weapon_knife_gut"		""
+		"[csgogc_watchmen_huntsman_comedian_s_smiley_2]weapon_knife_tactical"		""
+		"[csgogc_watchmen_huntsman_manhattan]weapon_knife_tactical"		""
+		"[csgogc_watchmen_huntsman_mars_thinking]weapon_knife_tactical"		""
+		"[csgogc_watchmen_huntsman_rorschach]weapon_knife_tactical"		""
+		"[csgogc_watchmen_karambit_mars_thinking]weapon_knife_karambit"		""
+		"[csgogc_watchmen_karambit_rorschach]weapon_knife_karambit"		""
+		"[csgogc_watchmen_m9_comedian_s_smiley]weapon_knife_m9_bayonet"		""
+		"[csgogc_watchmen_m9_manhattan]weapon_knife_m9_bayonet"		""
+		"[csgogc_watchmen_m9_star_watching]weapon_knife_m9_bayonet"		""
+		"[csgogc_watchmen_shadow_dagger_comedian_s_smiley_1]weapon_knife_push"		""
+		"[csgogc_watchmen_shadow_dagger_comedian_s_smiley_2]weapon_knife_push"		""
+		"[csgogc_watchmen_shadow_dagger_mars_thinking]weapon_knife_push"		""
+		"[csgogc_watchmen_shadow_dagger_rorschach]weapon_knife_push"		""
+		"[csgogc_summer_bayonet_aloha]weapon_bayonet"		""
+		"[csgogc_summer_butterfly_aloha]weapon_knife_butterfly"		""
+		"[csgogc_summer_m9_aloha]weapon_knife_m9_bayonet"		""
+		"[csgogc_summer_bayonet_ice_cream]weapon_bayonet"		""
+		"[csgogc_summer_butterfly_ice_cream]weapon_knife_butterfly"		""
+		"[csgogc_summer_gut_ice_cream]weapon_knife_gut"		""
+		"[csgogc_summer_huntsman_ice_cream]weapon_knife_tactical"		""
+		"[csgogc_summer_m9_ice_cream]weapon_knife_m9_bayonet"		""
+		"[csgogc_summer_gut_palms]weapon_knife_gut"		""
+		"[csgogc_summer_bayonet_voley]weapon_bayonet"		""
+		"[csgogc_summer_huntsman_voley]weapon_knife_tactical"		""
+		"[csgogc_summer_karambit_voley]weapon_knife_karambit"		""
+		"[csgogc_summer_m9_voley]weapon_knife_m9_bayonet"		""
+		"[csgogc_summer_bayonet_water_elemental]weapon_bayonet"		""
+		"[csgogc_summer_butterfly_water_elemental]weapon_knife_butterfly"		""
+		"[csgogc_summer_gut_water_elemental]weapon_knife_gut"		""
+		"[csgogc_summer_karambit_water_elemental]weapon_knife_karambit"		""
+		"[csgogc_summer_gut_waves]weapon_knife_gut"		""
+		"[csgogc_summer_m9_waves]weapon_knife_m9_bayonet"		""
 	}
 }
 
@@ -4731,5 +4848,122 @@
 		"[dark_metal_leather]studded_bloodhound_gloves"		""
 		"[operation_10_snakeskin_black]studded_brokenfang_gloves"		""
 		"[operation_10_metalic_green]studded_brokenfang_gloves"		""
+	}
+}
+
+// "Callhood Case": the Watchmen and Summer Skins knives (and the AWP Palms) made by Callhood, with
+// regular skins. Needs custom_paint_kits.txt and the textures from install_callhood_skins.bat.
+// Looks like Weapon Case 3 (def 4010) and uses its key.
+"callhood"
+{
+	"based_on"	"4010"
+	"name"	"Callhood Case"
+
+	"items"
+	{
+		// Covert
+		"[am_murano_violet]weapon_m4a1_silencer"		"ancient"
+		"[am_kimono_sunrise]weapon_ak47"		"ancient"
+
+		// Classified
+		"[csgogc_summer_awp_palms]weapon_awp"		"legendary"
+		"[aq_steel_inferno]weapon_famas"		"legendary"
+		"[am_doppler_phase2]weapon_ak47"		"legendary"
+
+		// Restricted
+		"[sp_zebracam_red]weapon_m4a1"		"mythical"
+		"[hy_blizzard]weapon_ak47"		"mythical"
+		"[sp_bud_blue]weapon_cz75a"		"mythical"
+		"[am_blackpearl_marbleized]weapon_deagle"		"mythical"
+		"[an_titanium30v]weapon_aug"		"mythical"
+
+		// Mil-Spec
+		"[hy_reef]weapon_p250"		"rare"
+		"[hy_webs]weapon_xm1014"		"rare"
+		"[sp_leaf_orange]weapon_bizon"		"rare"
+		"[so_orange_accents3]weapon_nova"		"rare"
+		"[aa_ancient_brown]weapon_elite"		"rare"
+		"[hy_bamboo_jungle_ink]weapon_mac10"		"rare"
+	}
+
+	"golds"
+	{
+		"[csgogc_watchmen_bayonet_comedian_s_smiley_1]weapon_bayonet"		""
+		"[csgogc_watchmen_bayonet_comedian_s_smiley_2]weapon_bayonet"		""
+		"[csgogc_watchmen_bayonet_manhattan]weapon_bayonet"		""
+		"[csgogc_watchmen_bayonet_mars_thinking]weapon_bayonet"		""
+		"[csgogc_watchmen_bayonet_rorschach]weapon_bayonet"		""
+		"[csgogc_watchmen_bowie_comedian_s_smiley_1]weapon_knife_survival_bowie"		""
+		"[csgogc_watchmen_bowie_rorschach]weapon_knife_survival_bowie"		""
+		"[csgogc_watchmen_butterfly_comedian_s_smiley_1]weapon_knife_butterfly"		""
+		"[csgogc_watchmen_butterfly_comedian_s_smiley_2]weapon_knife_butterfly"		""
+		"[csgogc_watchmen_butterfly_manhattan]weapon_knife_butterfly"		""
+		"[csgogc_watchmen_butterfly_mars_thinking]weapon_knife_butterfly"		""
+		"[csgogc_watchmen_butterfly_rorschach]weapon_knife_butterfly"		""
+		"[csgogc_watchmen_falchion_comedian_s_smiley_1]weapon_knife_falchion"		""
+		"[csgogc_watchmen_falchion_comedian_s_smiley_2]weapon_knife_falchion"		""
+		"[csgogc_watchmen_falchion_manhattan]weapon_knife_falchion"		""
+		"[csgogc_watchmen_falchion_mars_thinking]weapon_knife_falchion"		""
+		"[csgogc_watchmen_falchion_rorschach]weapon_knife_falchion"		""
+		"[csgogc_watchmen_flip_comedian_s_smiley_1]weapon_knife_flip"		""
+		"[csgogc_watchmen_flip_comedian_s_smiley_2]weapon_knife_flip"		""
+		"[csgogc_watchmen_flip_manhattan]weapon_knife_flip"		""
+		"[csgogc_watchmen_flip_mars_thinking]weapon_knife_flip"		""
+		"[csgogc_watchmen_flip_rorschach]weapon_knife_flip"		""
+		"[csgogc_watchmen_gut_comedian_s_smiley]weapon_knife_gut"		""
+		"[csgogc_watchmen_gut_manhattan]weapon_knife_gut"		""
+		"[csgogc_watchmen_gut_mars_thinking]weapon_knife_gut"		""
+		"[csgogc_watchmen_gut_rorschach]weapon_knife_gut"		""
+		"[csgogc_watchmen_gut_who_watches_the_watchmen]weapon_knife_gut"		""
+		"[csgogc_watchmen_huntsman_comedian_s_smiley_1]weapon_knife_tactical"		""
+		"[csgogc_watchmen_huntsman_comedian_s_smiley_2]weapon_knife_tactical"		""
+		"[csgogc_watchmen_huntsman_manhattan]weapon_knife_tactical"		""
+		"[csgogc_watchmen_huntsman_mars_thinking]weapon_knife_tactical"		""
+		"[csgogc_watchmen_huntsman_rorschach]weapon_knife_tactical"		""
+		"[csgogc_watchmen_karambit_comedian_s_smiley_1]weapon_knife_karambit"		""
+		"[csgogc_watchmen_karambit_comedian_s_smiley_2]weapon_knife_karambit"		""
+		"[csgogc_watchmen_karambit_inkblot]weapon_knife_karambit"		""
+		"[csgogc_watchmen_karambit_mars_thinking]weapon_knife_karambit"		""
+		"[csgogc_watchmen_karambit_rorschach]weapon_knife_karambit"		""
+		"[csgogc_watchmen_m9_comedian_s_smiley]weapon_knife_m9_bayonet"		""
+		"[csgogc_watchmen_m9_manhattan]weapon_knife_m9_bayonet"		""
+		"[csgogc_watchmen_m9_mars_thinking]weapon_knife_m9_bayonet"		""
+		"[csgogc_watchmen_m9_rorschach]weapon_knife_m9_bayonet"		""
+		"[csgogc_watchmen_m9_star_watching]weapon_knife_m9_bayonet"		""
+		"[csgogc_watchmen_shadow_dagger_comedian_s_smiley_1]weapon_knife_push"		""
+		"[csgogc_watchmen_shadow_dagger_comedian_s_smiley_2]weapon_knife_push"		""
+		"[csgogc_watchmen_shadow_dagger_mars_thinking]weapon_knife_push"		""
+		"[csgogc_watchmen_shadow_dagger_rorschach]weapon_knife_push"		""
+		"[csgogc_summer_bayonet_aloha]weapon_bayonet"		""
+		"[csgogc_summer_butterfly_aloha]weapon_knife_butterfly"		""
+		"[csgogc_summer_gut_aloha]weapon_knife_gut"		""
+		"[csgogc_summer_huntsman_aloha]weapon_knife_tactical"		""
+		"[csgogc_summer_karambit_aloha]weapon_knife_karambit"		""
+		"[csgogc_summer_m9_aloha]weapon_knife_m9_bayonet"		""
+		"[csgogc_summer_bayonet_ice_cream]weapon_bayonet"		""
+		"[csgogc_summer_butterfly_ice_cream]weapon_knife_butterfly"		""
+		"[csgogc_summer_gut_ice_cream]weapon_knife_gut"		""
+		"[csgogc_summer_huntsman_ice_cream]weapon_knife_tactical"		""
+		"[csgogc_summer_karambit_ice_cream]weapon_knife_karambit"		""
+		"[csgogc_summer_m9_ice_cream]weapon_knife_m9_bayonet"		""
+		"[csgogc_summer_gut_palms]weapon_knife_gut"		""
+		"[csgogc_summer_bayonet_voley]weapon_bayonet"		""
+		"[csgogc_summer_butterfly_voley]weapon_knife_butterfly"		""
+		"[csgogc_summer_gut_voley]weapon_knife_gut"		""
+		"[csgogc_summer_huntsman_voley]weapon_knife_tactical"		""
+		"[csgogc_summer_karambit_voley]weapon_knife_karambit"		""
+		"[csgogc_summer_m9_voley]weapon_knife_m9_bayonet"		""
+		"[csgogc_summer_bayonet_water_elemental]weapon_bayonet"		""
+		"[csgogc_summer_butterfly_water_elemental]weapon_knife_butterfly"		""
+		"[csgogc_summer_gut_water_elemental]weapon_knife_gut"		""
+		"[csgogc_summer_huntsman_water_elemental]weapon_knife_tactical"		""
+		"[csgogc_summer_karambit_water_elemental]weapon_knife_karambit"		""
+		"[csgogc_summer_m9_water_elemental]weapon_knife_m9_bayonet"		""
+		"[csgogc_summer_bayonet_waves]weapon_bayonet"		""
+		"[csgogc_summer_butterfly_waves]weapon_knife_butterfly"		""
+		"[csgogc_summer_gut_waves]weapon_knife_gut"		""
+		"[csgogc_summer_huntsman_waves]weapon_knife_tactical"		""
+		"[csgogc_summer_karambit_waves]weapon_knife_karambit"		""
+		"[csgogc_summer_m9_waves]weapon_knife_m9_bayonet"		""
 	}
 }
