@@ -4909,3 +4909,232 @@
 		"[csgogc_summer_m9_waves]weapon_knife_m9_bayonet"		""
 	}
 }
+
+// Recolour cases: finishes from custom_paint_kits.txt that repaint the game's own patterns in new colours.
+"kaleido"
+{
+	"based_on"	"4003"
+	"name"	"Kaleido Case"
+
+	"items"
+	{
+		// Covert
+		"[rc_hy_lines_orange_teal]weapon_tec9"		"ancient"
+		"[rc_hy_blam_simple_rose]weapon_mp9"		"ancient"
+		// Classified
+		"[rc_hy_ali_tile_bravo_cobalt]weapon_scar20"		"legendary"
+		"[rc_hy_arctic_contrast_cobalt]weapon_ak47"		"legendary"
+		"[rc_hy_marina_sunrise_ember]weapon_negev"		"legendary"
+		// Restricted
+		"[rc_hy_feathers_aug_teal]weapon_glock"		"mythical"
+		"[rc_hy_ddpat_urb_ash]weapon_sawedoff"		"mythical"
+		"[rc_hy_arctic_amber]weapon_aug"		"mythical"
+		"[rc_sp_palm_teal]weapon_famas"		"mythical"
+		"[rc_hy_splatter_emerald]weapon_revolver"		"mythical"
+		// Mil-Spec
+		"[rc_sp_kimono_diamonds_ember]weapon_cz75a"		"rare"
+		"[rc_hy_kimono_diamonds_orange_amber]weapon_sg556"		"rare"
+		"[rc_sp_tape_dots_urban_violet]weapon_mac10"		"rare"
+		"[rc_sp_snake_magenta]weapon_nova"		"rare"
+		"[rc_sp_nukestripe_green_ember]weapon_usp_silencer"		"rare"
+		"[rc_hy_flowers_violet]weapon_ump45"		"rare"
+	}
+
+	"golds"
+	{
+		"[am_ruby_marbleized]weapon_bayonet"		""
+		"[am_sapphire_marbleized]weapon_bayonet"		""
+		"[aa_fade]weapon_bayonet"		""
+		"[am_doppler_phase1]weapon_bayonet"		""
+		"[am_ruby_marbleized]weapon_knife_flip"		""
+		"[am_sapphire_marbleized]weapon_knife_flip"		""
+		"[aa_fade]weapon_knife_flip"		""
+		"[am_doppler_phase2]weapon_knife_flip"		""
+		"[aa_fade]weapon_knife_gut"		""
+		"[am_doppler_phase3]weapon_knife_gut"		""
+		"[am_ruby_marbleized]weapon_knife_karambit"		""
+		"[am_sapphire_marbleized]weapon_knife_karambit"		""
+		"[aa_fade]weapon_knife_karambit"		""
+		"[am_doppler_phase4]weapon_knife_karambit"		""
+		"[am_ruby_marbleized]weapon_knife_m9_bayonet"		""
+		"[aa_fade]weapon_knife_m9_bayonet"		""
+		"[am_doppler_phase1]weapon_knife_m9_bayonet"		""
+		"[am_ruby_marbleized]weapon_knife_tactical"		""
+		"[aa_fade]weapon_knife_tactical"		""
+		"[am_doppler_phase2]weapon_knife_tactical"		""
+		"[am_sapphire_marbleized]weapon_knife_butterfly"		""
+		"[aa_fade]weapon_knife_butterfly"		""
+		"[am_doppler_phase3]weapon_knife_butterfly"		""
+	}
+}
+
+"dye"
+{
+	"based_on"	"4009"
+	"name"	"Dye Case"
+
+	"items"
+	{
+		// Covert
+		"[rc_hy_seaside_bravo_rose]weapon_nova"		"ancient"
+		"[rc_hy_siege_bravo_emerald]weapon_m249"		"ancient"
+		// Classified
+		"[rc_hy_copperhead_magenta]weapon_sawedoff"		"legendary"
+		"[rc_hy_splatter_rose]weapon_g3sg1"		"legendary"
+		"[rc_hy_marina_sunrise_rose]weapon_mag7"		"legendary"
+		// Restricted
+		"[rc_hy_plaid1_ember]weapon_ump45"		"mythical"
+		"[rc_hy_bamboo_jungle_ink_violet]weapon_m4a1_silencer"		"mythical"
+		"[rc_hy_varicamo_rose]weapon_aug"		"mythical"
+		"[rc_hy_nerodia_azure]weapon_fiveseven"		"mythical"
+		"[rc_sp_tape_rose]weapon_m4a1"		"mythical"
+		// Mil-Spec
+		"[rc_sp_tape_dots_urban_azure]weapon_tec9"		"rare"
+		"[rc_hy_varicamo_night_ember]weapon_deagle"		"rare"
+		"[rc_hy_desert_azure]weapon_xm1014"		"rare"
+		"[rc_hy_arctic_magenta]weapon_famas"		"rare"
+		"[rc_hy_varicamo_desert_cobalt]weapon_p90"		"rare"
+		"[rc_hy_geometric_steps_green_emerald]weapon_glock"		"rare"
+	}
+
+	"golds"
+	{
+		"[am_ruby_marbleized]weapon_bayonet"		""
+		"[am_sapphire_marbleized]weapon_bayonet"		""
+		"[aa_fade]weapon_bayonet"		""
+		"[am_doppler_phase1]weapon_bayonet"		""
+		"[am_ruby_marbleized]weapon_knife_flip"		""
+		"[am_sapphire_marbleized]weapon_knife_flip"		""
+		"[aa_fade]weapon_knife_flip"		""
+		"[am_doppler_phase2]weapon_knife_flip"		""
+		"[aa_fade]weapon_knife_gut"		""
+		"[am_doppler_phase3]weapon_knife_gut"		""
+		"[am_ruby_marbleized]weapon_knife_karambit"		""
+		"[am_sapphire_marbleized]weapon_knife_karambit"		""
+		"[aa_fade]weapon_knife_karambit"		""
+		"[am_doppler_phase4]weapon_knife_karambit"		""
+		"[am_ruby_marbleized]weapon_knife_m9_bayonet"		""
+		"[aa_fade]weapon_knife_m9_bayonet"		""
+		"[am_doppler_phase1]weapon_knife_m9_bayonet"		""
+		"[am_ruby_marbleized]weapon_knife_tactical"		""
+		"[aa_fade]weapon_knife_tactical"		""
+		"[am_doppler_phase2]weapon_knife_tactical"		""
+		"[am_sapphire_marbleized]weapon_knife_butterfly"		""
+		"[aa_fade]weapon_knife_butterfly"		""
+		"[am_doppler_phase3]weapon_knife_butterfly"		""
+	}
+}
+
+"tincture"
+{
+	"based_on"	"4005"
+	"name"	"Tincture Case"
+
+	"items"
+	{
+		// Covert
+		"[rc_hy_kimono_diamonds_crimson]weapon_mp7"		"ancient"
+		"[rc_hy_marina_sunrise_violet]weapon_xm1014"		"ancient"
+		// Classified
+		"[rc_hy_gelpen_crimson]weapon_sg556"		"legendary"
+		"[rc_hy_siege_bravo_cobalt]weapon_g3sg1"		"legendary"
+		"[rc_hy_icarus_lime]weapon_hkp2000"		"legendary"
+		// Restricted
+		"[rc_sp_spray_sand_cobalt]weapon_fiveseven"		"mythical"
+		"[rc_hy_varicamo_urban_ember]weapon_p250"		"mythical"
+		"[rc_sp_nukestripe_orange_emerald]weapon_usp_silencer"		"mythical"
+		"[rc_sp_snake_teal]weapon_p90"		"mythical"
+		"[rc_hy_varicamo_night_crimson]weapon_elite"		"mythical"
+		// Mil-Spec
+		"[rc_sp_tape_urban_magenta]weapon_mp9"		"rare"
+		"[rc_hy_blam_simple_magenta]weapon_mac10"		"rare"
+		"[rc_hy_hades_crimson]weapon_famas"		"rare"
+		"[rc_hy_v_tiger_lime]weapon_m4a1_silencer"		"rare"
+		"[rc_sp_mesh_glacier_magenta]weapon_awp"		"rare"
+		"[rc_hy_hunter_blaze_pink_cobalt]weapon_sawedoff"		"rare"
+	}
+
+	"golds"
+	{
+		"[am_ruby_marbleized]weapon_bayonet"		""
+		"[am_sapphire_marbleized]weapon_bayonet"		""
+		"[aa_fade]weapon_bayonet"		""
+		"[am_doppler_phase1]weapon_bayonet"		""
+		"[am_ruby_marbleized]weapon_knife_flip"		""
+		"[am_sapphire_marbleized]weapon_knife_flip"		""
+		"[aa_fade]weapon_knife_flip"		""
+		"[am_doppler_phase2]weapon_knife_flip"		""
+		"[aa_fade]weapon_knife_gut"		""
+		"[am_doppler_phase3]weapon_knife_gut"		""
+		"[am_ruby_marbleized]weapon_knife_karambit"		""
+		"[am_sapphire_marbleized]weapon_knife_karambit"		""
+		"[aa_fade]weapon_knife_karambit"		""
+		"[am_doppler_phase4]weapon_knife_karambit"		""
+		"[am_ruby_marbleized]weapon_knife_m9_bayonet"		""
+		"[aa_fade]weapon_knife_m9_bayonet"		""
+		"[am_doppler_phase1]weapon_knife_m9_bayonet"		""
+		"[am_ruby_marbleized]weapon_knife_tactical"		""
+		"[aa_fade]weapon_knife_tactical"		""
+		"[am_doppler_phase2]weapon_knife_tactical"		""
+		"[am_sapphire_marbleized]weapon_knife_butterfly"		""
+		"[aa_fade]weapon_knife_butterfly"		""
+		"[am_doppler_phase3]weapon_knife_butterfly"		""
+	}
+}
+
+"pigment"
+{
+	"based_on"	"4017"
+	"name"	"Pigment Case"
+
+	"items"
+	{
+		// Covert
+		"[rc_hy_geometric_steps_green_cobalt]weapon_sawedoff"		"ancient"
+		"[rc_hy_lines_orange_crimson]weapon_mp5sd"		"ancient"
+		// Classified
+		"[rc_hy_seaside_bravo_ember]weapon_galilar"		"legendary"
+		"[rc_sp_star_bravo_magenta]weapon_hkp2000"		"legendary"
+		"[rc_sp_zebracam_bw_lime]weapon_revolver"		"legendary"
+		// Restricted
+		"[rc_hy_marina_sunrise_ash]weapon_ak47"		"mythical"
+		"[rc_hy_bamboo_jungle_violet]weapon_g3sg1"		"mythical"
+		"[rc_sp_tape_violet]weapon_mac10"		"mythical"
+		"[rc_hy_varicamo_desert_ash]weapon_glock"		"mythical"
+		"[rc_sp_labyrinth2_azure]weapon_elite"		"mythical"
+		// Mil-Spec
+		"[rc_hy_arctic_contrast_ember]weapon_negev"		"rare"
+		"[rc_sp_spray_emerald]weapon_mp9"		"rare"
+		"[rc_hy_forest_winter_ember]weapon_aug"		"rare"
+		"[rc_sp_kimono_diamonds_cobalt]weapon_p250"		"rare"
+		"[rc_sp_snake_crimson]weapon_tec9"		"rare"
+		"[rc_hy_kimono_diamonds_ash]weapon_fiveseven"		"rare"
+	}
+
+	"golds"
+	{
+		"[am_ruby_marbleized]weapon_bayonet"		""
+		"[am_sapphire_marbleized]weapon_bayonet"		""
+		"[aa_fade]weapon_bayonet"		""
+		"[am_doppler_phase1]weapon_bayonet"		""
+		"[am_ruby_marbleized]weapon_knife_flip"		""
+		"[am_sapphire_marbleized]weapon_knife_flip"		""
+		"[aa_fade]weapon_knife_flip"		""
+		"[am_doppler_phase2]weapon_knife_flip"		""
+		"[aa_fade]weapon_knife_gut"		""
+		"[am_doppler_phase3]weapon_knife_gut"		""
+		"[am_ruby_marbleized]weapon_knife_karambit"		""
+		"[am_sapphire_marbleized]weapon_knife_karambit"		""
+		"[aa_fade]weapon_knife_karambit"		""
+		"[am_doppler_phase4]weapon_knife_karambit"		""
+		"[am_ruby_marbleized]weapon_knife_m9_bayonet"		""
+		"[aa_fade]weapon_knife_m9_bayonet"		""
+		"[am_doppler_phase1]weapon_knife_m9_bayonet"		""
+		"[am_ruby_marbleized]weapon_knife_tactical"		""
+		"[aa_fade]weapon_knife_tactical"		""
+		"[am_doppler_phase2]weapon_knife_tactical"		""
+		"[am_sapphire_marbleized]weapon_knife_butterfly"		""
+		"[aa_fade]weapon_knife_butterfly"		""
+		"[am_doppler_phase3]weapon_knife_butterfly"		""
+	}
+}
