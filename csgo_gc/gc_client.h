@@ -65,6 +65,7 @@ private:
     std::string RconGiveItem(const RconRequest &request);
     std::string RconRemoveItem(const RconRequest &request);
     std::string RconSellItem(const RconRequest &request);
+    std::string RconGiveStars(const RconRequest &request);
     std::string RconRefreshInventory(const RconRequest &request);
     std::string RconSaveInventory(const RconRequest &request);
     void PublishItemRemoval(const CMsgSOSingleObject &itemDestroy,

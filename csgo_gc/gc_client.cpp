@@ -552,6 +552,7 @@ const ClientGC::RconCommandDef *ClientGC::RconCommands(size_t &count)
         { "give_item", "give_item <defindex> [count] [key=value...]", &ClientGC::RconGiveItem },
         { "remove_item", "remove_item <itemid>", &ClientGC::RconRemoveItem },
         { "sell_item", "sell_item <itemid>", &ClientGC::RconSellItem },
+        { "give_stars", "give_stars <amount>", &ClientGC::RconGiveStars },
         { "refresh_inventory", "refresh_inventory", &ClientGC::RconRefreshInventory },
         { "save_inventory", "save_inventory", &ClientGC::RconSaveInventory },
     };
@@ -1009,6 +1010,31 @@ std::string ClientGC::RconRemoveItem(const RconRequest &request)
 
     PublishItemRemoval(destroyed, recurringSubscriptionDestroy);
     return "OK removed";
+}
+
+std::string ClientGC::RconGiveStars(const RconRequest &request)
+{
+    uint32_t amount;
+    if (request.args.size() != 1 || !TryParseNumber(request.args[0], amount) || !amount || amount > 1000000)
+    {
+        return Usage("give_stars <amount, 1 to 1000000>");
+    }
+
+    const std::optional<uint32_t> season = StarSeason();
+    if (!season)
+    {
+        return "ERR the star shop is off or the schema has no operation";
+    }
+
+    Inventory::StarChange change;
+    if (!m_inventory.AddStars(*season, amount, change))
+    {
+        return "ERR couldn't add stars";
+    }
+
+    PublishStarChange(change);
+    Platform::Print("Stars: +%u from RCON, balance %u\n", amount, m_inventory.Stars(*season));
+    return "OK balance " + std::to_string(m_inventory.Stars(*season));
 }
 
 std::string ClientGC::RconSellItem(const RconRequest &request)
