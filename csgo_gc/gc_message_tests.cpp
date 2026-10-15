@@ -4623,6 +4623,37 @@ static bool StarShopMovesTheOperationScheduleToNow()
     return valid && GameSchemaPatch::ActivateOperation(none, now) == -1;
 }
 
+// the RCON give_stars command adds to the balance and tells the game
+static bool RconGiveStarsAddsToTheBalance()
+{
+    constexpr uint64_t SteamId = 76561197960265729ull;
+    RemoveStarShopFixtures();
+    if (!WriteStarShopFixtures())
+    {
+        RemoveStarShopFixtures();
+        return false;
+    }
+
+    bool valid = true;
+    {
+        ClientGC gc{ SteamId };
+        const std::string first = gc.RunRconCommand("give_stars 40");
+        valid &= first == "OK balance 40";
+
+        const std::string second = gc.RunRconCommand("GIVE_STARS 15");
+        valid &= second == "OK balance 55";
+
+        // bad amounts are refused and change nothing
+        valid &= gc.RunRconCommand("give_stars 0").rfind("ERR", 0) == 0;
+        valid &= gc.RunRconCommand("give_stars abc").rfind("ERR", 0) == 0;
+        valid &= gc.RunRconCommand("give_stars 5000000").rfind("ERR", 0) == 0;
+        valid &= gc.RunRconCommand("give_stars 1") == "OK balance 56";
+    }
+
+    RemoveStarShopFixtures();
+    return valid;
+}
+
 static bool StarShopEarnsStarsAndRedeemsARandomAgent()
 {
     constexpr uint64_t SteamId = 76561197960265729ull;
@@ -4793,6 +4824,7 @@ int main()
         { "MatchEndGivesOneDrop", MatchEndGivesOneDrop },
         { "StoreListsEveryWeaponCaseAndKey", StoreListsEveryWeaponCaseAndKey },
         { "CustomCaseReplacesContents", CustomCaseReplacesContents },
+        { "RconGiveStarsAddsToTheBalance", RconGiveStarsAddsToTheBalance },
         { "CustomPaintKitsReachTheSchemaAndGameFile", CustomPaintKitsReachTheSchemaAndGameFile },
         { "StoreListsAddedCustomCases", StoreListsAddedCustomCases },
         { "AddedCaseSkinsTradeUp", AddedCaseSkinsTradeUp },
