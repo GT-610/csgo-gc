@@ -765,12 +765,6 @@ int GameSchemaPatch::ActivateOperation(std::string &text, int64_t now)
 
 // Recipe ids follow the existing pattern (0..4 by input rarity, +10 for
 // StatTrak), which is also what the GC's craft handler expects.
-//
-// The game's trade-up screen picks the recipe from the first item's rarity, and knives and gloves are
-// Covert (ancient) too, so 5 of them are checked against recipe 5 (15 for StatTrak), not recipe 6. Those two
-// therefore take any quality (a Covert skin is "unique", a knife or gloves are "unusual") and have no craft_class
-// condition (gloves have none). Which kind of contract it really is gets decided by the GC from the items.
-// Recipe 6 is kept for items rated above Covert.
 const char *const GameSchemaPatch::GoldTradeUpRecipes = R"(		"5"
 		{
 			"name"		"#RT_MP_A"
@@ -792,6 +786,8 @@ const char *const GameSchemaPatch::GoldTradeUpRecipes = R"(		"5"
 					"conditions"
 					{
 						"0" { "field" "*rarity" "operator" "string==" "value" "ancient" "required" "1" }
+						"1" { "field" "*quality" "operator" "string==" "value" "unique" "required" "1" }
+						"2" { "field" "craft_class" "operator" "string==" "value" "weapon" "required" "1" }
 					}
 				}
 			}
@@ -829,8 +825,9 @@ const char *const GameSchemaPatch::GoldTradeUpRecipes = R"(		"5"
 					"conditions"
 					{
 						"0" { "field" "*rarity" "operator" "string==" "value" "ancient" "required" "1" }
-						"1" { "field" "*quality" "operator" "string!=" "value" "unique" "required" "1" }
+						"1" { "field" "*quality" "operator" "string==" "value" "strange" "required" "1" }
 						"2" { "field" "*kill_eater_score_type" "operator" "string==" "value" "0" "required" "1" }
+						"3" { "field" "craft_class" "operator" "string==" "value" "weapon" "required" "1" }
 					}
 				}
 			}
