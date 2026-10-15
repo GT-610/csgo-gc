@@ -576,7 +576,7 @@ static const char CaseStoreScriptCareer[] = R"js(
 		_Clear( panel );
 		var list = m_career ? m_career.achievements : [];
 		var categories = m_career && m_career.categories ? m_career.categories : [];
-		var done = list.filter( function( a ) { return a[ 7 ]; } ).length;
+		var done = list.filter( function( a ) { return a[ 6 ]; } ).length;
 
 		var top = _Panel( panel, { width: '100%', flowChildren: 'right', margin: '0px 0px 10px 0px' } );
 		_Label( top, done + ' of ' + list.length + ' achievements unlocked', { fontSize: '16px', color: GOLD, fontWeight: 'bold', verticalAlign: 'center', marginRight: '24px' } );
@@ -596,7 +596,7 @@ static const char CaseStoreScriptCareer[] = R"js(
 
 		var shown = list.filter( function( a )
 		{
-			return m_achievementFilter === 'all' || ( m_achievementFilter === 'done' ? a[ 7 ] : !a[ 7 ] );
+			return m_achievementFilter === 'all' || ( m_achievementFilter === 'done' ? a[ 6 ] : !a[ 6 ] );
 		} );
 		if ( !shown.length )
 		{
@@ -607,12 +607,12 @@ static const char CaseStoreScriptCareer[] = R"js(
 		var lastCategory = -1;
 		shown.forEach( function( a )
 		{
-			var finished = a[ 7 ];
-			if ( a[ 8 ] !== lastCategory )
+			var finished = a[ 6 ];
+			if ( a[ 7 ] !== lastCategory )
 			{
-				lastCategory = a[ 8 ];
-				var inCategory = list.filter( function( x ) { return x[ 8 ] === lastCategory; } );
-				var unlockedHere = inCategory.filter( function( x ) { return x[ 7 ]; } ).length;
+				lastCategory = a[ 7 ];
+				var inCategory = list.filter( function( x ) { return x[ 7 ] === lastCategory; } );
+				var unlockedHere = inCategory.filter( function( x ) { return x[ 6 ]; } ).length;
 				var heading = _Panel( panel, { width: '100%', height: '30px', margin: '10px 0px 6px 0px', flowChildren: 'right', borderBottom: '1px solid #ffffff30' } );
 				_Label( heading, ( categories[ lastCategory ] || 'Other' ).toUpperCase(), { fontSize: '14px', color: '#ffffff', fontWeight: 'bold', letterSpacing: '3px', verticalAlign: 'center', width: 'fill-parent-flow( 1.0 )' } );
 				_Label( heading, unlockedHere + ' / ' + inCategory.length, { fontSize: '13px', color: '#aab4c0', verticalAlign: 'center', horizontalAlign: 'right' } );
