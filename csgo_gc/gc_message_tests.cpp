@@ -4467,8 +4467,9 @@ static bool GoldTradeUpRecipesAreAddedToSchema()
     const KeyValue *itemsGame = parsed.GetSubkey("items_game");
     const KeyValue *recipes = itemsGame ? itemsGame->GetSubkey("recipes") : nullptr;
     const KeyValue *other = itemsGame ? itemsGame->GetSubkey("other") : nullptr;
-    valid &= recipes && recipes->SubkeyCount() == 4
-        && recipes->GetSubkey("0") && recipes->GetSubkey("5") && recipes->GetSubkey("15") && recipes->GetSubkey("6")
+    // 5 Coverts only: knives and gloves have no recipe, so they can't be put into a contract
+    valid &= recipes && recipes->SubkeyCount() == 3
+        && recipes->GetSubkey("0") && recipes->GetSubkey("5") && recipes->GetSubkey("15") && !recipes->GetSubkey("6")
         && other && other->GetSubkey("recipes") && other->GetSubkey("recipes")->SubkeyCount() == 0;
 
     // covert recipe takes 5 Coverts
@@ -4478,33 +4479,6 @@ static bool GoldTradeUpRecipesAreAddedToSchema()
 
     std::string noRecipes = "\"items_game\" { \"items\" { } }";
     valid &= !GameSchemaPatch::InsertRecipes(noRecipes, GameSchemaPatch::GoldTradeUpRecipes);
-    return valid;
-}
-
-static bool PanoramaPatchLetsKnivesIntoContracts()
-{
-    // the two entries from the final CS:GO scripts/common/item_context_entries.js
-    std::string source =
-        "\t\t\tname: 'tradeup_add',\n"
-        "\t\t\tAvailableForItem: function ( id ) {\n"
-        "\t\t\t\tvar slot = ItemInfo.GetSlotSubPosition(id);\n"
-        "\t\t\t\treturn slot && slot !==\"melee\" && slot !==\"c4\" && slot !==\"clothing_hands\" && !ItemInfo.IsEquippalbleButNotAWeapon(id) &&\n"
-        "\t\t\t\t\t( InventoryAPI.CanTradeUp( id ) || InventoryAPI.GetNumItemsNeededToTradeUp( id ) > 0 );\n"
-        "\t\t\tname: 'tradeup_remove',\n"
-        "\t\t\t\treturn slot && slot !==\"melee\" && slot !==\"c4\" && slot !==\"clothing_hands\" && !ItemInfo.IsEquippalbleButNotAWeapon(id);\n"
-        "\t\t\tname: 'equip_ct', AvailableForItem: function ( id ) { return slot !== \"melee\"; }\n";
-
-    int changes = PanoramaHook::PatchItemContextEntries(source);
-    bool valid = changes == 2
-        && source.find("slot && slot !==\"c4\" &&\n") != std::string::npos
-        && source.find("slot && slot !==\"c4\";") != std::string::npos
-        && source.find("clothing_hands") == std::string::npos
-        && source.find("return slot !== \"melee\";") != std::string::npos; // other entries untouched
-
-    std::string unrelated = "var x = 1;";
-    valid &= PanoramaHook::PatchItemContextEntries(unrelated) == 0 && unrelated == "var x = 1;";
-    valid &= PanoramaHook::CaseStoreScript().find("var CsgoGcCaseStore") != std::string::npos
-        && PanoramaHook::CaseStoreScript().find("SetData: _SetData") != std::string::npos;
     return valid;
 }
 
@@ -5056,7 +5030,6 @@ int main()
         { "CustomCasePreviewPatchesOnlyTargetLists", CustomCasePreviewPatchesOnlyTargetLists },
         { "CustomCasePreviewBacksUpAndRestores", CustomCasePreviewBacksUpAndRestores },
         { "GoldTradeUpRecipesAreAddedToSchema", GoldTradeUpRecipesAreAddedToSchema },
-        { "PanoramaPatchLetsKnivesIntoContracts", PanoramaPatchLetsKnivesIntoContracts },
         { "CaseStoreDataListsCasesWithKeys", CaseStoreDataListsCasesWithKeys },
         { "TradeUpRecipesAcceptStatTrakWhenMixing", TradeUpRecipesAcceptStatTrakWhenMixing },
         { "StarShopPatchReplacesOnlyTheNewestOperationsGoods",

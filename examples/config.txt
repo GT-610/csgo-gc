@@ -96,8 +96,8 @@
 // shows its contents.
 "case_store_menu"	"1"
 
-// lets the trade-up screen accept 5 Coverts (or 5 knives/gloves) for a
-// knife/glove. the game's own trade-up rules live in its items_game.txt and
+// lets the trade-up screen accept 5 Coverts for a knife/glove (knives and gloves
+// themselves never show up on the trade-up screen). the game's own trade-up rules live in its items_game.txt and
 // have no recipe for this, so csgo_gc adds one to that file (the original is
 // kept as items_game.txt.csgo_gc_backup and put back when this and
 // custom_case_previews are both 0). restart the game after the first launch.

@@ -9,9 +9,8 @@ class ItemSchema;
 // The UI scripts live in the signed csgo/panorama/code.pbin, so they can't be
 // edited on disk. Instead this hooks the UI engine's RunScript (every script
 // in a layout file goes through it) and:
-//   - lets knives and gloves be added to a trade-up contract (the stock
-//     "Add to contract" menu entry skips melee/glove slots)
-//   - adds a Case Store button to the main menu: one big searchable screen
+//   - adds a "Sell for N stars" entry to the inventory's right-click menu
+//   - adds the SkinStop button to the main menu: one big searchable screen
 //     with every container the store sells, bought together with its key
 //
 // Windows only. Everything is skipped (with a console message) if panorama.dll
@@ -30,10 +29,6 @@ namespace PanoramaHook
     void Tick();
 
     // --- the parts below are plain text processing, testable anywhere ---
-
-    // allows melee/glove items in the trade-up context menu entries of
-    // scripts/common/item_context_entries.js. returns the number of changes
-    int PatchItemContextEntries(std::string &source);
 
     // the sell prices the right-click "Sell" entry shows, by rarity 1..6 (Consumer to Covert) and for knives and gloves
     struct SellPrices

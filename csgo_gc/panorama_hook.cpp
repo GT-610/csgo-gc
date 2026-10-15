@@ -13,28 +13,6 @@
 // text processing (all platforms)
 // ============================================================================
 
-int PanoramaHook::PatchItemContextEntries(std::string &source)
-{
-    // the "Add to contract" / "Remove from contract" entries skip knives and
-    // gloves:  slot !=="melee" && slot !=="c4" && slot !=="clothing_hands" &&
-    //          !ItemInfo.IsEquippalbleButNotAWeapon(id)
-    static const std::regex slotCheck{
-        R"re(slot\s*!==\s*"melee"\s*&&\s*slot\s*!==\s*"c4"\s*&&\s*slot\s*!==\s*"clothing_hands"\s*&&\s*!\s*ItemInfo\.IsEquippalbleButNotAWeapon\(\s*id\s*\))re" };
-
-    int count = 0;
-    for (auto it = std::sregex_iterator(source.begin(), source.end(), slotCheck); it != std::sregex_iterator(); ++it)
-    {
-        count++;
-    }
-
-    if (count)
-    {
-        source = std::regex_replace(source, slotCheck, R"(slot !=="c4")");
-    }
-
-    return count;
-}
-
 int PanoramaHook::PatchContextMenuLabels(std::string &source)
 {
     // elLabel.text = '#inv_context_' + displayName;
@@ -78,18 +56,27 @@ bool PanoramaHook::AddSellEntry(std::string &source, const SellPrices &prices)
 				return 'TopSeparator';
 			},
 			AvailableForItem: function ( id ) {
-				var price = CsgoGcSellPrice( id );
-				var deletable = InventoryAPI.IsDeletable( id );
-				if ( price > 0 && !deletable )
-				{
-					$.Msg( '[csgo_gc] sell: item ' + id + ' is worth ' + price + ' stars but the game says it can not be deleted' );
-				}
-				return deletable && price > 0;
+				// not InventoryAPI.IsDeletable: the game doesn't offer Delete for skins, but the GC sells them
+				return CsgoGcSellPrice( id ) > 0;
 			},
 			OnSelected: function ( id ) {
 				$.DispatchEvent( 'ContextMenuEvent', '' );
 				var price = CsgoGcSellPrice( id );
-				var sell = function() { InventoryAPI.DeleteItem( id ); };
+				var sell = function()
+				{
+					InventoryAPI.DeleteItem( id );
+					// if the item is still there a moment later, the game did not send the delete
+					$.Schedule( 2.0, function()
+					{
+						var stillThere = true;
+						try { stillThere = InventoryAPI.IsValidItemID( id ) !== false; } catch ( e ) {}
+						if ( stillThere )
+						{
+							$.Msg( '[csgo_gc] sell: the game did not delete item ' + id + ' (IsDeletable = ' + InventoryAPI.IsDeletable( id ) + ')' );
+							try { UiToolkitAPI.ShowGenericPopupOk( 'Could not sell', 'The game would not delete this item, so it was not sold.', '', function() {} ); } catch ( e ) {}
+						}
+					} );
+				};
 				try
 				{
 					UiToolkitAPI.ShowGenericPopupOkCancel( 'Sell item', 'Sell this item for ' + price + ' stars? It will be removed from your inventory.', '', sell, function() {} );
@@ -1198,7 +1185,6 @@ void *s_uiEngine;
 void *s_mainMenuPanel;
 std::string s_caseStoreData;
 bool s_caseStoreDataSent;
-bool s_loggedContextPatch;
 int64_t s_starsSent = -2; // what the UI was last told
 
 struct Section
@@ -1369,39 +1355,21 @@ void __fastcall Hk_RunScript(void *engine, void *edx, void *panel, const char *s
     const StarShopConfig &starShop = GetConfig().StarShop();
     const bool sellMenu = starShop.enabled && starShop.sellEnabled;
 
-    if (PathIsFile(path, "item_context_entries.js") && (GetConfig().GoldTradeUpRecipes() || sellMenu))
+    if (sellMenu && PathIsFile(path, "item_context_entries.js"))
     {
         std::string patched = source;
-        int changes = 0;
-        if (GetConfig().GoldTradeUpRecipes())
-        {
-            changes = PanoramaHook::PatchItemContextEntries(patched);
-            if (!s_loggedContextPatch)
-            {
-                s_loggedContextPatch = true;
-                Platform::Print(changes
-                        ? "Panorama: knives and gloves can be added to trade-up contracts\n"
-                        : "Panorama: item_context_entries.js didn't match, knives can't be added to contracts from the menu\n");
-            }
-        }
-
-        bool sellAdded = false;
-        if (sellMenu)
-        {
-            PanoramaHook::SellPrices prices;
-            prices.byRarity[1] = starShop.sellConsumer;
-            prices.byRarity[2] = starShop.sellIndustrial;
-            prices.byRarity[3] = starShop.sellMilSpec;
-            prices.byRarity[4] = starShop.sellRestricted;
-            prices.byRarity[5] = starShop.sellClassified;
-            prices.byRarity[6] = starShop.sellCovert;
-            prices.knifeOrGlove = starShop.sellKnifeOrGlove;
-            sellAdded = PanoramaHook::AddSellEntry(patched, prices);
-            Platform::Print(sellAdded ? "Panorama: right-click Sell entry added\n"
-                                      : "Panorama: item_context_entries.js has no delete entry, no Sell entry added\n");
-        }
-
-        if (changes || sellAdded)
+        PanoramaHook::SellPrices prices;
+        prices.byRarity[1] = starShop.sellConsumer;
+        prices.byRarity[2] = starShop.sellIndustrial;
+        prices.byRarity[3] = starShop.sellMilSpec;
+        prices.byRarity[4] = starShop.sellRestricted;
+        prices.byRarity[5] = starShop.sellClassified;
+        prices.byRarity[6] = starShop.sellCovert;
+        prices.knifeOrGlove = starShop.sellKnifeOrGlove;
+        const bool sellAdded = PanoramaHook::AddSellEntry(patched, prices);
+        Platform::Print(sellAdded ? "Panorama: right-click Sell entry added\n"
+                                  : "Panorama: item_context_entries.js has no delete entry, no Sell entry added\n");
+        if (sellAdded)
         {
             s_originalRunScript(engine, edx, panel, patched.c_str(), path, line, column, arg6, arg7);
             return;
