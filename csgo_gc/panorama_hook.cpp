@@ -330,7 +330,7 @@ static const char CaseStoreScriptPart2[] = R"js(
 		}, 'Panel', 'CsgoGcCaseStore' );
 		// the operation page's backdrop: a map screenshot, darkened
 		_Style( m_overlay, { backgroundImage: BACKGROUND, backgroundSize: 'cover', backgroundPosition: 'center',
-			backgroundRepeat: 'no-repeat', washColor: '#0d0a09dd' } );
+			backgroundRepeat: 'no-repeat', washColor: '#0d0a0940' } );
 
 		var popups = context.FindChild( 'PopupManager' );
 		if ( popups )
