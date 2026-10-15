@@ -751,11 +751,11 @@
 	}
 }
 
-// "Gamma Case": gamma Doppler greens and teals on guns, and every newer knife in the Chroma finishes. Looks like Community Case 3 (def 4017) and uses its key.
-"gamma"
+// "Toxic Case": Gamma Doppler greens and teals on guns, and every newer knife in the Chroma finishes. Looks like Community Case 3 (def 4017) and uses its key.
+"toxic"
 {
 	"based_on"	"4017"
-	"name"	"Gamma Case"
+	"name"	"Toxic Case"
 
 	"items"
 	{
