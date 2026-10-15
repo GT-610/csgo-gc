@@ -4020,6 +4020,63 @@ static bool CustomPaintKitsReachTheSchemaAndGameFile()
     return valid;
 }
 
+// a custom case with a price of its own is a special offer, the rest are custom cases
+static bool CaseStoreListsPricedCustomCasesAsSpecialOffers()
+{
+    RemoveGoldTradeUpFixtures();
+    KeyValue customCases{ "custom_cases" };
+    KeyValue &plainCase = customCases.AddSubkey("plain_case");
+    plainCase.AddString("based_on", "4001");
+    plainCase.AddSubkey("items").AddString("[custom_a]weapon_ak47", "rare");
+    KeyValue &pricedCase = customCases.AddSubkey("priced_case");
+    pricedCase.AddString("based_on", "4001");
+    pricedCase.AddString("price", "500");
+    pricedCase.AddSubkey("items").AddString("[custom_b]weapon_ak47", "rare");
+    if (!WriteGoldTradeUpFixtures() || !customCases.WriteToFile("csgo_gc/custom_cases.txt"))
+    {
+        RemoveGoldTradeUpFixtures();
+        return false;
+    }
+
+    bool valid = true;
+    {
+        ClientGC gc{ 76561197960265729ull };
+        const ItemSchema &schema = gc.GetItemSchema();
+        const std::string data = PanoramaHook::BuildCaseStoreData(schema);
+
+        auto find = [&](std::string_view key, uint32_t &outDef)
+        {
+            const uint32_t *found = nullptr;
+            for (uint32_t def : schema.GetCustomCaseDefIndexes())
+            {
+                const ItemInfo *info = schema.ItemInfoByDefIndex(def);
+                if (info && info->m_name == key)
+                {
+                    outDef = def;
+                    found = &outDef;
+                }
+            }
+            return found != nullptr;
+        };
+
+        uint32_t plainDef = 0, pricedDef = 0;
+        valid &= find("crate_csgogc_plain_case", plainDef) && find("crate_csgogc_priced_case", pricedDef);
+
+        auto entryFor = [&](uint32_t def)
+        {
+            const size_t at = data.find("[" + std::to_string(def) + ",");
+            return at == std::string::npos ? std::string{} : data.substr(at, data.find(']', at) - at);
+        };
+        const std::string plainEntry = entryFor(plainDef);
+        const std::string pricedEntry = entryFor(pricedDef);
+        valid &= plainEntry.find(",5,") != std::string::npos && plainEntry.find(",6,") == std::string::npos;
+        valid &= pricedEntry.find(",6,") != std::string::npos && pricedEntry.find(",5,") == std::string::npos;
+    }
+
+    RemoveGoldTradeUpFixtures();
+    return valid;
+}
+
 static bool CustomCaseReplacesContents()
 {
     constexpr uint64_t SteamId = 76561197960265729ull;
@@ -4824,6 +4881,7 @@ int main()
         { "MatchEndGivesOneDrop", MatchEndGivesOneDrop },
         { "StoreListsEveryWeaponCaseAndKey", StoreListsEveryWeaponCaseAndKey },
         { "CustomCaseReplacesContents", CustomCaseReplacesContents },
+        { "CaseStoreListsPricedCustomCasesAsSpecialOffers", CaseStoreListsPricedCustomCasesAsSpecialOffers },
         { "RconGiveStarsAddsToTheBalance", RconGiveStarsAddsToTheBalance },
         { "CustomPaintKitsReachTheSchemaAndGameFile", CustomPaintKitsReachTheSchemaAndGameFile },
         { "StoreListsAddedCustomCases", StoreListsAddedCustomCases },

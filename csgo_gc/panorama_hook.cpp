@@ -57,7 +57,8 @@ std::string PanoramaHook::BuildCaseStoreData(const ItemSchema &itemSchema)
     const bool priced = starShop.enabled && itemSchema.LatestSeasonalOperation();
 
     // [defIndex, keyDefIndex or 0, kind, star price, rarity, custom name]
-    // kinds: 0 weapon case, 1 souvenir package, 2 capsule, 3 other, 4 agent, 5 custom case
+    // kinds: 0 weapon case, 1 souvenir package, 2 capsule, 3 other, 4 agent, 5 custom case,
+    // 6 special offer (a custom case with a price of its own)
     std::string data = "[";
     bool first = true;
     auto begin = [&]()
@@ -74,7 +75,8 @@ std::string PanoramaHook::BuildCaseStoreData(const ItemSchema &itemSchema)
     {
         std::vector<uint32_t> keys = itemSchema.GetKeysForCrate(crate);
         const bool custom = itemSchema.IsCustomCase(crate);
-        const int kind = custom ? 5 : static_cast<int>(itemSchema.GetContainerKind(crate));
+        const int kind = custom ? (itemSchema.CustomCasePrice(crate) ? 6 : 5)
+                                : static_cast<int>(itemSchema.GetContainerKind(crate));
 
         begin();
         data += std::to_string(crate) + ',' + std::to_string(keys.empty() ? 0 : keys.front()) + ','
@@ -116,13 +118,13 @@ var CsgoGcCaseStore = ( function()
 {
 	// [ kind, title ] in the order the sections are shown
 	var SECTIONS = [
-		[ 5, 'SPECIAL OFFERS' ], [ 4, 'AGENTS' ], [ 0, 'WEAPON CASES' ],
+		[ 6, 'SPECIAL OFFERS' ], [ 5, 'CUSTOM CASES' ], [ 4, 'AGENTS' ], [ 0, 'WEAPON CASES' ],
 		[ 1, 'SOUVENIR PACKAGES' ], [ 2, 'CAPSULES' ], [ 3, 'OTHER' ]
 	];
-	var KIND_NAMES = [ 'Weapon Case', 'Souvenir Package', 'Capsule', 'Other', 'Agent', 'Custom Case' ];
+	var KIND_NAMES = [ 'Weapon Case', 'Souvenir Package', 'Capsule', 'Other', 'Agent', 'Custom Case', 'Special Offer' ];
 	// section backdrops, like the operation page's coloured panels
-	var SECTION_BACKDROP = { 5: '#2c4f7f80', 4: '#4a2a7a80', 0: '#ffffff12', 1: '#6b4a1e66', 2: '#1e5a6b66', 3: '#ffffff12' };
-	var KIND_COLORS = { 5: '#5b9bff', 4: '#a070ff', 0: '#ffffff30', 1: '#e0a040', 2: '#40b8d0', 3: '#ffffff30' };
+	var SECTION_BACKDROP = { 6: '#2e2410e8', 5: '#10203ae8', 4: '#1f1236e8', 0: '#141a22e8', 1: '#2a1d0ce8', 2: '#0c262ee8', 3: '#141a22e8' };
+	var KIND_COLORS = { 6: '#f5c542', 5: '#5b9bff', 4: '#a070ff', 0: '#ffffff30', 1: '#e0a040', 2: '#40b8d0', 3: '#ffffff30' };
 	var BACKGROUND = 'url("file://{images}/map_icons/screenshots/1080p/de_nuke.png")';
 	var RARITY_COLORS = { 1: '#b0c3d9', 2: '#5e98d9', 3: '#4b69ff', 4: '#8847ff', 5: '#d32ce6', 6: '#eb4b4b', 7: '#e4ae39' };
 	var BUY_AMOUNTS = [ 1, 5, 10 ];
@@ -338,7 +340,7 @@ var CsgoGcCaseStore = ( function()
 
 		var tile = _Panel( grid, {
 			width: '152px', height: '188px', margin: '0px 8px 8px 0px', flowChildren: 'down',
-			backgroundColor: 'gradient( linear, 0% 0%, 0% 100%, from( #ffffff1c ), to( #ffffff0c ) )'
+			backgroundColor: 'gradient( linear, 0% 0%, 0% 100%, from( #2b3748f2 ), to( #1b2431f2 ) )'
 		} );
 
 		var imageButton = _Panel( tile, { width: '100%', height: '96px' }, 'Button' );
@@ -353,11 +355,11 @@ var CsgoGcCaseStore = ( function()
 		// the colour bar under the picture: an agent's rarity, otherwise the section's colour
 		_Panel( tile, { width: '100%', height: '3px', backgroundColor: isAgent ? ( RARITY_COLORS[ rarity ] || '#b0c3d9' ) : ( KIND_COLORS[ kind ] || '#ffffff30' ) } );
 
-		_Label( tile, name, { fontSize: '12px', color: '#ffffff', margin: '5px 7px 0px 7px', height: '32px' } );
+		_Label( tile, name, { fontSize: '13px', color: '#ffffff', fontWeight: 'bold', margin: '5px 7px 0px 7px', height: '34px' } );
 
 		var info = _Panel( tile, { width: '100%', flowChildren: 'right', margin: '0px 7px 0px 7px' } );
-		_Label( info, ( KIND_NAMES[ kind ] || '' ) + ( keyId ? ' + key' : '' ), { fontSize: '10px', color: '#9aa4b1', verticalAlign: 'center' } );
-		_Label( info, price > 0 ? ( price + ' \u2605' ) : 'free', { fontSize: '14px', color: GOLD, fontWeight: 'bold', horizontalAlign: 'right', marginRight: '14px' } );
+		_Label( info, ( KIND_NAMES[ kind ] || '' ) + ( keyId ? ' + key' : '' ), { fontSize: '11px', color: '#cdd6e0', verticalAlign: 'center' } );
+		_Label( info, price > 0 ? ( price + ' \u2605' ) : 'free', { fontSize: '15px', color: GOLD, fontWeight: 'bold', horizontalAlign: 'right', marginRight: '14px' } );
 
 		var buttonRow = _Panel( tile, { flowChildren: 'right', horizontalAlign: 'center', marginTop: '6px' } );
 		var buttons = [];
@@ -434,7 +436,7 @@ static const char CaseStoreScriptPart2[] = R"js(
 		}, 'Panel', 'CsgoGcCaseStore' );
 		// the operation page's backdrop: a map screenshot, darkened
 		_Style( m_overlay, { backgroundImage: BACKGROUND, backgroundSize: 'cover', backgroundPosition: 'center',
-			backgroundRepeat: 'no-repeat', washColor: '#0d0a0940' } );
+			backgroundRepeat: 'no-repeat', washColor: '#0d0a0990' } );
 
 		var popups = context.FindChild( 'PopupManager' );
 		if ( popups )
@@ -446,7 +448,7 @@ static const char CaseStoreScriptPart2[] = R"js(
 		var header = _Panel( m_overlay, { width: '100%', height: '66px', flowChildren: 'right', padding: '14px 56px 0px 56px', borderBottom: '1px solid #ffffff30' } );
 		var titles = _Panel( header, { flowChildren: 'down', width: 'fill-parent-flow( 1.0 )' } );
 		_Label( titles, 'SkinStop', { fontSize: '26px', color: '#ffffff', fontWeight: 'bold', letterSpacing: '1px' } );
-		_Label( titles, 'Use your Stars to get Rewards of your choosing.', { fontSize: '13px', color: '#c9d1d9' } );
+		_Label( titles, 'Use your Stars to get Rewards of your choosing.', { fontSize: '14px', color: '#e2e8f0' } );
 
 		m_balanceBox = _Panel( header, { height: '32px', verticalAlign: 'center', padding: '0px 14px', backgroundColor: '#3a2f1ad0', border: '1px solid #6b5a2e' } );
 		m_balanceBox.visible = false;
@@ -459,8 +461,8 @@ static const char CaseStoreScriptPart2[] = R"js(
 			backgroundColor: '#ffffff14', border: '1px solid #ffffff30', padding: '4px 10px 0px 10px', marginRight: '18px'
 		}, 'TextEntry', 'CsgoGcCaseStoreSearch', { placeholder: 'Search...' } );
 		m_search.SetPanelEvent( 'ontextentrychange', _ApplyFilter );
-		m_count = _Label( bar, '', { fontSize: '13px', color: '#9aa4b1', verticalAlign: 'center', marginRight: '18px' } );
-		m_status = _Label( bar, 'Click a case to see what\'s inside. A case comes with its key.', { fontSize: '13px', color: '#c9d1d9', verticalAlign: 'center' } );
+		m_count = _Label( bar, '', { fontSize: '14px', color: '#cdd6e0', verticalAlign: 'center', marginRight: '18px' } );
+		m_status = _Label( bar, 'Click a case to see what\'s inside. A case comes with its key.', { fontSize: '14px', color: '#e2e8f0', verticalAlign: 'center' } );
 
 		// the sections
 		m_scroll = _Panel( m_overlay, { width: '100%', height: 'fill-parent-flow( 1.0 )', flowChildren: 'down', overflow: 'squish scroll', padding: '2px 56px 0px 56px' } );
@@ -473,7 +475,7 @@ static const char CaseStoreScriptPart2[] = R"js(
 			}
 
 			var panel = _Panel( m_scroll, { width: '100%', height: 'fit-children', flowChildren: 'down', padding: '10px 12px 2px 12px', margin: '0px 0px 10px 0px', backgroundColor: SECTION_BACKDROP[ definition[ 0 ] ] || '#ffffff12' } );
-			var title = _Label( panel, '', { fontSize: '13px', color: '#d8dee6', letterSpacing: '3px', marginBottom: '8px' } );
+			var title = _Label( panel, '', { fontSize: '15px', color: '#ffffff', fontWeight: 'bold', letterSpacing: '3px', marginBottom: '8px' } );
 			var grid = _Panel( panel, { width: '100%', height: 'fit-children', flowChildren: 'right-wrap' } );
 
 			var section = { panel: panel, title: title, name: definition[ 1 ], tiles: [] };
