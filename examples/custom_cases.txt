@@ -505,6 +505,14 @@
 		"[am_gyrate]weapon_knife_tactical"		""
 		"[am_royal]weapon_knife_falchion"		""
 		"[am_royal]weapon_knife_gut"		""
+		"[am_sapphire_marbleized]weapon_knife_widowmaker"		""
+		"[am_sapphire_marbleized]weapon_knife_stiletto"		""
+		"[am_doppler_phase4]weapon_knife_ursus"		""
+		"[am_doppler_phase4]weapon_knife_survival_bowie"		""
+		"[am_blackpearl_marbleized]weapon_knife_gypsy_jackknife"		""
+		"[am_blackpearl_marbleized]weapon_knife_canis"		""
+		"[gs_karam_autotronic]weapon_knife_karambit"		""
+		"[gs_butterfly_autotronic]weapon_knife_butterfly"		""
 	}
 }
 
@@ -552,6 +560,18 @@
 		"[an_tiger_orange]weapon_knife_karambit"		""
 		"[an_tiger_orange]weapon_knife_falchion"		""
 		"[hy_tiger]weapon_knife_tactical"		""
+		"[am_ruby_marbleized]weapon_knife_widowmaker"		""
+		"[am_ruby_marbleized]weapon_knife_stiletto"		""
+		"[am_doppler_phase2]weapon_knife_ursus"		""
+		"[am_doppler_phase2]weapon_knife_survival_bowie"		""
+		"[am_marble_fade]weapon_knife_gypsy_jackknife"		""
+		"[am_marble_fade]weapon_knife_canis"		""
+		"[am_marble_fade]weapon_knife_cord"		""
+		"[aa_fade]weapon_knife_outdoor"		""
+		"[aa_fade]weapon_knife_skeleton"		""
+		"[aa_fade]weapon_knife_css"		""
+		"[cu_karam_lore]weapon_knife_karambit"		""
+		"[cu_flip_lore]weapon_knife_flip"		""
 	}
 }
 
@@ -599,6 +619,16 @@
 		"[hy_blizzard]weapon_knife_tactical"		""
 		"[hy_ocean_knife]weapon_knife_falchion"		""
 		"[hy_ocean_knife]weapon_knife_gut"		""
+		"[am_sapphire_marbleized]weapon_knife_canis"		""
+		"[am_sapphire_marbleized]weapon_knife_cord"		""
+		"[am_doppler_phase1]weapon_knife_widowmaker"		""
+		"[am_doppler_phase1]weapon_knife_stiletto"		""
+		"[am_doppler_phase3]weapon_knife_ursus"		""
+		"[am_doppler_phase3]weapon_knife_outdoor"		""
+		"[aq_blued]weapon_knife_skeleton"		""
+		"[aq_blued]weapon_knife_css"		""
+		"[cu_gut_stonewash]weapon_knife_gut"		""
+		"[cu_flip_stonewash]weapon_knife_flip"		""
 	}
 }
 
@@ -646,13 +676,26 @@
 		"[aq_forced]weapon_knife_karambit"		""
 		"[aq_forced]weapon_knife_tactical"		""
 		"[am_carbon_fiber]weapon_knife_falchion"		""
+		"[am_blackpearl_marbleized]weapon_knife_widowmaker"		""
+		"[am_blackpearl_marbleized]weapon_knife_stiletto"		""
+		"[am_blackpearl_marbleized]weapon_knife_ursus"		""
+		"[aq_damascus]weapon_knife_survival_bowie"		""
+		"[aq_damascus]weapon_knife_gypsy_jackknife"		""
+		"[so_night]weapon_knife_canis"		""
+		"[so_night]weapon_knife_cord"		""
+		"[gs_bayonet_autotronic]weapon_bayonet"		""
+		"[gs_m9_bay_autotronic]weapon_knife_m9_bayonet"		""
+		"[gs_push_black_laminate]weapon_knife_push"		""
+		"[gs_butterfly_black_laminate]weapon_knife_butterfly"		""
+		"[gs_huntsman_black_laminate]weapon_knife_tactical"		""
+		"[gs_bowie_black_laminate]weapon_knife_survival_bowie"		""
 	}
 }
 
-// "Jungle Case": snakes, tigers, vines and bamboo. Looks like the CS:GO Weapon Case (def 4001) and uses its key.
+// "Jungle Case": snakes, tigers, vines and bamboo. Looks like the eSports 2014 Summer Case (def 4013) and uses its key.
 "jungle"
 {
-	"based_on"	"4001"
+	"based_on"	"4013"
 	"name"	"Jungle Case"
 
 	"items"
@@ -693,5 +736,139 @@
 		"[am_zebra]weapon_knife_gut"		""
 		"[hy_redtiger]weapon_knife_falchion"		""
 		"[hy_snakeskin]weapon_knife_tactical"		""
+		"[am_emerald_marbleized]weapon_knife_widowmaker"		""
+		"[am_emerald_marbleized]weapon_knife_stiletto"		""
+		"[am_gamma_doppler_phase1]weapon_knife_ursus"		""
+		"[am_gamma_doppler_phase3]weapon_knife_survival_bowie"		""
+		"[am_gamma_doppler_phase2]weapon_knife_gypsy_jackknife"		""
+		"[am_gamma_doppler_phase4]weapon_knife_canis"		""
+		"[hy_forest_boreal]weapon_knife_outdoor"		""
+		"[hy_forest_boreal]weapon_knife_cord"		""
+		"[sp_dapple]weapon_knife_skeleton"		""
+		"[sp_dapple]weapon_knife_css"		""
+		"[cu_bowie_lore]weapon_knife_survival_bowie"		""
+		"[cu_huntsman_lore]weapon_knife_tactical"		""
+	}
+}
+
+// "Gamma Case": gamma Doppler greens and teals on guns, and every newer knife in the Chroma finishes. Looks like Community Case 3 (def 4017) and uses its key.
+"gamma"
+{
+	"based_on"	"4017"
+	"name"	"Gamma Case"
+
+	"items"
+	{
+		// Mil-Spec
+		"[am_jorm_green]weapon_mp9"		"rare"
+		"[am_ossify]weapon_famas"		"rare"
+		"[an_emerald]weapon_p250"		"rare"
+		"[hy_snakeskin]weapon_mac10"		"rare"
+		"[so_green]weapon_glock"		"rare"
+		"[am_jade]weapon_usp_silencer"		"rare"
+
+		// Restricted
+		"[am_gamma_doppler_phase1]weapon_m4a1"		"mythical"
+		"[am_gamma_doppler_phase2]weapon_ak47"		"mythical"
+		"[am_gamma_doppler_phase3]weapon_deagle"		"mythical"
+		"[am_gamma_doppler_phase4]weapon_awp"		"mythical"
+		"[am_emerald_marbleized]weapon_m4a1_silencer"		"mythical"
+
+		// Classified
+		"[am_gamma_doppler_phase1]weapon_ak47"		"legendary"
+		"[am_gamma_doppler_phase3]weapon_awp"		"legendary"
+		"[am_gamma_doppler_phase2]weapon_m4a1_silencer"		"legendary"
+
+		// Covert
+		"[am_gamma_doppler_phase4]weapon_ak47"		"ancient"
+		"[am_gamma_doppler_phase1]weapon_awp"		"ancient"
+	}
+
+	"golds"
+	{
+		"[am_gamma_doppler_phase1]weapon_knife_karambit"		""
+		"[am_gamma_doppler_phase2]weapon_knife_butterfly"		""
+		"[am_gamma_doppler_phase3]weapon_bayonet"		""
+		"[am_gamma_doppler_phase4]weapon_knife_m9_bayonet"		""
+		"[am_gamma_doppler_phase1]weapon_knife_widowmaker"		""
+		"[am_gamma_doppler_phase2]weapon_knife_stiletto"		""
+		"[am_gamma_doppler_phase3]weapon_knife_ursus"		""
+		"[am_gamma_doppler_phase4]weapon_knife_survival_bowie"		""
+		"[am_gamma_doppler_phase1]weapon_knife_gypsy_jackknife"		""
+		"[am_gamma_doppler_phase2]weapon_knife_canis"		""
+		"[am_gamma_doppler_phase3]weapon_knife_cord"		""
+		"[am_gamma_doppler_phase4]weapon_knife_outdoor"		""
+		"[am_gamma_doppler_phase1]weapon_knife_skeleton"		""
+		"[am_gamma_doppler_phase2]weapon_knife_css"		""
+		"[am_emerald_marbleized]weapon_knife_flip"		""
+		"[am_emerald_marbleized]weapon_knife_gut"		""
+		"[am_emerald_marbleized]weapon_knife_falchion"		""
+	}
+}
+
+// "Forged Case": patina steel and bronze on guns, and the custom knife finishes: Lore, Stonewash, Autotronic and Black Laminate. Looks like Community Case 4 (def 4018) and uses its key.
+"forged"
+{
+	"based_on"	"4018"
+	"name"	"Forged Case"
+
+	"items"
+	{
+		// Mil-Spec
+		"[aq_brass]weapon_mp9"		"rare"
+		"[aq_oiled]weapon_famas"		"rare"
+		"[aq_forced]weapon_p250"		"rare"
+		"[aq_blued]weapon_mac10"		"rare"
+		"[am_chainmail]weapon_glock"		"rare"
+		"[am_metals]weapon_usp_silencer"		"rare"
+
+		// Restricted
+		"[aq_obsidian]weapon_ak47"		"mythical"
+		"[aq_damascus_90]weapon_m4a1"		"mythical"
+		"[aq_copper]weapon_awp"		"mythical"
+		"[aq_brass]weapon_deagle"		"mythical"
+		"[aq_blued]weapon_m4a1_silencer"		"mythical"
+
+		// Classified
+		"[aq_obsidian]weapon_awp"		"legendary"
+		"[aq_damascus_90]weapon_ak47"		"legendary"
+		"[aq_steel]weapon_m4a1_silencer"		"legendary"
+
+		// Covert
+		"[aq_obsidian]weapon_m4a1"		"ancient"
+		"[aq_damascus_90]weapon_awp"		"ancient"
+	}
+
+	"golds"
+	{
+		"[cu_karam_lore]weapon_knife_karambit"		""
+		"[cu_butterfly_lore]weapon_knife_butterfly"		""
+		"[cu_bayonet_lore]weapon_bayonet"		""
+		"[cu_m9_bay_lore]weapon_knife_m9_bayonet"		""
+		"[cu_flip_lore]weapon_knife_flip"		""
+		"[cu_gut_lore]weapon_knife_gut"		""
+		"[cu_falchion_lore]weapon_knife_falchion"		""
+		"[cu_huntsman_lore]weapon_knife_tactical"		""
+		"[cu_push_lore]weapon_knife_push"		""
+		"[cu_bowie_lore]weapon_knife_survival_bowie"		""
+		"[cu_karam_stonewash]weapon_knife_karambit"		""
+		"[cu_bayonet_stonewash]weapon_bayonet"		""
+		"[cu_m9_bay_stonewash]weapon_knife_m9_bayonet"		""
+		"[cu_flip_stonewash]weapon_knife_flip"		""
+		"[cu_gut_stonewash]weapon_knife_gut"		""
+		"[gs_karam_autotronic]weapon_knife_karambit"		""
+		"[gs_butterfly_autotronic]weapon_knife_butterfly"		""
+		"[gs_bayonet_autotronic]weapon_bayonet"		""
+		"[gs_m9_bay_autotronic]weapon_knife_m9_bayonet"		""
+		"[gs_flip_autotronic]weapon_knife_flip"		""
+		"[gs_falchion_autotronic]weapon_knife_falchion"		""
+		"[gs_huntsman_autotronic]weapon_knife_tactical"		""
+		"[gs_push_autotronic]weapon_knife_push"		""
+		"[gs_bowie_autotronic]weapon_knife_survival_bowie"		""
+		"[gs_push_black_laminate]weapon_knife_push"		""
+		"[gs_huntsman_black_laminate]weapon_knife_tactical"		""
+		"[gs_falchion_black_laminate]weapon_knife_falchion"		""
+		"[gs_butterfly_black_laminate]weapon_knife_butterfly"		""
+		"[gs_bowie_black_laminate]weapon_knife_survival_bowie"		""
 	}
 }
