@@ -140,7 +140,14 @@ var CsgoGcCaseStore = ( function()
 	{
 		for ( var key in styles )
 		{
-			panel.style[ key ] = styles[ key ];
+			try
+			{
+				panel.style[ key ] = styles[ key ];
+			}
+			catch ( e )
+			{
+				$.Msg( '[csgo_gc] shop: bad style ' + key + ': ' + e );
+			}
 		}
 		return panel;
 	}
@@ -327,10 +334,11 @@ static const char CaseStoreScriptPart2[] = R"js(
 		// title, subtitle and balance
 		var header = _Panel( m_overlay, { width: '100%', height: '92px', flowChildren: 'right', padding: '30px 120px 0px 120px', borderBottom: '1px solid #ffffff30' } );
 		var titles = _Panel( header, { flowChildren: 'down', width: 'fill-parent-flow( 1.0 )' } );
-		_Label( titles, 'The Supremacy Shop', { fontSize: '34px', color: '#ffffff', fontWeight: 'bold' } );
+		_Label( titles, 'SkinStop', { fontSize: '34px', color: '#ffffff', fontWeight: 'bold' } );
 		_Label( titles, 'Use your Stars to get Rewards of your choosing.', { fontSize: '16px', color: '#c9d1d9' } );
 
-		m_balanceBox = _Panel( header, { height: '40px', verticalAlign: 'center', padding: '0px 18px', backgroundColor: '#3a2f1a', border: '1px solid #6b5a2e', visible: false } );
+		m_balanceBox = _Panel( header, { height: '40px', verticalAlign: 'center', padding: '0px 18px', backgroundColor: '#3a2f1a', border: '1px solid #6b5a2e' } );
+		m_balanceBox.visible = false;
 		m_balance = _Label( m_balanceBox, '', { fontSize: '20px', color: GOLD, fontWeight: 'bold', verticalAlign: 'center' } );
 
 		// search and messages
@@ -374,7 +382,24 @@ static const char CaseStoreScriptPart2[] = R"js(
 	{
 		if ( !m_overlay )
 		{
-			_Build();
+			try
+			{
+				_Build();
+			}
+			catch ( e )
+			{
+				$.Msg( '[csgo_gc] shop: building the screen failed: ' + e );
+				if ( m_overlay )
+				{
+					_Label( m_overlay, 'The shop could not be built: ' + e, { fontSize: '18px', color: '#ff8080', margin: '40px 120px' } );
+					_Button( m_overlay, 'CLOSE', { margin: '0px 120px', width: '130px', height: '40px', backgroundColor: '#ffffff18' }, _Close );
+				}
+			}
+		}
+
+		if ( !m_search )
+		{
+			return;
 		}
 
 		m_overlay.visible = true;
@@ -420,7 +445,7 @@ static const char CaseStoreScriptPart2[] = R"js(
 		}
 
 		button.SetPanelEvent( 'onactivate', _Toggle );
-		button.SetPanelEvent( 'onmouseover', function() { UiToolkitAPI.ShowTextTooltip( 'CsgoGcCaseStoreNavBtn', 'The Supremacy Shop' ); } );
+		button.SetPanelEvent( 'onmouseover', function() { UiToolkitAPI.ShowTextTooltip( 'CsgoGcCaseStoreNavBtn', 'SkinStop' ); } );
 		button.SetPanelEvent( 'onmouseout', function() { UiToolkitAPI.HideTextTooltip(); } );
 	}
 
