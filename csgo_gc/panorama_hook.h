@@ -42,6 +42,11 @@ namespace PanoramaHook
     // returns false when the delete entry isn't found
     bool AddSellEntry(std::string &source, const SellPrices &prices);
 
+    // makes the contents list of a case (popup_capability_decodable.js) load each skin's textures before it shows
+    // the skin's picture. the game only does that for the one you click, so a skin and weapon pair it has no
+    // ready-made picture of (every one in a custom case) stays a blank tile. returns the number of changes
+    int PatchCasePopup(std::string &source);
+
     // lets a context menu entry whose name starts with '!' show that text as it is (the menu would look the
     // name up as a language token). returns the number of changes
     int PatchContextMenuLabels(std::string &source);

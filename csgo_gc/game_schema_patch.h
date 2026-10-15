@@ -90,6 +90,8 @@ namespace GameSchemaPatch
         uint32_t series{};
         std::string name;
         std::vector<std::string> previewEntries; // "[paint_kit]weapon"
+        std::vector<uint32_t> previewRarities;   // the rarity of each entry (3 Mil-Spec .. 6 Covert)
+        bool hasUnusual{};                       // add the gold "rare special item" tile
     };
 
     // adds the cases to items_game/items (copied from the case they're based on),

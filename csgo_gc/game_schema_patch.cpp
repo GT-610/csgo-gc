@@ -404,12 +404,38 @@ size_t GameSchemaPatch::AddCases(std::string &text, const std::vector<AddedCaseP
 
         itemsText += "\t\t" + block + "\n";
         revolvingText += "\t\t\"" + std::to_string(addedCase.series) + "\"\t\t\"" + addedCase.name + "\"\n";
-        listsText += "\t\t\"" + addedCase.name + "\"\n\t\t{\n";
-        for (const std::string &entry : addedCase.previewEntries)
+
+        // like the game's own cases: a list per rarity, shown blue, purple, pink, red, then the gold tile. a
+        // "<case>_unusual" entry (a list that isn't defined, as in the game's files) is what draws the gold tile
+        static const char *const Suffixes[] = { "rare", "mythical", "legendary", "ancient" };
+        std::string sublists, topList;
+        for (size_t tier = 0; tier < 4; tier++)
         {
-            listsText += "\t\t\t\"" + entry + "\"\t\t\"1\"\n";
+            std::string entries;
+            for (size_t i = 0; i < addedCase.previewEntries.size(); i++)
+            {
+                // Consumer and Industrial go with the blues, anything above Covert with the reds
+                const uint32_t rarity = i < addedCase.previewRarities.size() ? addedCase.previewRarities[i] : 3;
+                const size_t entryTier = rarity <= 3 ? 0 : rarity >= 6 ? 3 : rarity - 3;
+                if (entryTier == tier)
+                {
+                    entries += "\t\t\t\"" + addedCase.previewEntries[i] + "\"\t\t\"1\"\n";
+                }
+            }
+
+            if (!entries.empty())
+            {
+                const std::string listName = addedCase.name + "_" + Suffixes[tier];
+                sublists += "\t\t\"" + listName + "\"\n\t\t{\n" + entries + "\t\t}\n";
+                topList += "\t\t\t\"" + listName + "\"\t\t\"1\"\n";
+            }
         }
-        listsText += "\t\t}\n";
+        if (addedCase.hasUnusual)
+        {
+            topList += "\t\t\t\"" + addedCase.name + "_unusual\"\t\t\"1\"\n";
+        }
+
+        listsText += "\t\t\"" + addedCase.name + "\"\n\t\t{\n" + topList + "\t\t}\n" + sublists;
         added++;
     }
 

@@ -13,6 +13,33 @@
 // text processing (all platforms)
 // ============================================================================
 
+int PanoramaHook::PatchCasePopup(std::string &source)
+{
+    // var itemid = ItemInfo.GetLootListItemByIndex( caseId, i );
+    static const std::regex getItem{ R"re(var\s+itemid\s*=\s*ItemInfo\.GetLootListItemByIndex\(\s*caseId\s*,\s*i\s*\)\s*;)re" };
+    // _UpdateLootListItemInfo( elItem, itemid, caseId );
+    static const std::regex update{ R"re(_UpdateLootListItemInfo\(\s*elItem\s*,\s*itemid\s*,\s*caseId\s*\)\s*;)re" };
+
+    int count = 0;
+    if (std::regex_search(source, getItem))
+    {
+        source = std::regex_replace(source, getItem,
+            "$&\n\t\t\t// csgo_gc: load the skin's textures first, or its picture can't be drawn\n"
+            "\t\t\tif ( itemid !== '0' ) { try { InventoryAPI.PrecacheCustomMaterials( itemid ); } catch ( e ) {} }");
+        count++;
+    }
+
+    if (std::regex_search(source, update))
+    {
+        // the textures load in the background: ask for the picture again a moment later
+        source = std::regex_replace(source, update,
+            "$&\n\t\t\t\tif ( itemid !== '0' ) { ( function( image, id ) { $.Schedule( 0.7, function() "
+            "{ try { image.itemid = ''; image.itemid = id; } catch ( e ) {} } ); } )( elItem.FindChildInLayoutFile( 'ItemImage' ), itemid ); }");
+        count++;
+    }
+    return count;
+}
+
 int PanoramaHook::PatchContextMenuLabels(std::string &source)
 {
     // elLabel.text = '#inv_context_' + displayName;
@@ -1376,6 +1403,17 @@ void __fastcall Hk_RunScript(void *engine, void *edx, void *panel, const char *s
         }
     }
 
+    if (PathIsFile(path, "popup_capability_decodable.js"))
+    {
+        std::string patched = source;
+        if (PanoramaHook::PatchCasePopup(patched) == 2)
+        {
+            s_originalRunScript(engine, edx, panel, patched.c_str(), path, line, column, arg6, arg7);
+            return;
+        }
+        Platform::Print("Panorama: popup_capability_decodable.js didn't match, case contents may show blank pictures\n");
+    }
+
     if (sellMenu && PathIsFile(path, "context_menu_inventory_item.js"))
     {
         std::string patched = source;
@@ -1421,12 +1459,6 @@ void PanoramaHook::TryInstall()
         return;
     }
 
-    const bool sellMenu = GetConfig().StarShop().enabled && GetConfig().StarShop().sellEnabled;
-    if (!GetConfig().CaseStoreMenu() && !GetConfig().GoldTradeUpRecipes() && !GetConfig().PanoramaDebug() && !sellMenu)
-    {
-        s_installDone = true;
-        return;
-    }
 
     HMODULE panorama = GetModuleHandleA("panorama.dll");
     if (!panorama)

@@ -270,6 +270,8 @@ public:
         uint32_t series; // supply crate series, unique to the new case
         std::string name; // items_game name, e.g. crate_csgogc_gold_rush
         std::vector<std::string> previewEntries; // "[paint_kit]weapon" of its regular skins
+        std::vector<uint32_t> previewRarities;   // the rarity each of them rolls as
+        bool hasGolds{};                         // it can drop a knife or gloves
     };
     const std::vector<AddedCase> &AddedCases() const { return m_addedCases; }
 
@@ -482,6 +484,7 @@ private:
     std::unordered_map<uint32_t, std::string> m_customCaseNames;
     std::unordered_map<uint32_t, uint32_t> m_customCasePrices;
     std::map<uint32_t, std::vector<std::string>> m_customCasePreviewEntries;
+    std::map<uint32_t, std::vector<uint32_t>> m_customCasePreviewRarities;
     std::vector<AddedCase> m_addedCases;
     std::vector<CustomPaintKit> m_customPaintKits;
 

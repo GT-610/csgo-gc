@@ -315,7 +315,8 @@ ItemSchema::ItemSchema(bool loadFiles)
         std::vector<GameSchemaPatch::AddedCasePatch> addedCases;
         for (const AddedCase &added : m_addedCases)
         {
-            addedCases.push_back({ added.defIndex, added.basedOn, added.series, added.name, added.previewEntries });
+            addedCases.push_back({ added.defIndex, added.basedOn, added.series, added.name, added.previewEntries,
+                added.previewRarities, added.hasGolds });
         }
 
         GameSchemaPatch::PaintKitsPatch paintKits;
@@ -430,6 +431,7 @@ void ItemSchema::ParseCustomCases(const KeyValue &customCasesKey)
             if (!golds)
             {
                 m_customCasePreviewEntries[currentCrateDefIndex].emplace_back(name);
+                m_customCasePreviewRarities[currentCrateDefIndex].push_back(item.rarity);
             }
         }
     };
@@ -518,6 +520,7 @@ void ItemSchema::ParseCustomCases(const KeyValue &customCasesKey)
         if (regular.items.empty() && golds.items.empty())
         {
             m_customCasePreviewEntries.erase(crateDefIndex);
+            m_customCasePreviewRarities.erase(crateDefIndex);
             Platform::Print("custom_cases: case %u has no valid items, ignoring\n", crateDefIndex);
             if (addedBasedOn)
             {
@@ -543,7 +546,8 @@ void ItemSchema::ParseCustomCases(const KeyValue &customCasesKey)
         if (addedBasedOn)
         {
             m_addedCases.push_back({ crateDefIndex, addedBasedOn, crateDefIndex, addedName,
-                m_customCasePreviewEntries[crateDefIndex] });
+                m_customCasePreviewEntries[crateDefIndex], m_customCasePreviewRarities[crateDefIndex],
+                !golds.items.empty() });
         }
 
         std::string_view customName = caseKey.GetString("name");
