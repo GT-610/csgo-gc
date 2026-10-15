@@ -168,6 +168,8 @@ struct ItemSet
 {
     std::string name;
     bool isCollection{};
+    // made from a custom case; official collections win when both know a skin
+    bool isCustomCase{};
     std::vector<LootListItem> items;
 };
 
@@ -225,6 +227,11 @@ public:
         std::vector<std::string> &outCollections) const;
     bool GetCollectionsForPaintKit(uint32_t paintKitDefIndex,
         std::vector<std::string> &outCollections) const;
+    // custom cases act as collections for trade-ups: their skins trade up inside the
+    // case and use the rarity the case gave them
+    bool GetCustomCaseCollections(uint32_t defIndex, uint32_t paintKitDefIndex,
+        std::vector<std::string> &outCollections) const;
+    bool GetCustomCaseRarity(uint32_t defIndex, uint32_t paintKitDefIndex, uint32_t &outRarity) const;
     std::string GetCollectionDisplayName(std::string_view collectionName) const;
     bool GetTradeUpCandidates(std::string_view collectionName, uint32_t outputRarity,
         std::vector<const LootListItem *> &outCandidates) const;
@@ -450,6 +457,8 @@ private:
     std::unordered_map<std::string, LootList> m_lootLists;
 
     std::unordered_map<std::string, ItemSet> m_itemSets;
+    // custom case collection name -> its knife/glove list
+    std::unordered_map<std::string, const LootList *> m_customCaseGoldLists;
 
     std::unordered_map<uint32_t, const LootList &> m_revolvingLootLists;
     // custom_cases.txt: crate def index -> replacement contents

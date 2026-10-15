@@ -3494,12 +3494,19 @@ static bool WriteGoldTradeUpFixtures()
     paintKits.AddSubkey("101").AddString("name", "covert_b");
     paintKits.AddSubkey("102").AddString("name", "classified_a");
     paintKits.AddSubkey("103").AddString("name", "consumer_a");
+    // only used by custom cases
+    paintKits.AddSubkey("104").AddString("name", "custom_a");
+    paintKits.AddSubkey("105").AddString("name", "custom_b");
+    paintKits.AddSubkey("106").AddString("name", "custom_c");
 
     KeyValue &paintRarities = itemsGame.AddSubkey("paint_kits_rarity");
     paintRarities.AddString("covert_a", "ancient");
     paintRarities.AddString("covert_b", "ancient");
     paintRarities.AddString("classified_a", "legendary");
     paintRarities.AddString("consumer_a", "common");
+    paintRarities.AddString("custom_a", "common");
+    paintRarities.AddString("custom_b", "common");
+    paintRarities.AddString("custom_c", "common");
 
     KeyValue &set = itemsGame.AddSubkey("item_sets").AddSubkey("set_test");
     set.AddNumber("is_collection", 1);
@@ -3546,6 +3553,16 @@ static bool WriteGoldTradeUpFixtures()
     for (uint32_t i = 10; i <= 14; i++)
     {
         addSkin(i, 507, ItemSchema::QualityUnusual, ItemSchema::RarityAncient, 44, 0.4f);
+    }
+
+    // 300..309: Mil-Specs and 310..314: Coverts that only a custom case has
+    for (uint32_t i = 300; i < 310; i++)
+    {
+        addSkin(i, 7, ItemSchema::QualityUnique, ItemSchema::RarityRare, 104, 0.2f);
+    }
+    for (uint32_t i = 310; i < 315; i++)
+    {
+        addSkin(i, 7, ItemSchema::QualityUnique, ItemSchema::RarityAncient, 106, 0.2f);
     }
 
     // 20..29: Classifieds for a souvenir contract, even ids are souvenirs
@@ -3950,6 +3967,62 @@ static bool CustomCaseReplacesContents()
     return valid;
 }
 
+
+// skins that only an added case has trade up inside that case, at the rarity it gave them
+static bool AddedCaseSkinsTradeUp()
+{
+    constexpr uint64_t SteamId = 76561197960265729ull;
+    auto itemId = [&](uint32_t highItemId)
+    {
+        return (static_cast<uint64_t>(highItemId) << 32) | (SteamId & UINT32_MAX);
+    };
+
+    RemoveGoldTradeUpFixtures();
+    KeyValue customCases{ "custom_cases" };
+    KeyValue &customCase = customCases.AddSubkey("test_case");
+    customCase.AddString("based_on", "4001");
+    customCase.AddSubkey("golds").AddString("[covert_b]weapon_knife_karambit", "x");
+    KeyValue &caseItems = customCase.AddSubkey("items");
+    caseItems.AddString("[custom_a]weapon_ak47", "rare");
+    caseItems.AddString("[custom_b]weapon_ak47", "mythical");
+    caseItems.AddString("[custom_c]weapon_ak47", "ancient");
+    if (!WriteGoldTradeUpFixtures() || !customCases.WriteToFile("csgo_gc/custom_cases.txt"))
+    {
+        RemoveGoldTradeUpFixtures();
+        return false;
+    }
+
+    bool valid = true;
+    {
+        ClientGC gc{ SteamId };
+
+        // 10 Mil-Specs (the kit alone is "common") -> a Restricted from the same case
+        std::vector<uint64_t> inputs;
+        for (uint32_t i = 300; i < 310; i++)
+        {
+            inputs.push_back(itemId(i));
+        }
+        CraftOutcome standard = SendCraft(gc, 4, inputs);
+        uint32_t paintKit = 0;
+        valid &= standard.responded && standard.responseOk && standard.destroyCount == 10 && standard.created
+            && standard.createdItem.def_index() == 7
+            && standard.createdItem.rarity() == ItemSchema::RarityMythical
+            && FindAttributeUint32(standard.createdItem, ItemSchema::AttributeTexturePrefab, paintKit)
+            && paintKit == 105;
+
+        // 5 Coverts -> a knife from the same case
+        CraftOutcome covert = SendCraft(gc, 5,
+            { itemId(310), itemId(311), itemId(312), itemId(313), itemId(314) });
+        valid &= covert.responded && covert.responseOk && covert.destroyCount == 5 && covert.created
+            && covert.createdItem.def_index() == 507
+            && covert.createdItem.quality() == ItemSchema::QualityUnusual
+            && FindAttributeUint32(covert.createdItem, ItemSchema::AttributeTexturePrefab, paintKit)
+            && paintKit == 101;
+    }
+
+    RemoveGoldTradeUpFixtures();
+    return valid;
+}
 
 static bool CustomCasePreviewPatchesOnlyTargetLists()
 {
@@ -4609,6 +4682,7 @@ int main()
         { "MatchEndGivesOneDrop", MatchEndGivesOneDrop },
         { "StoreListsEveryWeaponCaseAndKey", StoreListsEveryWeaponCaseAndKey },
         { "CustomCaseReplacesContents", CustomCaseReplacesContents },
+        { "AddedCaseSkinsTradeUp", AddedCaseSkinsTradeUp },
         { "CustomCasePreviewPatchesOnlyTargetLists", CustomCasePreviewPatchesOnlyTargetLists },
         { "CustomCasePreviewBacksUpAndRestores", CustomCasePreviewBacksUpAndRestores },
         { "GoldTradeUpRecipesAreAddedToSchema", GoldTradeUpRecipesAreAddedToSchema },

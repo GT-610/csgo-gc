@@ -3515,6 +3515,16 @@ bool Inventory::TradeUp(const std::vector<uint64_t> &inputItemIds,
         uint32_t rarity = paintKitDefIndex
             ? m_itemSchema.GetPaintedRarity(item.def_index(), paintKitDefIndex, item.rarity())
             : item.rarity();
+
+        // a skin only a custom case has uses the rarity that case gave it
+        std::vector<std::string> officialCollections;
+        uint32_t customRarity = 0;
+        if (paintKitDefIndex && !isGold
+            && !m_itemSchema.GetCollectionsForPaintedItem(item.def_index(), paintKitDefIndex, officialCollections)
+            && m_itemSchema.GetCustomCaseRarity(item.def_index(), paintKitDefIndex, customRarity))
+        {
+            rarity = customRarity;
+        }
         debug.paintedRarity = rarity;
 
         // work out which contract this item belongs to
@@ -3571,6 +3581,7 @@ bool Inventory::TradeUp(const std::vector<uint64_t> &inputItemIds,
             }
         }
         else if (!m_itemSchema.GetCollectionsForPaintedItem(item.def_index(), paintKitDefIndex, collections)
+            && !m_itemSchema.GetCustomCaseCollections(item.def_index(), paintKitDefIndex, collections)
             && !m_itemSchema.GetCollectionsForPaintKit(paintKitDefIndex, collections))
         {
             Platform::Print("Trade-up item %llu has no collection mapping (def %u, paint %u, stored rarity %u, painted rarity %u, quality %u)\n",

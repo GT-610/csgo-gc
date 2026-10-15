@@ -517,6 +517,32 @@ void ItemSchema::ParseCustomCases(const KeyValue &customCasesKey)
         {
             m_customCaseNames[crateDefIndex] = std::string{ customName };
         }
+
+        // the case is its own collection for trade-ups. "zz_" sorts it after
+        // the real collections, which win when they know the same skin
+        {
+            const std::string setName = "zz_csgogc_case_" + std::to_string(crateDefIndex);
+            ItemSet set;
+            set.name = customName.empty() ? crateInfo->m_name : std::string{ customName };
+            set.isCollection = true;
+            set.isCustomCase = true;
+            for (const LootListItem &item : regular.items)
+            {
+                if (item.type == LootListItemPaintable && item.itemInfo && item.paintKitInfo)
+                {
+                    set.items.push_back(item);
+                }
+            }
+
+            if (!set.items.empty() || !golds.items.empty())
+            {
+                m_itemSets[setName] = std::move(set);
+                if (!golds.items.empty())
+                {
+                    m_customCaseGoldLists[setName] = &golds;
+                }
+            }
+        }
         Platform::Print("custom_cases: %s (%u) now has %zu skins and %zu golds\n",
             crateInfo->m_name.c_str(), crateDefIndex, regular.items.size(), golds.items.size());
     }
@@ -2063,7 +2089,7 @@ bool ItemSchema::GetCollectionsForPaintedItem(uint32_t defIndex, uint32_t paintK
     for (const auto &pair : m_itemSets)
     {
         const ItemSet &itemSet = pair.second;
-        if (!itemSet.isCollection)
+        if (!itemSet.isCollection || itemSet.isCustomCase)
         {
             continue;
         }
@@ -2094,7 +2120,7 @@ bool ItemSchema::GetCollectionsForPaintKit(uint32_t paintKitDefIndex,
     for (const auto &pair : m_itemSets)
     {
         const ItemSet &itemSet = pair.second;
-        if (!itemSet.isCollection)
+        if (!itemSet.isCollection || itemSet.isCustomCase)
         {
             continue;
         }
@@ -2115,6 +2141,55 @@ bool ItemSchema::GetCollectionsForPaintKit(uint32_t paintKitDefIndex,
     }
 
     return !outCollections.empty();
+}
+
+bool ItemSchema::GetCustomCaseCollections(uint32_t defIndex, uint32_t paintKitDefIndex,
+    std::vector<std::string> &outCollections) const
+{
+    outCollections.clear();
+
+    for (const auto &pair : m_itemSets)
+    {
+        if (!pair.second.isCustomCase)
+        {
+            continue;
+        }
+
+        for (const LootListItem &item : pair.second.items)
+        {
+            if (item.itemInfo && item.paintKitInfo && item.itemInfo->m_defIndex == defIndex
+                && item.paintKitInfo->m_defIndex == paintKitDefIndex)
+            {
+                outCollections.push_back(pair.first);
+                break;
+            }
+        }
+    }
+
+    std::sort(outCollections.begin(), outCollections.end());
+    return !outCollections.empty();
+}
+
+bool ItemSchema::GetCustomCaseRarity(uint32_t defIndex, uint32_t paintKitDefIndex, uint32_t &outRarity) const
+{
+    std::vector<std::string> collections;
+    if (!GetCustomCaseCollections(defIndex, paintKitDefIndex, collections))
+    {
+        return false;
+    }
+
+    // the first one, the same collection a trade-up picks
+    for (const LootListItem &item : m_itemSets.at(collections.front()).items)
+    {
+        if (item.itemInfo && item.paintKitInfo && item.itemInfo->m_defIndex == defIndex
+            && item.paintKitInfo->m_defIndex == paintKitDefIndex)
+        {
+            outRarity = item.rarity;
+            return true;
+        }
+    }
+
+    return false;
 }
 
 std::string ItemSchema::GetCollectionDisplayName(std::string_view collectionName) const
@@ -2467,6 +2542,10 @@ void ItemSchema::BuildSpecialTradeUpPools() const
     for (const auto &pair : m_itemSets)
     {
         const ItemSet &set = pair.second;
+        if (set.isCustomCase)
+        {
+            continue;
+        }
 
         std::vector<const LootListItem *> pool;
         std::unordered_set<uint64_t> seen;
@@ -2501,6 +2580,24 @@ void ItemSchema::BuildSpecialTradeUpPools() const
         if (!pool.empty())
         {
             m_specialPoolByCollection.emplace(pair.first, std::move(pool));
+        }
+    }
+
+    // a custom case's knives and gloves are its own pool
+    for (const auto &pair : m_customCaseGoldLists)
+    {
+        std::vector<const LootListItem *> pool;
+        for (const LootListItem &item : pair.second->items)
+        {
+            if (item.itemInfo)
+            {
+                pool.push_back(&item);
+            }
+        }
+
+        if (!pool.empty())
+        {
+            m_specialPoolByCollection[pair.first] = std::move(pool);
         }
     }
 }
@@ -2679,7 +2776,7 @@ bool ItemSchema::GetDropSkinCandidates(uint32_t rarity, std::vector<const LootLi
     for (const auto &pair : m_itemSets)
     {
         const ItemSet &itemSet = pair.second;
-        if (!itemSet.isCollection)
+        if (!itemSet.isCollection || itemSet.isCustomCase)
         {
             continue;
         }
