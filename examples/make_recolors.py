@@ -45,12 +45,50 @@ THEMES = {
     "Ash": (210, 0.10, 0),
 }
 
+# two-tone themes for the knives: (first hue, second hue, saturation). marbled and Doppler patterns are made of two
+# families of colour, so these keep that look. the colours alternate between the two hues by brightness
+DUO_THEMES = {
+    "Aurora": (148, 272, 0.70),
+    "Sunset": (18, 316, 0.78),
+    "Glacier": (190, 214, 0.55),
+    "Toxic": (82, 272, 0.72),
+    "Inferno": (355, 40, 0.80),
+    "Midnight": (226, 316, 0.74),
+}
+
+# the official knife finishes that are made of colours, and what to call them once recoloured
+KNIFE_BASES = {
+    "am_blackpearl_marbleized": "Pearl Marble", "am_doppler_phase1": "Doppler", "am_doppler_phase2": "Doppler Swirl",
+    "am_doppler_phase3": "Doppler Flow", "am_doppler_phase4": "Doppler Drift", "am_marble_fade": "Marble Fade",
+    "am_ruby_marbleized": "Marbleized", "am_sapphire_marbleized": "Marbled Glass", "am_zebra": "Slaughter",
+    "an_tiger_orange": "Tiger Tooth", "aa_fade": "Fade", "aq_blued": "Blued Steel", "aq_damascus": "Damascus",
+    "aq_damascus_90": "Damascus Fold", "aq_forced": "Stained", "aq_oiled": "Hardened", "aq_steel_knife": "Steel",
+    "hy_webs": "Web",
+}
+KNIFE_WEAPONS = ["weapon_bayonet", "weapon_knife_flip", "weapon_knife_gut", "weapon_knife_karambit", "weapon_knife_m9_bayonet",
+                 "weapon_knife_tactical", "weapon_knife_butterfly", "weapon_knife_falchion", "weapon_knife_push",
+                 "weapon_knife_survival_bowie", "weapon_knife_stiletto", "weapon_knife_ursus", "weapon_knife_gypsy_jackknife",
+                 "weapon_knife_widowmaker", "weapon_knife_skeleton", "weapon_knife_canis", "weapon_knife_cord",
+                 "weapon_knife_outdoor", "weapon_knife_css"]
+
 CASES = [
     ("kaleido", "Kaleido Case", "4003"),
     ("dye", "Dye Case", "4009"),
     ("tincture", "Tincture Case", "4005"),
     ("pigment", "Pigment Case", "4017"),
 ]
+
+# more cases, each with finishes of its own and a set of brand new knife finishes as its golds
+NEW_CASES = [
+    ("aurora", "Aurora Case", "4002"),
+    ("nebula", "Nebula Case", "4004"),
+    ("eclipse", "Eclipse Case", "4011"),
+    ("solstice", "Solstice Case", "4018"),
+    ("zephyr", "Zephyr Case", "4010"),
+    ("paragon", "Paragon Case", "4001"),
+]
+KNIFE_FINISHES_PER_CASE = 12
+KNIVES_PER_FINISH = 2
 
 # knife and glove finishes for the golds, spread over the types
 GOLD_KITS = {
@@ -121,6 +159,8 @@ def brightness(color):
 def recolor(values, theme):
     """The kit's four colours with the theme's hue, brightness kept. The colours are spread a little around
     the hue, brightest ones toward the warm side, so a finish isn't flat."""
+    if theme in DUO_THEMES:
+        return recolor_duo(values, DUO_THEMES[theme])
     hue, saturation, spread = THEMES[theme]
     originals = [values["color%d" % i] for i in range(4)]
     order = sorted(range(4), key=lambda i: brightness(originals[i]))
@@ -137,6 +177,25 @@ def recolor(values, theme):
             sat *= 0.85
         value = min(0.97, 0.12 + 0.88 * value ** 0.85)   # lift the darkest colours off pure black
         rr, gg, bb = colorsys.hsv_to_rgb(h / 360.0, sat, value)
+        out[index] = " ".join([str(round(rr * 255)), str(round(gg * 255)), str(round(bb * 255))] + parts[3:])
+    return out
+
+
+def recolor_duo(values, theme):
+    """Like recolor, but the four colours alternate between two hues: dark and light ones in the first family,
+    the in-between ones in the second, so a marbled pattern keeps two colours."""
+    hue_a, hue_b, saturation = theme
+    originals = [values["color%d" % i] for i in range(4)]
+    order = sorted(range(4), key=lambda i: brightness(originals[i]))
+    out = [None] * 4
+    for rank, index in enumerate(order):
+        parts = originals[index].split()
+        r, g, b = (float(v) / 255.0 for v in parts[:3])
+        value = max(r, g, b)
+        sat = saturation * (0.6 if value > 0.85 else 0.85 if value < 0.2 else 1.0)
+        value = min(0.97, 0.12 + 0.88 * value ** 0.85)
+        hue = hue_a if rank in (0, 3) else hue_b
+        rr, gg, bb = colorsys.hsv_to_rgb(hue / 360.0, sat, value)
         out[index] = " ".join([str(round(rr * 255)), str(round(gg * 255)), str(round(bb * 255))] + parts[3:])
     return out
 
@@ -219,6 +278,80 @@ def main():
             for name in names:
                 if name in kits:
                     lines.append('\t\t"[%s]%s"\t\t""' % (name, weapon))
+        lines += ["\t}", "}", ""]
+        case_text.append("\n".join(lines))
+
+    # ---- more cases: new finishes of their own, and new knife finishes as the golds ----
+    knife_weapons = [w for w in KNIFE_WEAPONS if '"name"\t\t"%s"' % w in items_game]
+    knife_bases = [b for b in KNIFE_BASES if b in kits and all("color%d" % i in kits[b] for i in range(4))]
+    knife_themes = list(THEMES) + list(DUO_THEMES)
+    knife_rng = random.Random(20260707)
+    used_knife = set()
+
+    def knife_ok(base, theme):
+        """A recolour that isn't used yet and has a bright colour to show (these patterns have dark bases)."""
+        return ("rk_%s_%s" % (base, theme.lower())) not in used_knife \
+            and max(brightness(c) for c in recolor(kits[base], theme)) >= 110
+
+    def make_knife_kit(base, theme):
+        key = "rk_%s_%s" % (base, theme.lower())
+        if key in used_knife:
+            return None
+        values = kits[base]
+        # these patterns have dark bases: skip a recolour that has no bright colour to show
+        if max(brightness(c) for c in recolor(values, theme)) < 110:
+            return None
+        used_knife.add(key)
+        lines = ['"%s"' % key, "{", '\t"title"\t"%s %s"' % (KNIFE_BASES[base], theme), '\t"rarity"\t"ancient"']
+        colors = recolor(values, theme)
+        for name, value in values.items():
+            if name in ("name", "description_string", "description_tag"):
+                continue
+            if name.startswith("color") and name[5:].isdigit():
+                value = colors[int(name[5:])]
+            lines.append('\t"%s"\t"%s"' % (name, value))
+        kit_text.append("\n".join(lines) + "\n}\n")
+        return key
+
+    for case_key, case_name, based_on in NEW_CASES:
+        lines = ['"%s"' % case_key, "{", '\t"based_on"\t"%s"' % based_on, '\t"name"\t"%s"' % case_name, "", '\t"items"', "\t{"]
+        case_weapons = weapons[:]
+        rng.shuffle(case_weapons)
+        picked_bases = set()
+        for rarity, count, window in CASE_SHAPE:
+            lines.append("\t\t// %s" % {"ancient": "Covert", "legendary": "Classified", "mythical": "Restricted", "rare": "Mil-Spec"}[rarity])
+            for _ in range(count):
+                pool = [n for n in candidates[:window] if n not in picked_bases]
+                base = rng.choice(pool)
+                picked_bases.add(base)
+                theme = rng.choice(themes)
+                key = make_kit(base, theme, rarity)
+                while key is None:
+                    theme = rng.choice(themes)
+                    key = make_kit(base, theme, rarity)
+                lines.append('\t\t"[%s]%s"\t\t"%s"' % (key, case_weapons.pop(), rarity))
+
+        lines += ["\t}", "", '\t"golds"', "\t{"]
+        weapons_pool = knife_weapons[:]
+        knife_rng.shuffle(weapons_pool)
+        bases_pool = knife_bases[:]
+        knife_rng.shuffle(bases_pool)
+        for n in range(KNIFE_FINISHES_PER_CASE):
+            # the next pattern that still has a recolour to give
+            key = None
+            for step in range(len(bases_pool)):
+                base = bases_pool[(n + step) % len(bases_pool)]
+                options = [t for t in knife_themes if knife_ok(base, t)]
+                if options:
+                    key = make_knife_kit(base, knife_rng.choice(options))
+                    break
+            if key is None:
+                break
+            for _ in range(KNIVES_PER_FINISH):
+                if not weapons_pool:
+                    weapons_pool = knife_weapons[:]
+                    knife_rng.shuffle(weapons_pool)
+                lines.append('\t\t"[%s]%s"\t\t""' % (key, weapons_pool.pop()))
         lines += ["\t}", "}", ""]
         case_text.append("\n".join(lines))
 

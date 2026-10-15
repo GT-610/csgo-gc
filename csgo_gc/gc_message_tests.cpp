@@ -4017,7 +4017,7 @@ static bool AddedCasesListTheirSkinsByRarityWithAGoldTile()
     std::string text =
         "\"items_game\"\n{\n"
         "\t\"items\"\n\t{\n"
-        "\t\t\"4001\"\n\t\t{\n\t\t\t\"name\"\t\t\"crate_base\"\n"
+        "\t\t\"4001\"\n\t\t{\n\t\t\t\"name\"\t\t\"crate_base\"\n\t\t\t\"image_inventory\"\t\t\"econ/weapon_cases/crate_base\"\n"
         "\t\t\t\"attributes\"\n\t\t\t{\n\t\t\t\t\"set supply crate series\"\n\t\t\t\t{\n"
         "\t\t\t\t\t\"attribute_class\"\t\t\"supply_crate_series\"\n\t\t\t\t\t\"value\"\t\t\"4\"\n\t\t\t\t}\n\t\t\t}\n\t\t}\n"
         "\t}\n\t\"revolving_loot_lists\"\n\t{\n\t}\n\t\"client_loot_lists\"\n\t{\n\t}\n}\n";
@@ -4031,8 +4031,12 @@ static bool AddedCasesListTheirSkinsByRarityWithAGoldTile()
     added.previewEntries = { "[a]weapon_ak47", "[b]weapon_awp", "[c]weapon_m4a1", "[d]weapon_p90", "[e]weapon_mp9" };
     added.previewRarities = { 6, 3, 5, 4, 3 };
     added.hasUnusual = true;
+    added.image = "econ/weapon_cases/crate_t";
 
     bool valid = GameSchemaPatch::AddCases(text, { added }) == 1;
+
+    // its own picture replaces the base case's
+    valid &= text.find("\"econ/weapon_cases/crate_t\"") != std::string::npos;
 
     // the top list names the rarity lists in blue, purple, pink, red order and ends with the gold entry
     const size_t top = text.find("\t\t\"crate_t\"\n");
@@ -4055,10 +4059,13 @@ static bool AddedCasesListTheirSkinsByRarityWithAGoldTile()
     // a case without golds gets no gold tile
     std::string plain = text;
     added.hasUnusual = false;
+    added.image.clear();
     added.name = "crate_u";
     added.defIndex = 5001;
     added.series = 5001;
     valid &= GameSchemaPatch::AddCases(plain, { added }) == 1 && plain.find("crate_u_unusual") == std::string::npos;
+    // without its own picture the case keeps the base case's
+    valid &= plain.find("econ/weapon_cases/crate_base") != std::string::npos;
     return valid;
 }
 

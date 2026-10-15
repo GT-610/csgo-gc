@@ -272,6 +272,7 @@ public:
         std::vector<std::string> previewEntries; // "[paint_kit]weapon" of its regular skins
         std::vector<uint32_t> previewRarities;   // the rarity each of them rolls as
         bool hasGolds{};                         // it can drop a knife or gloves
+        std::string image;                       // its own inventory picture, if its png is in the game folder
     };
     const std::vector<AddedCase> &AddedCases() const { return m_addedCases; }
 

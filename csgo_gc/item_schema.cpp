@@ -316,7 +316,7 @@ ItemSchema::ItemSchema(bool loadFiles)
         for (const AddedCase &added : m_addedCases)
         {
             addedCases.push_back({ added.defIndex, added.basedOn, added.series, added.name, added.previewEntries,
-                added.previewRarities, added.hasGolds });
+                added.previewRarities, added.hasGolds, added.image });
         }
 
         GameSchemaPatch::PaintKitsPatch paintKits;
@@ -370,6 +370,19 @@ static bool IsKeyedCrate(const ItemInfo &info)
 {
     return !info.m_isCoupon && info.m_name.compare(0, 6, "crate_") == 0
         && (info.m_supplyCrateSeries || !info.m_lootListName.empty());
+}
+
+// a case's own inventory picture: csgo/resource/flash/econ/weapon_cases/<case name>.png, loose in the game folder
+// (the game reads its pictures from there). returns what items_game.txt's image_inventory should say, or empty
+static std::string CaseImageFor(const std::string &caseName)
+{
+    const std::string file = "csgo/resource/flash/econ/weapon_cases/" + caseName + ".png";
+    if (FILE *f = fopen(file.c_str(), "rb"))
+    {
+        fclose(f);
+        return "econ/weapon_cases/" + caseName;
+    }
+    return {};
 }
 
 void ItemSchema::ParseCustomCases(const KeyValue &customCasesKey)
@@ -547,7 +560,7 @@ void ItemSchema::ParseCustomCases(const KeyValue &customCasesKey)
         {
             m_addedCases.push_back({ crateDefIndex, addedBasedOn, crateDefIndex, addedName,
                 m_customCasePreviewEntries[crateDefIndex], m_customCasePreviewRarities[crateDefIndex],
-                !golds.items.empty() });
+                !golds.items.empty(), CaseImageFor(addedName) });
         }
 
         std::string_view customName = caseKey.GetString("name");

@@ -402,6 +402,13 @@ size_t GameSchemaPatch::AddCases(std::string &text, const std::vector<AddedCaseP
             std::regex{ R"re(("set supply crate series"\s*\{[^}]*?"value"\s+)"[^"]*")re" },
             "$1\"" + std::to_string(addedCase.series) + "\"", std::regex_constants::format_first_only);
 
+        // its own picture, when there is one
+        if (!addedCase.image.empty())
+        {
+            block = std::regex_replace(block, std::regex{ R"re(("image_inventory"\s+)"[^"]*")re" },
+                "$1\"" + addedCase.image + "\"", std::regex_constants::format_first_only);
+        }
+
         itemsText += "\t\t" + block + "\n";
         revolvingText += "\t\t\"" + std::to_string(addedCase.series) + "\"\t\t\"" + addedCase.name + "\"\n";
 
