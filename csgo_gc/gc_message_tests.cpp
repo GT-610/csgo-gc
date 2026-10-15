@@ -3996,11 +3996,25 @@ static bool CareerTracksGoalsAchievementsAndPersists()
 
         // a gold counts for achievements but not for the goal, and the goal pays once
         auto gold = career.RecordCaseOpened(5001, info, pull(500, 0, ItemSchema::RarityUnusual, true, false));
-        valid &= gold.size() == 1 && gold[0].title == "Golden Moment";
+        bool golden = false, sharp = false;
+        for (const Career::Unlock &unlock : gold)
+        {
+            golden |= unlock.title == "Golden Moment";
+            sharp |= unlock.title == "Sharp Start"; // the first knife
+        }
+        valid &= gold.size() == 2 && golden && sharp;
 
         valid &= career.RecordTradeUp(true).size() == 2; // first trade-up and the gold one
         valid &= career.RecordTradeUp(false).empty();
-        valid &= career.RecordStarsEarned(10000).size() == 1; // Star Saver
+        valid &= career.RecordStarsEarned(10000).size() == 2; // Pocket Change and Star Saver
+
+        // match events count on their own and unlock as they pass a threshold
+        valid &= career.RecordMatchEvent(Career::MatchEvent::Kill).size() == 1; // First Blood
+        valid &= career.RecordMatchEvent(Career::MatchEvent::Kill).empty();
+        valid &= career.RecordMatchEvent(Career::MatchEvent::Headshot).empty();
+        valid &= career.RecordMatchEvent(Career::MatchEvent::Mvp).size() == 1; // Most Valuable
+        valid &= career.RecordMatchEvent(Career::MatchEvent::MatchComplete).size() == 1; // Newcomer
+        valid &= career.Stat("kills") == 2 && career.Stat("headshots") == 1 && career.Stat("matches") == 1;
 
         valid &= career.Stat("cases_opened") == 4 && career.Stat("custom_cases_opened") == 4
             && career.Stat("goals_done") == 1 && career.Stat("gold_pulls") == 1 && career.Stat("tradeups") == 2;
@@ -4024,7 +4038,7 @@ static bool CareerTracksGoalsAchievementsAndPersists()
         // the SkinStop tabs' data: the case's 2/2 skins and gold, a finished achievement, a stat
         const std::string ui = career.UiData({ { 5001, info } });
         valid &= ui.find("cases: [[5001,'Test Case',2,2,1,1,1,5]]") != std::string::npos
-            && ui.find("['first_case','First Crack','Open your first case.',100,1,1,1]") != std::string::npos
+            && ui.find("['first_case','First Crack','Open your first case.',100,1,1,1,0]") != std::string::npos
             && ui.find("['Cases opened','5']") != std::string::npos
             && ui.find("goalReward: 1500") != std::string::npos;
     }
@@ -4951,6 +4965,16 @@ static bool PityBoostsBetterRaritiesBeforeGold()
 
 int main()
 {
+    // the career pays bonus stars and chat messages as it unlocks things, which would shift the exact star
+    // balances and message order other tests check; its own test uses Career directly. the config is read once
+    // on first use, so writing the file here is enough
+    TestFilesystem::MakeDirectory("csgo_gc");
+    {
+        KeyValue config{ "config" };
+        config.AddNumber("career_tracking", 0);
+        config.WriteToFile("csgo_gc/config.txt");
+    }
+
     struct TestCase
     {
         const char *name;
@@ -5035,5 +5059,6 @@ int main()
         allPassed &= passed;
     }
 
+    TestFilesystem::RemoveFile("csgo_gc/config.txt");
     return allPassed ? 0 : 1;
 }

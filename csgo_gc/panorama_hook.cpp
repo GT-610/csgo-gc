@@ -395,6 +395,7 @@ static const char CaseStoreScriptCareer[] = R"js(
 	var m_tabPanels = {};
 	var m_showAllCases = false;
 	var m_collectionFilter = 'opened';
+	var m_achievementFilter = 'all';
 
 	function _Clear( panel )
 	{
@@ -480,17 +481,49 @@ static const char CaseStoreScriptCareer[] = R"js(
 		var panel = m_tabPanels.achievements;
 		_Clear( panel );
 		var list = m_career ? m_career.achievements : [];
+		var categories = m_career && m_career.categories ? m_career.categories : [];
 		var done = list.filter( function( a ) { return a[ 7 ]; } ).length;
-		_Label( panel, done + ' of ' + list.length + ' achievements unlocked', { fontSize: '16px', color: GOLD, fontWeight: 'bold', margin: '0px 0px 10px 0px' } );
+
+		var top = _Panel( panel, { width: '100%', flowChildren: 'right', margin: '0px 0px 10px 0px' } );
+		_Label( top, done + ' of ' + list.length + ' achievements unlocked', { fontSize: '16px', color: GOLD, fontWeight: 'bold', verticalAlign: 'center', marginRight: '24px' } );
+		[ [ 'all', 'ALL' ], [ 'locked', 'IN PROGRESS' ], [ 'done', 'UNLOCKED' ] ].forEach( function( filter )
+		{
+			var active = m_achievementFilter === filter[ 0 ];
+			_Button( top, filter[ 1 ], { width: '120px', height: '28px', margin: '0px 4px', verticalAlign: 'center',
+				backgroundColor: active ? '#ffffff26' : '#ffffff0d', border: active ? '1px solid #ffffff66' : '1px solid #ffffff1a' },
+				function() { m_achievementFilter = filter[ 0 ]; _RenderAchievements(); }, { fontSize: '12px', letterSpacing: '1px', color: active ? '#ffffff' : '#aab4c0' } );
+		} );
+
 		if ( !list.length )
 		{
 			_Message( panel, 'No achievement data yet.' );
 			return;
 		}
 
-		list.forEach( function( a )
+		var shown = list.filter( function( a )
+		{
+			return m_achievementFilter === 'all' || ( m_achievementFilter === 'done' ? a[ 7 ] : !a[ 7 ] );
+		} );
+		if ( !shown.length )
+		{
+			_Message( panel, m_achievementFilter === 'done' ? 'Nothing unlocked yet.' : 'Everything is unlocked.' );
+			return;
+		}
+
+		var lastCategory = -1;
+		shown.forEach( function( a )
 		{
 			var finished = a[ 7 ];
+			if ( a[ 8 ] !== lastCategory )
+			{
+				lastCategory = a[ 8 ];
+				var inCategory = list.filter( function( x ) { return x[ 8 ] === lastCategory; } );
+				var unlockedHere = inCategory.filter( function( x ) { return x[ 7 ]; } ).length;
+				var heading = _Panel( panel, { width: '100%', height: '30px', margin: '10px 0px 6px 0px', flowChildren: 'right', borderBottom: '1px solid #ffffff30' } );
+				_Label( heading, ( categories[ lastCategory ] || 'Other' ).toUpperCase(), { fontSize: '14px', color: '#ffffff', fontWeight: 'bold', letterSpacing: '3px', verticalAlign: 'center', width: 'fill-parent-flow( 1.0 )' } );
+				_Label( heading, unlockedHere + ' / ' + inCategory.length, { fontSize: '13px', color: '#aab4c0', verticalAlign: 'center', horizontalAlign: 'right' } );
+			}
+
 			var row = _Panel( panel, { width: '100%', height: '58px', margin: '0px 0px 6px 0px', padding: '8px 14px 8px 12px', flowChildren: 'right',
 				backgroundColor: finished ? 'gradient( linear, 0% 0%, 100% 0%, from( #1d3a24f0 ), to( #14201ff0 ) )' : 'gradient( linear, 0% 0%, 100% 0%, from( #232e3df0 ), to( #161d28f0 ) )',
 				borderLeft: finished ? '4px solid #6fd36f' : '4px solid #ffffff2a' } );
@@ -812,7 +845,9 @@ static const char CaseStoreScriptPart2[] = R"js(
 		}
 
 		var button = $.CreatePanel( 'Button', nav, 'CsgoGcCaseStoreNavBtn', { class: 'mainmenu-navbar__btn-small MainMenuModeOnly' } );
-		$.CreatePanel( 'Image', button, '', { src: 'file://{images}/icons/ui/shoppingcart.svg', textureheight: '32', texturewidth: '-1' } );
+		// a star, matching the star currency (drawn as text so it can't be a missing icon file)
+		var star = $.CreatePanel( 'Label', button, '', { text: '\u2605' } );
+		_Style( star, { fontSize: '34px', color: '#f5c542', horizontalAlign: 'center', verticalAlign: 'center', hittest: 'false' } );
 
 		var inventory = nav.FindChildTraverse( 'MainMenuNavBarInventory' );
 		if ( inventory && inventory.GetParent() === nav )

@@ -41,7 +41,19 @@ public:
         Skin skin;
         uint32_t rarity{};
         bool gold{};
+        bool glove{}; // a gold that is gloves rather than a knife
         bool statTrak{};
+    };
+
+    // what a match gave: one call each, a headshot on top of its kill
+    enum class MatchEvent
+    {
+        Kill,
+        Headshot,
+        Mvp,
+        Plant,
+        Defuse,
+        MatchComplete,
     };
 
     struct Unlock
@@ -62,6 +74,7 @@ public:
     std::vector<Unlock> RecordCaseOpened(uint32_t crate, const CaseInfo &info, const Pull &pull);
     std::vector<Unlock> RecordTradeUp(bool goldResult);
     std::vector<Unlock> RecordStarsEarned(uint32_t amount);
+    std::vector<Unlock> RecordMatchEvent(MatchEvent event);
 
     uint64_t Stat(const std::string &name) const;
 
@@ -98,5 +111,8 @@ private:
     std::map<std::string, uint64_t> m_stats;
     std::map<uint32_t, CaseProgress> m_cases;
     std::map<std::string, uint32_t> m_achievements; // id -> unix time unlocked
+    std::set<Skin> m_goldFinishes;                   // every knife and glove finish pulled
+    std::set<uint32_t> m_knifeTypes;
+    std::set<uint32_t> m_gloveTypes;
     uint32_t m_unsavedStarEvents{};
 };

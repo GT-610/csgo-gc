@@ -162,7 +162,10 @@ private:
 
     Career m_career{ "csgo_gc/career.txt" };
     void RecordCaseOpened(uint32_t crateDefIndex, const CMsgSOSingleObject &newItem);
-    std::vector<std::pair<uint32_t, Career::CaseInfo>> CareerCases() const;
+    const std::vector<std::pair<uint32_t, Career::CaseInfo>> &CareerCases() const;
+    mutable std::vector<std::pair<uint32_t, Career::CaseInfo>> m_careerCases; // built once, from the schema
+    mutable bool m_careerCasesBuilt{};
+    void RecordMatchEvent(Career::MatchEvent event);
     void PublishCareer();
     void GrantCareerRewards(const std::vector<Career::Unlock> &unlocks);
     std::atomic<int32_t> m_localUserId{};

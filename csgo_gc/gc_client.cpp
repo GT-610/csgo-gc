@@ -1062,19 +1062,37 @@ std::string ClientGC::RconGoals(const RconRequest &request)
     return m_career.GoalsText(CareerCases(), !request.args.empty());
 }
 
-std::vector<std::pair<uint32_t, Career::CaseInfo>> ClientGC::CareerCases() const
+const std::vector<std::pair<uint32_t, Career::CaseInfo>> &ClientGC::CareerCases() const
 {
-    const ItemSchema &schema = m_inventory.GetItemSchema();
-    std::vector<std::pair<uint32_t, Career::CaseInfo>> cases;
-    for (uint32_t crate : schema.GetContainerDefIndexes())
+    if (!m_careerCasesBuilt)
     {
-        Career::CaseInfo info;
-        if (StarShop::IsContainer(schema, crate) && Career::BuildCaseInfo(schema, crate, info))
+        m_careerCasesBuilt = true;
+        const ItemSchema &schema = m_inventory.GetItemSchema();
+        for (uint32_t crate : schema.GetContainerDefIndexes())
         {
-            cases.emplace_back(crate, std::move(info));
+            Career::CaseInfo info;
+            if (StarShop::IsContainer(schema, crate) && Career::BuildCaseInfo(schema, crate, info))
+            {
+                m_careerCases.emplace_back(crate, std::move(info));
+            }
         }
     }
-    return cases;
+    return m_careerCases;
+}
+
+void ClientGC::RecordMatchEvent(Career::MatchEvent event)
+{
+    if (!GetConfig().CareerTracking())
+    {
+        return;
+    }
+
+    const std::vector<Career::Unlock> unlocks = m_career.RecordMatchEvent(event);
+    GrantCareerRewards(unlocks);
+    if (!unlocks.empty() || event == Career::MatchEvent::MatchComplete || event == Career::MatchEvent::Mvp)
+    {
+        PublishCareer();
+    }
 }
 
 void ClientGC::PublishCareer()
@@ -2570,6 +2588,16 @@ void ClientGC::PublishStarChange(const Inventory::StarChange &change)
 
 void ClientGC::LocalPlayerStars(StarShop::Reason reason)
 {
+    // the career counts what happened whether or not it pays stars
+    static constexpr Career::MatchEvent Events[] = {
+        Career::MatchEvent::Kill, Career::MatchEvent::Headshot, Career::MatchEvent::Mvp,
+        Career::MatchEvent::Plant, Career::MatchEvent::Defuse, Career::MatchEvent::MatchComplete,
+    };
+    if (static_cast<size_t>(reason) < std::size(Events))
+    {
+        RecordMatchEvent(Events[static_cast<size_t>(reason)]);
+    }
+
     const std::optional<uint32_t> season = StarSeason();
     const uint32_t amount = StarShop::Reward(GetConfig().StarShop(), reason);
     if (!season || !amount)
