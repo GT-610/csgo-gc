@@ -152,6 +152,13 @@ std::vector<uint32_t> StarShop::ShopContainers(const ItemSchema &itemSchema, con
             continue;
         }
 
+        // single-team stickers (crate_sticker_pack_<event>_<team>) are items
+        // with a loot list but no capsule series; real capsules have one
+        if (kind == Kind::Capsule && !info->m_supplyCrateSeries)
+        {
+            continue;
+        }
+
         const uint32_t limit = limitFor(kind);
         uint32_t &count = taken[static_cast<size_t>(kind)];
         if (limit && count >= limit)
