@@ -460,3 +460,238 @@
 		"[hy_webs]weapon_knife_widowmaker"		""
 	}
 }
+
+// "Zodiac Case": blues and purples, deep space. Looks like Operation Bravo Case (def 4003) and uses its key.
+"zodiac"
+{
+	"based_on"	"4003"
+	"name"	"Zodiac Case"
+
+	"items"
+	{
+		// Mil-Spec
+		"[hy_zodiac1]weapon_mp9"		"rare"
+		"[hy_craquelure]weapon_ak47"		"rare"
+		"[am_royal]weapon_famas"		"rare"
+		"[hy_water_crest]weapon_p250"		"rare"
+		"[am_ddpatdense_peacock]weapon_mac10"		"rare"
+		"[hy_zodiac3]weapon_glock"		"rare"
+
+		// Restricted
+		"[hy_zodiac2]weapon_m4a1"		"mythical"
+		"[am_zebra_dark]weapon_sg556"		"mythical"
+		"[aa_pandora]weapon_deagle"		"mythical"
+		"[am_gyrate]weapon_awp"		"mythical"
+		"[hy_icarus]weapon_ak47"		"mythical"
+
+		// Classified
+		"[am_nitrogen]weapon_m4a1_silencer"		"legendary"
+		"[aa_pandora]weapon_ak47"		"legendary"
+		"[hy_zodiac2]weapon_m4a1_silencer"		"legendary"
+
+		// Covert
+		"[am_nitrogen]weapon_ak47"		"ancient"
+		"[am_gyrate]weapon_deagle"		"ancient"
+	}
+
+	"golds"
+	{
+		"[am_nitrogen]weapon_knife_karambit"		""
+		"[am_nitrogen]weapon_knife_butterfly"		""
+		"[am_nitrogen]weapon_bayonet"		""
+		"[aa_pandora]weapon_knife_m9_bayonet"		""
+		"[aa_pandora]weapon_knife_flip"		""
+		"[am_gyrate]weapon_knife_karambit"		""
+		"[am_gyrate]weapon_knife_tactical"		""
+		"[am_royal]weapon_knife_falchion"		""
+		"[am_royal]weapon_knife_gut"		""
+	}
+}
+
+// "Inferno Case": fire: orange, ember and copper. Looks like Community Case 1 (def 4009) and uses its key.
+"inferno"
+{
+	"based_on"	"4009"
+	"name"	"Inferno Case"
+
+	"items"
+	{
+		// Mil-Spec
+		"[hy_icosahedron]weapon_mp9"		"rare"
+		"[so_tangerine]weapon_famas"		"rare"
+		"[hy_ddpat_orange]weapon_p250"		"rare"
+		"[hy_blam_simple]weapon_mac10"		"rare"
+		"[sp_mesh_forest_fire]weapon_glock"		"rare"
+		"[hy_kimono_diamonds_orange]weapon_usp_silencer"		"rare"
+
+		// Restricted
+		"[aa_flames]weapon_ak47"		"mythical"
+		"[am_kimono_sunrise]weapon_usp_silencer"		"mythical"
+		"[hy_hunter_blaze_orange]weapon_awp"		"mythical"
+		"[hy_tiger]weapon_deagle"		"mythical"
+		"[aq_copper]weapon_m4a1_silencer"		"mythical"
+
+		// Classified
+		"[aa_flames]weapon_awp"		"legendary"
+		"[aq_steel]weapon_ak47"		"legendary"
+		"[hy_tiger]weapon_m4a1"		"legendary"
+
+		// Covert
+		"[aa_flames]weapon_m4a1_silencer"		"ancient"
+		"[aq_steel]weapon_awp"		"ancient"
+	}
+
+	"golds"
+	{
+		"[aa_flames]weapon_knife_karambit"		""
+		"[aa_flames]weapon_knife_butterfly"		""
+		"[aa_flames]weapon_bayonet"		""
+		"[aq_steel_knife]weapon_knife_m9_bayonet"		""
+		"[aq_steel_knife]weapon_knife_flip"		""
+		"[aq_steel_knife]weapon_knife_gut"		""
+		"[an_tiger_orange]weapon_knife_karambit"		""
+		"[an_tiger_orange]weapon_knife_falchion"		""
+		"[hy_tiger]weapon_knife_tactical"		""
+	}
+}
+
+// "Frostbite Case": white, ice and glacier blue. Looks like Community Case 3 (def 4017) and uses its key.
+"frostbite"
+{
+	"based_on"	"4017"
+	"name"	"Frostbite Case"
+
+	"items"
+	{
+		// Mil-Spec
+		"[hy_arctic_contrast]weapon_mp9"		"rare"
+		"[hy_forest_winter]weapon_famas"		"rare"
+		"[sp_mesh_glacier]weapon_glock"		"rare"
+		"[hy_reef]weapon_p250"		"rare"
+		"[hy_splatter]weapon_mac10"		"rare"
+		"[hy_varicamo_blue]weapon_ak47"		"rare"
+
+		// Restricted
+		"[so_orca]weapon_m4a1"		"mythical"
+		"[hy_blizzard]weapon_usp_silencer"		"mythical"
+		"[am_turqoise_halftone]weapon_awp"		"mythical"
+		"[am_geometric_steps]weapon_deagle"		"mythical"
+		"[so_whiteout]weapon_ak47"		"mythical"
+
+		// Classified
+		"[aq_leviathan]weapon_ak47"		"legendary"
+		"[aq_handcannon]weapon_m4a1_silencer"		"legendary"
+		"[hy_blizzard]weapon_awp"		"legendary"
+
+		// Covert
+		"[aq_leviathan]weapon_awp"		"ancient"
+		"[am_geometric_steps]weapon_m4a1"		"ancient"
+	}
+
+	"golds"
+	{
+		"[aq_leviathan]weapon_knife_karambit"		""
+		"[aq_leviathan]weapon_knife_butterfly"		""
+		"[aq_leviathan]weapon_bayonet"		""
+		"[sp_mesh_glacier]weapon_knife_m9_bayonet"		""
+		"[sp_mesh_glacier]weapon_knife_flip"		""
+		"[hy_blizzard]weapon_knife_karambit"		""
+		"[hy_blizzard]weapon_knife_tactical"		""
+		"[hy_ocean_knife]weapon_knife_falchion"		""
+		"[hy_ocean_knife]weapon_knife_gut"		""
+	}
+}
+
+// "Noir Case": black, gunmetal and silver. Looks like Community Case 4 (def 4018) and uses its key.
+"noir"
+{
+	"based_on"	"4018"
+	"name"	"Noir Case"
+
+	"items"
+	{
+		// Mil-Spec
+		"[am_urban]weapon_mp9"		"rare"
+		"[am_army_shine]weapon_famas"		"rare"
+		"[hy_doomkitty]weapon_p250"		"rare"
+		"[an_silver]weapon_glock"		"rare"
+		"[am_oval_hex]weapon_mac10"		"rare"
+		"[an_gunmetal_bravo]weapon_ak47"		"rare"
+
+		// Restricted
+		"[am_carbon_fiber]weapon_m4a1"		"mythical"
+		"[am_ddpatdense_silver]weapon_usp_silencer"		"mythical"
+		"[hy_hades]weapon_awp"		"mythical"
+		"[am_metal_inlay]weapon_deagle"		"mythical"
+		"[so_night]weapon_ak47"		"mythical"
+
+		// Classified
+		"[am_crystallized_silver]weapon_ak47"		"legendary"
+		"[aq_damascus]weapon_m4a1_silencer"		"legendary"
+		"[so_panther]weapon_awp"		"legendary"
+
+		// Covert
+		"[am_carbon_fiber]weapon_awp"		"ancient"
+		"[am_crystallized_silver]weapon_m4a1"		"ancient"
+	}
+
+	"golds"
+	{
+		"[so_night]weapon_knife_karambit"		""
+		"[so_night]weapon_knife_butterfly"		""
+		"[so_night]weapon_bayonet"		""
+		"[aq_damascus]weapon_knife_m9_bayonet"		""
+		"[aq_damascus]weapon_knife_flip"		""
+		"[aq_damascus_90]weapon_knife_gut"		""
+		"[aq_forced]weapon_knife_karambit"		""
+		"[aq_forced]weapon_knife_tactical"		""
+		"[am_carbon_fiber]weapon_knife_falchion"		""
+	}
+}
+
+// "Jungle Case": snakes, tigers, vines and bamboo. Looks like the CS:GO Weapon Case (def 4001) and uses its key.
+"jungle"
+{
+	"based_on"	"4001"
+	"name"	"Jungle Case"
+
+	"items"
+	{
+		// Mil-Spec
+		"[hy_vines]weapon_mp9"		"rare"
+		"[hy_varicamo]weapon_famas"		"rare"
+		"[hy_forest_night]weapon_tec9"		"rare"
+		"[sp_nukestripe_green]weapon_glock"		"rare"
+		"[so_keycolors]weapon_mac10"		"rare"
+		"[hy_bamboo_jungle]weapon_usp_silencer"		"rare"
+
+		// Restricted
+		"[hy_snakeskin]weapon_ak47"		"mythical"
+		"[hy_zombie]weapon_m4a1"		"mythical"
+		"[hy_v_tiger]weapon_awp"		"mythical"
+		"[hy_kimono_diamonds]weapon_deagle"		"mythical"
+		"[hy_snakeskin_red]weapon_m4a1_silencer"		"mythical"
+
+		// Classified
+		"[am_ossify]weapon_ak47"		"legendary"
+		"[hy_redtiger]weapon_awp"		"legendary"
+		"[hy_zombie]weapon_ak47"		"legendary"
+
+		// Covert
+		"[hy_snakeskin_red]weapon_awp"		"ancient"
+		"[am_ossify]weapon_m4a1"		"ancient"
+	}
+
+	"golds"
+	{
+		"[hy_forest_boreal]weapon_knife_karambit"		""
+		"[hy_forest_boreal]weapon_knife_butterfly"		""
+		"[hy_webs]weapon_bayonet"		""
+		"[sp_dapple]weapon_knife_m9_bayonet"		""
+		"[sp_dapple]weapon_knife_flip"		""
+		"[am_zebra]weapon_knife_karambit"		""
+		"[am_zebra]weapon_knife_gut"		""
+		"[hy_redtiger]weapon_knife_falchion"		""
+		"[hy_snakeskin]weapon_knife_tactical"		""
+	}
+}
