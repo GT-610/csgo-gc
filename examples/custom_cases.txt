@@ -87,3 +87,185 @@
 		"[aa_fade_metallic_revolver]weapon_knife_flip"	""
 	}
 }
+
+// "Gold Rush Case": gold, bronze and orange. Replaces CS:GO Weapon Case 2 (def 4004).
+"4004"
+{
+	"name"	"Gold Rush Case"
+
+	"items"
+	{
+		// Mil-Spec
+		"[am_copper_flecks]weapon_ak47"		"rare"
+		"[am_bronze_sparkle]weapon_m4a1"		"rare"
+		"[am_numbers_bronze]weapon_p250"		"rare"
+		"[am_intelligence_orange]weapon_famas"		"rare"
+		"[am_jorm_orange]weapon_mac10"		"rare"
+		"[am_heist_plans_yellow]weapon_usp_silencer"		"rare"
+
+		// Restricted
+		"[am_gold_brick]weapon_m4a1_silencer"		"mythical"
+		"[am_scales_bravo]weapon_deagle"		"mythical"
+		"[am_copper_flecks]weapon_awp"		"mythical"
+		"[am_bronze_sparkle]weapon_glock"		"mythical"
+		"[am_numbers_bronze]weapon_sg556"		"mythical"
+
+		// Classified
+		"[am_gold_brick]weapon_ak47"		"legendary"
+		"[am_gold_brick]weapon_awp"		"legendary"
+		"[am_scales_bravo]weapon_m4a1"		"legendary"
+
+		// Covert
+		"[am_gold_brick]weapon_usp_silencer"		"ancient"
+		"[am_scales_bravo]weapon_awp"		"ancient"
+	}
+
+	"golds"
+	{
+		"[am_gold_brick]weapon_knife_karambit"		""
+		"[am_gold_brick]weapon_knife_butterfly"		""
+		"[am_gold_brick]weapon_bayonet"		""
+		"[am_gold_brick]weapon_knife_m9_bayonet"		""
+		"[am_copper_flecks]weapon_knife_flip"		""
+		"[am_copper_flecks]weapon_knife_falchion"		""
+		"[am_scales_bravo]weapon_knife_karambit"		""
+		"[am_scales_bravo]weapon_knife_gut"		""
+		"[an_tiger_orange]weapon_knife_butterfly"		""
+		"[an_tiger_orange]weapon_knife_tactical"		""
+	}
+}
+
+// "Deep Blue Case": blues. Replaces CS:GO Weapon Case 3 (def 4010).
+"4010"
+{
+	"name"	"Deep Blue Case"
+
+	"items"
+	{
+		// Mil-Spec
+		"[am_ossify_blue]weapon_ak47"		"rare"
+		"[an_navy]weapon_m4a1"		"rare"
+		"[an_navy_bravo]weapon_p250"		"rare"
+		"[am_jorm_blue]weapon_famas"		"rare"
+		"[hy_ocean_bravo]weapon_mac10"		"rare"
+		"[am_tigers_blue]weapon_glock"		"rare"
+
+		// Restricted
+		"[am_crystallized_blue]weapon_ak47"		"mythical"
+		"[am_m4a1s_bluesmoke]weapon_m4a1"		"mythical"
+		"[am_aqua_flecks]weapon_deagle"		"mythical"
+		"[am_crystallized_blue]weapon_awp"		"mythical"
+		"[am_ossify_blue]weapon_deagle"		"mythical"
+
+		// Classified
+		"[am_aqua_flecks]weapon_m4a1_silencer"		"legendary"
+		"[am_m4a1s_bluesmoke]weapon_ak47"		"legendary"
+		"[am_aqua_flecks]weapon_awp"		"legendary"
+
+		// Covert
+		"[am_aqua_flecks]weapon_ak47"		"ancient"
+		"[am_m4a1s_bluesmoke]weapon_usp_silencer"		"ancient"
+	}
+
+	"golds"
+	{
+		"[am_aqua_flecks]weapon_knife_karambit"		""
+		"[am_aqua_flecks]weapon_knife_butterfly"		""
+		"[am_aqua_flecks]weapon_knife_m9_bayonet"		""
+		"[am_m4a1s_bluesmoke]weapon_knife_karambit"		""
+		"[am_m4a1s_bluesmoke]weapon_knife_m9_bayonet"		""
+		"[am_m4a1s_bluesmoke]weapon_knife_flip"		""
+		"[am_crystallized_blue]weapon_bayonet"		""
+		"[am_crystallized_blue]weapon_knife_falchion"		""
+	}
+}
+
+// "Crimson Case": reds. Replaces the eSports 2013 Case (def 4002).
+"4002"
+{
+	"name"	"Crimson Case"
+
+	"items"
+	{
+		// Mil-Spec
+		"[an_red]weapon_ak47"		"rare"
+		"[so_red]weapon_m4a1"		"rare"
+		"[am_ren_red]weapon_p250"		"rare"
+		"[am_ossify_red]weapon_famas"		"rare"
+		"[am_crystallized]weapon_mac10"		"rare"
+		"[am_electric_red]weapon_glock"		"rare"
+
+		// Restricted
+		"[am_electric_red]weapon_ak47"		"mythical"
+		"[am_ossify_red]weapon_m4a1_silencer"		"mythical"
+		"[am_crystallized]weapon_awp"		"mythical"
+		"[am_electric_red]weapon_awp"		"mythical"
+		"[am_fuschia]weapon_deagle"		"mythical"
+
+		// Classified
+		"[am_electric_red]weapon_m4a1"		"legendary"
+		"[am_ossify_red]weapon_ak47"		"legendary"
+		"[am_crystallized]weapon_ak47"		"legendary"
+
+		// Covert
+		"[am_electric_red]weapon_deagle"		"ancient"
+		"[am_ossify_red]weapon_awp"		"ancient"
+	}
+
+	"golds"
+	{
+		"[am_electric_red]weapon_knife_karambit"		""
+		"[am_electric_red]weapon_knife_butterfly"		""
+		"[am_electric_red]weapon_bayonet"		""
+		"[am_ossify_red]weapon_knife_m9_bayonet"		""
+		"[am_ossify_red]weapon_knife_flip"		""
+		"[am_ossify_red]weapon_knife_gut"		""
+		"[am_crystallized]weapon_knife_karambit"		""
+		"[am_crystallized]weapon_knife_falchion"		""
+	}
+}
+
+// "Emerald Case": greens. Replaces the eSports 2013 Winter Case (def 4005).
+"4005"
+{
+	"name"	"Emerald Case"
+
+	"items"
+	{
+		// Mil-Spec
+		"[an_emerald]weapon_ak47"		"rare"
+		"[am_jade]weapon_m4a1"		"rare"
+		"[am_jorm_green]weapon_p250"		"rare"
+		"[hy_forest_boreal]weapon_famas"		"rare"
+		"[an_emerald_bravo]weapon_mac10"		"rare"
+		"[am_crystallized_dark_green]weapon_glock"		"rare"
+
+		// Restricted
+		"[am_crystallized_dark_green]weapon_ak47"		"mythical"
+		"[am_jade]weapon_awp"		"mythical"
+		"[an_emerald]weapon_m4a1_silencer"		"mythical"
+		"[am_jorm_green]weapon_deagle"		"mythical"
+		"[an_emerald_bravo]weapon_usp_silencer"		"mythical"
+
+		// Classified
+		"[am_crystallized_dark_green]weapon_m4a1"		"legendary"
+		"[am_jade]weapon_ak47"		"legendary"
+		"[an_emerald]weapon_awp"		"legendary"
+
+		// Covert
+		"[am_crystallized_dark_green]weapon_awp"		"ancient"
+		"[an_emerald_bravo]weapon_deagle"		"ancient"
+	}
+
+	"golds"
+	{
+		"[an_emerald]weapon_knife_karambit"		""
+		"[an_emerald]weapon_knife_butterfly"		""
+		"[an_emerald]weapon_bayonet"		""
+		"[am_jade]weapon_knife_m9_bayonet"		""
+		"[am_jade]weapon_knife_flip"		""
+		"[am_crystallized_dark_green]weapon_knife_karambit"		""
+		"[am_crystallized_dark_green]weapon_knife_falchion"		""
+		"[am_crystallized_dark_green]weapon_knife_gut"		""
+	}
+}

@@ -66,6 +66,13 @@ void *__fastcall Hk_GiveNamedItem(void *player, void *edx, const char *name, int
     void *scriptItem, bool force, void *origin)
 {
     const bool isBot = player && name && (Field<uint32_t>(player, PlayerFlagsOffset) & FlagFakeClient);
+    static int s_logged;
+    if (s_logged < 12 && name)
+    {
+        ++s_logged;
+        Platform::Print("Bot skins: GiveNamedItem(%s) bot=%d flags=0x%x\n", name, isBot ? 1 : 0,
+            player ? Field<uint32_t>(player, PlayerFlagsOffset) : 0u);
+    }
     const uint64_t botKey = reinterpret_cast<uintptr_t>(player);
 
     // a bot's plain knife is swapped for a themed one

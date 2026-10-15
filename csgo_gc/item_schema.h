@@ -252,6 +252,9 @@ public:
     bool IsSingleItemCoupon(uint32_t defIndex) const;
     // custom_cases.txt display name for a crate, or null
     const std::string *CustomCaseName(uint32_t crateDefIndex) const;
+    // crates whose contents custom_cases.txt replaces, sorted
+    std::vector<uint32_t> GetCustomCaseDefIndexes() const;
+    bool IsCustomCase(uint32_t crateDefIndex) const;
     // keys that open this crate (empty when the crate needs no specific key)
     std::vector<uint32_t> GetKeysForCrate(uint32_t crateDefIndex) const;
     // match drops: painted skins of a rarity from collections that aren't tied to a

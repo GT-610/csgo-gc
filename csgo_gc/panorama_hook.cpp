@@ -34,56 +34,107 @@ int PanoramaHook::PatchItemContextEntries(std::string &source)
     return count;
 }
 
+static void AppendJsString(std::string &out, std::string_view text)
+{
+    out += '"';
+    for (char c : text)
+    {
+        if (c == '"' || c == '\\')
+        {
+            out += '\\';
+        }
+        if (static_cast<unsigned char>(c) >= 0x20)
+        {
+            out += c;
+        }
+    }
+    out += '"';
+}
+
 std::string PanoramaHook::BuildCaseStoreData(const ItemSchema &itemSchema)
 {
     const StarShopConfig &starShop = GetConfig().StarShop();
+    const bool priced = starShop.enabled && itemSchema.LatestSeasonalOperation();
 
+    // [defIndex, keyDefIndex or 0, kind, star price, rarity, custom name]
+    // kinds: 0 weapon case, 1 souvenir package, 2 capsule, 3 other, 4 agent, 5 custom case
     std::string data = "[";
     bool first = true;
-    for (uint32_t crate : StarShop::ShopContainers(itemSchema, starShop))
+    auto begin = [&]()
     {
-        std::vector<uint32_t> keys = itemSchema.GetKeysForCrate(crate);
-        uint32_t key = keys.empty() ? 0 : keys.front();
-
         if (!first)
         {
             data += ',';
         }
         first = false;
-
         data += '[';
-        data += std::to_string(crate);
-        data += ',';
-        data += std::to_string(key);
-        data += ',';
-        data += std::to_string(static_cast<int>(itemSchema.GetContainerKind(crate)));
-        data += ',';
-        data += std::to_string(itemSchema.LatestSeasonalOperation() ? StarShop::Price(itemSchema, starShop, crate) : 0);
+    };
+
+    for (uint32_t crate : StarShop::ShopContainers(itemSchema, starShop))
+    {
+        std::vector<uint32_t> keys = itemSchema.GetKeysForCrate(crate);
+        const bool custom = itemSchema.IsCustomCase(crate);
+        const int kind = custom ? 5 : static_cast<int>(itemSchema.GetContainerKind(crate));
+
+        begin();
+        data += std::to_string(crate) + ',' + std::to_string(keys.empty() ? 0 : keys.front()) + ','
+            + std::to_string(kind) + ',' + std::to_string(priced ? StarShop::Price(itemSchema, starShop, crate) : 0)
+            + ",0,";
+        const std::string *customName = custom ? itemSchema.CustomCaseName(crate) : nullptr;
+        AppendJsString(data, customName ? std::string_view{ *customName } : std::string_view{});
         data += ']';
     }
+
+    // agents, rarest first
+    if (priced)
+    {
+        std::vector<uint32_t> agents = itemSchema.GetAgentDefIndexes();
+        std::stable_sort(agents.begin(), agents.end(), [&](uint32_t a, uint32_t b)
+        {
+            const ItemInfo *infoA = itemSchema.ItemInfoByDefIndex(a);
+            const ItemInfo *infoB = itemSchema.ItemInfoByDefIndex(b);
+            return (infoA ? infoA->m_rarity : 0) > (infoB ? infoB->m_rarity : 0);
+        });
+
+        for (uint32_t agent : agents)
+        {
+            const ItemInfo *info = itemSchema.ItemInfoByDefIndex(agent);
+            begin();
+            data += std::to_string(agent) + ",0,4," + std::to_string(starShop.agentPrice) + ','
+                + std::to_string(info ? info->m_rarity : 0) + ",\"\"]";
+        }
+    }
+
     data += ']';
     return data;
 }
 
-// The Case Store screen. Built from code (the game's layout files can't be
-// added to), run in the main menu's script context next to mainmenu.js.
+// The shop screen. Built from code (the game's layout files can't be added
+// to), run in the main menu's script context next to mainmenu.js.
 static const char CaseStoreScriptPart1[] = R"js(
 var CsgoGcCaseStore = ( function()
 {
-	var KIND_NAMES = [ 'Weapon Cases', 'Souvenir Packages', 'Capsules', 'Other' ];
+	// [ kind, title ] in the order the sections are shown
+	var SECTIONS = [
+		[ 5, 'CUSTOM CASES' ], [ 4, 'AGENTS' ], [ 0, 'WEAPON CASES' ],
+		[ 1, 'SOUVENIR PACKAGES' ], [ 2, 'CAPSULES' ], [ 3, 'OTHER' ]
+	];
+	var KIND_NAMES = [ 'Weapon Case', 'Souvenir Package', 'Capsule', 'Other', 'Agent', 'Custom Case' ];
+	var RARITY_COLORS = { 1: '#b0c3d9', 2: '#5e98d9', 3: '#4b69ff', 4: '#8847ff', 5: '#d32ce6', 6: '#eb4b4b', 7: '#e4ae39' };
 	var BUY_AMOUNTS = [ 1, 5, 10 ];
+	var GOLD = '#f5c542';
 
 	var m_data = [];
 	var m_overlay = null;
-	var m_grid = null;
+	var m_scroll = null;
 	var m_search = null;
 	var m_count = null;
 	var m_status = null;
 	var m_balance = null;
+	var m_balanceBox = null;
 	var m_stars = -1;
-	var m_tabs = [];
 	var m_tiles = [];
-	var m_kind = -1;
+	var m_sections = [];
 
 	function _Style( panel, styles )
 	{
@@ -153,39 +204,66 @@ var CsgoGcCaseStore = ( function()
 		);
 	}
 
-	function _MakeTile( entry )
+	// dims the buy buttons that cost more than the balance
+	function _ShowAffordability()
 	{
+		m_tiles.forEach( function( tile )
+		{
+			tile.buttons.forEach( function( entry )
+			{
+				var affordable = m_stars < 0 || tile.price * entry.amount <= m_stars;
+				entry.button.style.opacity = affordable ? '1.0' : '0.35';
+			} );
+		} );
+	}
+
+	function _MakeTile( grid, entry )
+	{
+		var kind = entry[ 2 ];
+		var price = entry[ 3 ];
+		var rarity = entry[ 4 ];
 		var id = _FauxId( entry[ 0 ] );
 		var keyId = entry[ 1 ] ? _FauxId( entry[ 1 ] ) : '';
-		var kind = entry[ 2 ];
-		var name = InventoryAPI.GetItemName( id ) || ( 'Item ' + entry[ 0 ] );
+		var name = entry[ 5 ] || InventoryAPI.GetItemName( id ) || ( 'Item ' + entry[ 0 ] );
+		var isAgent = kind === 4;
 
-		var tile = _Panel( m_grid, {
-			width: '230px', height: '300px', margin: '6px', flowChildren: 'down',
-			backgroundColor: '#ffffff0c', border: '1px solid #ffffff16'
+		var tile = _Panel( grid, {
+			width: '218px', height: '286px', margin: '0px 10px 12px 0px', flowChildren: 'down',
+			backgroundColor: '#ffffff12'
 		} );
 
-		var imageButton = _Panel( tile, { width: '100%', height: '160px' }, 'Button' );
+		var imageButton = _Panel( tile, { width: '100%', height: '150px' }, 'Button' );
 		var image = _Panel( imageButton, { width: '100%', height: '100%' }, 'ItemImage', '', { scaling: 'stretch-to-fit-preserve-aspect' } );
 		image.itemid = id;
 		image.hittest = false;
-		imageButton.SetPanelEvent( 'onactivate', function() { _ShowContents( id ); } );
+		if ( !isAgent )
+		{
+			imageButton.SetPanelEvent( 'onactivate', function() { _ShowContents( id ); } );
+		}
 
-		_Label( tile, name, { fontSize: '17px', color: '#ffffff', margin: '6px 10px 0px 10px', height: '46px' } );
-		var price = entry[ 3 ] ? ( ' • ' + entry[ 3 ] + ' stars' ) : '';
-		_Label( tile, ( KIND_NAMES[ kind ] || '' ) + ( keyId ? ' • key included' : '' ) + price,
-			{ fontSize: '13px', color: '#9aa4b1', margin: '0px 10px 0px 10px' } );
+		// the rarity colour under the picture
+		_Panel( tile, { width: '100%', height: '5px', backgroundColor: isAgent ? ( RARITY_COLORS[ rarity ] || '#b0c3d9' ) : '#ffffff22' } );
 
-		var buttons = _Panel( tile, { flowChildren: 'right', horizontalAlign: 'center', marginTop: '10px' } );
+		_Label( tile, name, { fontSize: '16px', color: '#ffffff', margin: '8px 10px 0px 10px', height: '40px' } );
+
+		var info = _Panel( tile, { width: '100%', flowChildren: 'right', margin: '0px 10px 0px 10px' } );
+		_Label( info, ( KIND_NAMES[ kind ] || '' ) + ( keyId ? ' + key' : '' ), { fontSize: '12px', color: '#9aa4b1', verticalAlign: 'center' } );
+		_Label( info, price > 0 ? ( price + ' stars' ) : 'free', { fontSize: '17px', color: GOLD, fontWeight: 'bold', horizontalAlign: 'right', marginRight: '20px' } );
+
+		var buttonRow = _Panel( tile, { flowChildren: 'right', horizontalAlign: 'center', marginTop: '10px' } );
+		var buttons = [];
 		BUY_AMOUNTS.forEach( function( amount )
 		{
-			_Button( buttons, amount === 1 ? 'BUY' : 'x' + amount, {
-				width: amount === 1 ? '86px' : '58px', height: '34px', margin: '0px 3px',
+			var button = _Button( buttonRow, amount === 1 ? 'BUY' : 'x' + amount, {
+				width: amount === 1 ? '80px' : '54px', height: '32px', margin: '0px 3px',
 				backgroundColor: amount === 1 ? '#3d8a2c' : '#2d5d85'
-			}, function() { _Buy( id, keyId, amount, name ); } );
+			}, function() { _Buy( id, keyId, amount, name ); }, { fontSize: '16px' } );
+			buttons.push( { button: button, amount: amount } );
 		} );
 
-		m_tiles.push( { panel: tile, name: name.toLowerCase(), kind: kind } );
+		var record = { panel: tile, name: name.toLowerCase(), kind: kind, price: price, buttons: buttons };
+		m_tiles.push( record );
+		return record;
 	}
 )js";
 
@@ -194,29 +272,42 @@ static const char CaseStoreScriptPart2[] = R"js(
 	{
 		var words = ( m_search ? m_search.text : '' ).toLowerCase().split( ' ' ).filter( function( w ) { return w.length > 0; } );
 		var shown = 0;
-		m_tiles.forEach( function( tile )
+		m_sections.forEach( function( section )
 		{
-			var visible = ( m_kind < 0 || tile.kind === m_kind ) && words.every( function( w ) { return tile.name.indexOf( w ) !== -1; } );
-			tile.panel.visible = visible;
-			if ( visible )
+			var visibleInSection = 0;
+			section.tiles.forEach( function( tile )
 			{
-				shown++;
-			}
-		} );
+				var visible = words.every( function( w ) { return tile.name.indexOf( w ) !== -1; } );
+				tile.panel.visible = visible;
+				if ( visible )
+				{
+					visibleInSection++;
+				}
+			} );
 
-		m_tabs.forEach( function( tab )
-		{
-			tab.button.style.backgroundColor = tab.kind === m_kind ? '#2d5d85' : '#ffffff12';
+			section.panel.visible = visibleInSection > 0;
+			section.title.text = section.name + ' (' + visibleInSection + ')';
+			shown += visibleInSection;
 		} );
 
 		m_count.text = shown + ( shown === 1 ? ' item' : ' items' );
-		m_grid.ScrollToTop();
+		m_scroll.ScrollToTop();
 	}
 
-	function _SetKind( kind )
+	function _ShowStars()
 	{
-		m_kind = kind;
-		_ApplyFilter();
+		if ( m_balanceBox )
+		{
+			m_balanceBox.visible = m_stars >= 0;
+			m_balance.text = m_stars >= 0 ? ( 'Your Balance:  ' + m_stars + ' stars' ) : '';
+		}
+		_ShowAffordability();
+	}
+
+	function _SetStars( stars )
+	{
+		m_stars = stars;
+		_ShowStars();
 	}
 
 	function _Build()
@@ -224,7 +315,7 @@ static const char CaseStoreScriptPart2[] = R"js(
 		var context = $.GetContextPanel();
 		m_overlay = _Panel( context, {
 			width: '100%', height: '100%', flowChildren: 'down',
-			padding: '36px 120px 16px 120px', backgroundColor: '#0c1016f4'
+			padding: '0px 0px 0px 0px', backgroundColor: '#120d0cf6'
 		}, 'Panel', 'CsgoGcCaseStore' );
 
 		var popups = context.FindChild( 'PopupManager' );
@@ -233,55 +324,50 @@ static const char CaseStoreScriptPart2[] = R"js(
 			context.MoveChildBefore( m_overlay, popups );
 		}
 
-		var header = _Panel( m_overlay, { width: '100%', height: '56px', flowChildren: 'right', marginBottom: '14px' } );
-		_Label( header, 'CASE STORE', { fontSize: '38px', color: '#ffffff', fontWeight: 'bold', letterSpacing: '2px', verticalAlign: 'center', marginRight: '30px' } );
+		// title, subtitle and balance
+		var header = _Panel( m_overlay, { width: '100%', height: '92px', flowChildren: 'right', padding: '30px 120px 0px 120px', borderBottom: '1px solid #ffffff30' } );
+		var titles = _Panel( header, { flowChildren: 'down', width: 'fill-parent-flow( 1.0 )' } );
+		_Label( titles, 'The Supremacy Shop', { fontSize: '34px', color: '#ffffff', fontWeight: 'bold' } );
+		_Label( titles, 'Use your Stars to get Rewards of your choosing.', { fontSize: '16px', color: '#c9d1d9' } );
 
-		m_search = _Panel( header, {
-			width: '460px', height: '44px', verticalAlign: 'center', fontSize: '20px', color: '#ffffff',
-			backgroundColor: '#ffffff14', border: '1px solid #ffffff30', padding: '8px 12px 0px 12px'
+		m_balanceBox = _Panel( header, { height: '40px', verticalAlign: 'center', padding: '0px 18px', backgroundColor: '#3a2f1a', border: '1px solid #6b5a2e', visible: false } );
+		m_balance = _Label( m_balanceBox, '', { fontSize: '20px', color: GOLD, fontWeight: 'bold', verticalAlign: 'center' } );
+
+		// search and messages
+		var bar = _Panel( m_overlay, { width: '100%', flowChildren: 'right', padding: '14px 120px 8px 120px' } );
+		m_search = _Panel( bar, {
+			width: '420px', height: '40px', verticalAlign: 'center', fontSize: '19px', color: '#ffffff',
+			backgroundColor: '#ffffff14', border: '1px solid #ffffff30', padding: '6px 12px 0px 12px', marginRight: '24px'
 		}, 'TextEntry', 'CsgoGcCaseStoreSearch', { placeholder: 'Search...' } );
 		m_search.SetPanelEvent( 'ontextentrychange', _ApplyFilter );
+		m_count = _Label( bar, '', { fontSize: '15px', color: '#9aa4b1', verticalAlign: 'center', marginRight: '24px' } );
+		m_status = _Label( bar, 'Click a case to see what\'s inside. A case comes with its key.', { fontSize: '15px', color: '#c9d1d9', verticalAlign: 'center' } );
 
-		var right = _Panel( header, { width: 'fill-parent-flow( 1.0 )', height: '100%' } );
-		m_balance = _Label( right, '', { horizontalAlign: 'right', verticalAlign: 'center', marginRight: '150px', fontSize: '24px', color: '#f5c542', fontWeight: 'bold' } );
-		_ShowStars();
-		_Button( right, 'CLOSE', { horizontalAlign: 'right', verticalAlign: 'center', width: '120px', height: '42px', backgroundColor: '#ffffff18' }, _Close );
-
-		var tabs = _Panel( m_overlay, { width: '100%', flowChildren: 'right', marginBottom: '10px' } );
-		var counts = {};
-		m_data.forEach( function( entry ) { counts[ entry[ 2 ] ] = ( counts[ entry[ 2 ] ] || 0 ) + 1; } );
-
-		var tabKinds = [ -1 ];
-		KIND_NAMES.forEach( function( name, kind ) { if ( counts[ kind ] ) tabKinds.push( kind ); } );
-		tabKinds.forEach( function( kind )
+		// the sections
+		m_scroll = _Panel( m_overlay, { width: '100%', height: 'fill-parent-flow( 1.0 )', flowChildren: 'down', overflow: 'squish scroll', padding: '4px 120px 0px 120px' } );
+		SECTIONS.forEach( function( definition )
 		{
-			var text = kind < 0 ? 'ALL (' + m_data.length + ')' : KIND_NAMES[ kind ].toUpperCase() + ' (' + counts[ kind ] + ')';
-			var button = _Button( tabs, text, { height: '38px', marginRight: '8px', padding: '0px 18px', backgroundColor: '#ffffff12' },
-				function() { _SetKind( kind ); }, { fontSize: '16px' } );
-			m_tabs.push( { kind: kind, button: button } );
+			var entries = m_data.filter( function( entry ) { return entry[ 2 ] === definition[ 0 ]; } );
+			if ( !entries.length )
+			{
+				return;
+			}
+
+			var panel = _Panel( m_scroll, { width: '100%', height: 'fit-children', flowChildren: 'down', padding: '16px 16px 4px 16px', margin: '0px 0px 18px 0px', backgroundColor: '#ffffff0c' } );
+			var title = _Label( panel, '', { fontSize: '17px', color: '#c9d1d9', letterSpacing: '3px', marginBottom: '12px' } );
+			var grid = _Panel( panel, { width: '100%', height: 'fit-children', flowChildren: 'right-wrap' } );
+
+			var section = { panel: panel, title: title, name: definition[ 1 ], tiles: [] };
+			entries.forEach( function( entry ) { section.tiles.push( _MakeTile( grid, entry ) ); } );
+			m_sections.push( section );
 		} );
 
-		var info = _Panel( m_overlay, { width: '100%', flowChildren: 'right', marginBottom: '6px' } );
-		m_count = _Label( info, '', { fontSize: '15px', color: '#9aa4b1', marginRight: '24px' } );
-		m_status = _Label( info, 'Click a case to see what\'s inside. Buy gets the case and its key.', { fontSize: '15px', color: '#c9d1d9' } );
+		// back button along the bottom
+		var footer = _Panel( m_overlay, { width: '100%', height: '60px', borderTop: '1px solid #ffffff30' } );
+		_Button( footer, 'BACK', { horizontalAlign: 'right', verticalAlign: 'center', marginRight: '120px', width: '130px', height: '40px', backgroundColor: '#ffffff18' }, _Close, { fontSize: '19px' } );
 
-		m_grid = _Panel( m_overlay, { width: '100%', height: 'fill-parent-flow( 1.0 )', flowChildren: 'right-wrap', overflow: 'squish scroll' } );
-		m_data.forEach( _MakeTile );
-		_ApplyFilter();
-	}
-
-	function _ShowStars()
-	{
-		if ( m_balance )
-		{
-			m_balance.text = m_stars >= 0 ? ( 'STARS: ' + m_stars ) : '';
-		}
-	}
-
-	function _SetStars( stars )
-	{
-		m_stars = stars;
 		_ShowStars();
+		_ApplyFilter();
 	}
 
 	function _Open()
@@ -334,7 +420,7 @@ static const char CaseStoreScriptPart2[] = R"js(
 		}
 
 		button.SetPanelEvent( 'onactivate', _Toggle );
-		button.SetPanelEvent( 'onmouseover', function() { UiToolkitAPI.ShowTextTooltip( 'CsgoGcCaseStoreNavBtn', 'Case Store' ); } );
+		button.SetPanelEvent( 'onmouseover', function() { UiToolkitAPI.ShowTextTooltip( 'CsgoGcCaseStoreNavBtn', 'The Supremacy Shop' ); } );
 		button.SetPanelEvent( 'onmouseout', function() { UiToolkitAPI.HideTextTooltip(); } );
 	}
 

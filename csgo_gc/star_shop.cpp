@@ -71,6 +71,11 @@ uint32_t StarShop::Price(const ItemSchema &itemSchema, const StarShopConfig &con
         return 0;
     }
 
+    if (itemSchema.IsCustomCase(defIndex))
+    {
+        return config.customCasePrice;
+    }
+
     switch (itemSchema.GetContainerKind(defIndex))
     {
     case ItemSchema::ContainerKind::SouvenirPackage: return config.souvenirPrice;
@@ -118,10 +123,26 @@ std::vector<uint32_t> StarShop::ShopContainers(const ItemSchema &itemSchema, con
         return a > b;
     });
 
+    // custom cases come first, whatever the limits and kinds, and aren't
+    // counted in them
     std::vector<uint32_t> selected;
+    for (uint32_t crate : itemSchema.GetCustomCaseDefIndexes())
+    {
+        const ItemInfo *info = itemSchema.ItemInfoByDefIndex(crate);
+        if (info && !info->m_name.empty() && itemSchema.CanCreateItem(crate))
+        {
+            selected.push_back(crate);
+        }
+    }
+
     std::array<uint32_t, 4> taken{};
     for (uint32_t crate : crates)
     {
+        if (itemSchema.IsCustomCase(crate))
+        {
+            continue;
+        }
+
         const Kind kind = itemSchema.GetContainerKind(crate);
         const ItemInfo *info = itemSchema.ItemInfoByDefIndex(crate);
         if (!info || info->m_name.empty() || !kindEnabled(kind)

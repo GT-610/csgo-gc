@@ -2859,13 +2859,9 @@ void ClientGC::StorePurchaseFinalize(GCMessageRead &messageRead)
     std::vector<uint64_t> itemIds;
     for (const PendingStoreLineItem &lineItem : m_transactionLineItems)
     {
-        const bool agent = StarShop::IsAgent(m_inventory.GetItemSchema(), lineItem.defIndex);
         for (uint32_t i = 0; i < lineItem.quantity; ++i)
         {
-            // agents are random: whichever agent was clicked, you get one of all of them
-            uint64_t itemId = agent
-                ? m_inventory.CreateRandomAgent(inventoryUpdate)
-                : m_inventory.PurchaseItem(lineItem.defIndex, inventoryUpdate);
+            uint64_t itemId = m_inventory.PurchaseItem(lineItem.defIndex, inventoryUpdate);
             if (!itemId)
             {
                 Platform::Print("StorePurchaseFinalize failed to create def %u for transaction %llu\n",

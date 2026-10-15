@@ -21,6 +21,7 @@
 #include "tradeup_hook.h"
 #include "server_hook.h"
 #include "bot_skins.h"
+#include "viewmodel_range.h"
 #include "panorama_hook.h"
 #include <funchook.h>
 #include <ctime>
@@ -499,6 +500,7 @@ static void UpdateGameEventListeners()
     if (s_clientGC)
     {
         TryInstallTradeUpHook();
+        TryApplyViewmodelRange();
 
         if (GetConfig().BotSkins().enabled)
         {

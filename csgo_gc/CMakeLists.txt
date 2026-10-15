@@ -47,6 +47,7 @@ add_library(csgo_gc SHARED
     steam_hook.cpp
     tradeup_hook.cpp
     server_hook.cpp
+    viewmodel_range.cpp
     bot_skins.cpp
     panorama_hook.cpp)
 
@@ -147,6 +148,7 @@ if (BUILD_TESTING)
         networking_server.cpp
         panorama_hook.cpp
         bot_skins.cpp
+        viewmodel_range.cpp
         souvenir.cpp
         star_shop.cpp)
 

@@ -62,6 +62,7 @@ GCConfig::GCConfig()
     m_goldTradeUpRecipes = config.GetNumber("gold_tradeup_recipes", m_goldTradeUpRecipes);
     m_caseStoreMenu = config.GetNumber("case_store_menu", m_caseStoreMenu);
     m_panoramaDebug = config.GetNumber("panorama_debug", m_panoramaDebug);
+    m_viewmodelRange = std::clamp(config.GetNumber("viewmodel_range", m_viewmodelRange), 1.0f, 100.0f);
     m_tradeUpMixStatTrak = config.GetNumber("tradeup_mix_stattrak", m_tradeUpMixStatTrak);
     m_primeStatus = config.GetNumber("prime_status", m_primeStatus);
 
@@ -157,6 +158,7 @@ GCConfig::GCConfig()
         m_starShop.casePrice = starShop->GetNumber("case_price", m_starShop.casePrice);
         m_starShop.capsulePrice = starShop->GetNumber("capsule_price", m_starShop.capsulePrice);
         m_starShop.souvenirPrice = starShop->GetNumber("souvenir_price", m_starShop.souvenirPrice);
+        m_starShop.customCasePrice = starShop->GetNumber("custom_case_price", m_starShop.customCasePrice);
         m_starShop.agentPrice = starShop->GetNumber("agent_price", m_starShop.agentPrice);
         m_starShop.operationActive = starShop->GetNumber("operation_active", m_starShop.operationActive);
         m_starShop.maxCases = starShop->GetNumber("max_cases", m_starShop.maxCases);

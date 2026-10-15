@@ -975,6 +975,22 @@ bool ItemSchema::CreateItem(uint32_t defIndex, ItemOrigin origin, Unacknowledged
     return true;
 }
 
+std::vector<uint32_t> ItemSchema::GetCustomCaseDefIndexes() const
+{
+    std::vector<uint32_t> cases;
+    for (const auto &pair : m_customCaseLootLists)
+    {
+        cases.push_back(pair.first);
+    }
+    std::sort(cases.begin(), cases.end());
+    return cases;
+}
+
+bool ItemSchema::IsCustomCase(uint32_t crateDefIndex) const
+{
+    return m_customCaseLootLists.contains(crateDefIndex);
+}
+
 const std::string *ItemSchema::CustomCaseName(uint32_t crateDefIndex) const
 {
     auto it = m_customCaseNames.find(crateDefIndex);

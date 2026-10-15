@@ -9,6 +9,7 @@
 #include "panorama_hook.h"
 #include "star_shop.h"
 #include "bot_skins.h"
+#include "viewmodel_range.h"
 #include "test_filesystem.h"
 
 #include <cmath>
@@ -4306,6 +4307,64 @@ static bool BotSkinsPickThemedStableSkins()
     return valid;
 }
 
+static bool ViewmodelRangeIsScaledOnlyForConVarLikeMemory()
+{
+    // a fake ConVar: -2..2 with both limits set
+    alignas(4) uint8_t convar[0x60] = {};
+    convar[0x34] = 1;
+    convar[0x3c] = 1;
+    const float minimum = -2.0f, maximum = 2.0f;
+    memcpy(convar + 0x38, &minimum, sizeof(minimum));
+    memcpy(convar + 0x40, &maximum, sizeof(maximum));
+
+    float scaledMin, scaledMax;
+    const bool valid = ScaleViewmodelRange(convar, 10.0f);
+    memcpy(&scaledMin, convar + 0x38, sizeof(scaledMin));
+    memcpy(&scaledMax, convar + 0x40, sizeof(scaledMax));
+
+    // memory without limits, or with nonsense limits, is left alone
+    alignas(4) uint8_t other[0x60] = {};
+    const float junkMin = 5.0f, junkMax = 9.0f;
+    other[0x34] = 1;
+    other[0x3c] = 1;
+    memcpy(other + 0x38, &junkMin, sizeof(junkMin));
+    memcpy(other + 0x40, &junkMax, sizeof(junkMax));
+    uint8_t before[0x60];
+    memcpy(before, other, sizeof(before));
+    uint8_t noLimits[0x60] = {};
+
+    return valid && scaledMin == -20.0f && scaledMax == 20.0f
+        && !ScaleViewmodelRange(other, 10.0f) && memcmp(before, other, sizeof(before)) == 0
+        && !ScaleViewmodelRange(noLimits, 10.0f) && !ScaleViewmodelRange(convar, 0.0f);
+}
+
+static bool CaseStoreListsCustomCasesFirstAndAgents()
+{
+    RemoveGoldTradeUpFixtures();
+    KeyValue customCases{ "custom_cases" };
+    KeyValue &customCase = customCases.AddSubkey("4001");
+    customCase.AddString("name", "Test Custom Case");
+    customCase.AddSubkey("items").AddString("[covert_b]weapon_ak47", "common");
+    customCase.AddSubkey("golds").AddString("[covert_a]weapon_knife_karambit", "");
+    if (!WriteGoldTradeUpFixtures() || !customCases.WriteToFile("csgo_gc/custom_cases.txt"))
+    {
+        RemoveGoldTradeUpFixtures();
+        return false;
+    }
+
+    bool valid;
+    {
+        ClientGC gc{ 76561197960265729ull };
+        const std::string data = PanoramaHook::BuildCaseStoreData(gc.GetItemSchema());
+        // kind 5 = custom case, listed first, with its name as the last field
+        valid = data.find("[4001,4002,5,") == 1 && data.find(",\"Test Custom Case\"]") != std::string::npos;
+    }
+
+    TestFilesystem::RemoveFile("csgo_gc/custom_cases.txt");
+    RemoveGoldTradeUpFixtures();
+    return valid;
+}
+
 static bool StarShopMovesTheOperationScheduleToNow()
 {
     const std::string text =
@@ -4507,6 +4566,8 @@ int main()
         { "StarShopPatchReplacesOnlyTheNewestOperationsGoods",
             StarShopPatchReplacesOnlyTheNewestOperationsGoods },
         { "StarShopMovesTheOperationScheduleToNow", StarShopMovesTheOperationScheduleToNow },
+        { "ViewmodelRangeIsScaledOnlyForConVarLikeMemory", ViewmodelRangeIsScaledOnlyForConVarLikeMemory },
+        { "CaseStoreListsCustomCasesFirstAndAgents", CaseStoreListsCustomCasesFirstAndAgents },
         { "BotSkinsPickThemedStableSkins", BotSkinsPickThemedStableSkins },
         { "StarShopEarnsStarsAndRedeemsARandomAgent", StarShopEarnsStarsAndRedeemsARandomAgent },
         { "PityBoostsBetterRaritiesBeforeGold", PityBoostsBetterRaritiesBeforeGold },

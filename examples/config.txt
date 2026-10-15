@@ -136,6 +136,7 @@
 	"case_price"		"10"
 	"capsule_price"		"5"
 	"souvenir_price"	"25"
+	"custom_case_price"	"100"	// cases from custom_cases.txt, shown first in the shop
 	"agent_price"		"50"	// a random agent, any of them
 
 	// how many of each the shop sells, newest first (0 = all of them). the rest
@@ -168,6 +169,11 @@
 // logs what the game thinks about the operation (lines starting with [csgo_gc]).
 // turn it on, start the game, and send the files and log lines
 "panorama_debug"	"0"
+
+// how much further than normal viewmodel_offset_x/y/z can go. 1 = the game's own
+// limits (about -2 to 2), 10 = ten times that, so e.g. "viewmodel_offset_x 15" works.
+// set the numbers in the console as usual once this is on
+"viewmodel_range"	"1"
 
 // remove keys, cases, stickers, etc. after they've been used
 "destroy_used_items"	"1"

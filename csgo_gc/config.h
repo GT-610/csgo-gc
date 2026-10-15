@@ -53,6 +53,7 @@ struct StarShopConfig
     uint32_t casePrice{ 10 };
     uint32_t capsulePrice{ 5 };
     uint32_t souvenirPrice{ 25 };
+    uint32_t customCasePrice{ 100 }; // cases from custom_cases.txt
     uint32_t agentPrice{ 50 }; // a random agent
     // how many of each the star store sells, newest first (0 = all of them).
     // the rest can only be found through match drops
@@ -120,6 +121,7 @@ public:
     bool GoldTradeUpRecipes() const { return m_goldTradeUpRecipes; }
     bool CaseStoreMenu() const { return m_caseStoreMenu; }
     bool PanoramaDebug() const { return m_panoramaDebug; }
+    float ViewmodelRange() const { return m_viewmodelRange; }
     bool TradeUpMixStatTrak() const { return m_tradeUpMixStatTrak; }
 
     MusicKit::StatTrakGate MusicKitStatTrakGate() const { return m_musicKitStatTrakGate; }
@@ -173,6 +175,7 @@ private:
     bool m_goldTradeUpRecipes{ true };
     bool m_caseStoreMenu{ true };
     bool m_panoramaDebug{ false };
+    float m_viewmodelRange{ 1.0f };
     bool m_tradeUpMixStatTrak{ true };
     bool m_itemDeleteMenu{ true };
 
