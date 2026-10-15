@@ -13,6 +13,29 @@ namespace GameSchemaPatch
     constexpr const char *SchemaPath = "csgo/scripts/items/items_game.txt";
     constexpr const char *BackupPath = "csgo/scripts/items/items_game.txt.csgo_gc_backup";
 
+    // the game's language file, patched with the names of custom finishes. The game keeps it inside
+    // its VPK; a copy of resource/csgo_english.txt extracted next to it (loose files win) is patched
+    // the same way as items_game.txt: backed up once, every patch starts from the backup
+    constexpr const char *LanguagePath = "csgo/resource/csgo_english.txt";
+    constexpr const char *LanguageBackupPath = "csgo/resource/csgo_english.txt.csgo_gc_backup";
+
+    // true when a loose language file is there to patch
+    bool LanguageFileAvailable();
+
+    // token name -> text
+    using LanguageTokens = std::vector<std::pair<std::string, std::string>>;
+
+    // inserts the tokens last in the file's lang/Tokens block (UTF-8 text). returns false when
+    // there's no such block
+    bool AddLanguageTokens(std::string &languageText, const LanguageTokens &tokens);
+
+    // writes the language file with the tokens (backing up the original first). returns true when
+    // the file changed and a restart is needed
+    bool ApplyLanguage(const LanguageTokens &tokens);
+
+    // puts the original language file back if it was patched
+    bool RestoreLanguage();
+
     // the items_game.txt the GC should parse: the original when a backup exists
     const char *OriginalSchemaPath();
 

@@ -7,6 +7,11 @@
 //   2. restart the game twice (the first start adds the finishes to items_game.txt)
 // A finish without its .vmt shows as a missing-texture checkerboard in game.
 //
+// Finish names: the game shows a finish's name from its language file, which lives inside the game's VPK.
+// To see the "title" of each finish instead of a blank name, extract resource/csgo_english.txt from
+// pak01_dir.vpk into csgo/resource/ (so csgo/resource/csgo_english.txt exists), then restart twice.
+// The GC adds the names to it and keeps a backup next to it (.csgo_gc_backup).
+//
 // One block per finish, named after the finish. Every key is optional except what the finish needs:
 //   "id"      a number; picked from the name when missing
 //   "title"   the name shown in game

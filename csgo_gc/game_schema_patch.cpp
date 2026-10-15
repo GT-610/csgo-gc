@@ -464,6 +464,201 @@ bool GameSchemaPatch::AddPaintKits(std::string &text, const PaintKitsPatch &pain
     return true;
 }
 
+// ---- language file ----
+
+// the game's language files are UTF-16LE with a byte order mark; anything else is treated as UTF-8
+static bool DecodeLanguageFile(const std::string &raw, std::string &utf8, bool &utf16)
+{
+    utf16 = raw.size() >= 2 && static_cast<uint8_t>(raw[0]) == 0xff && static_cast<uint8_t>(raw[1]) == 0xfe;
+    if (!utf16)
+    {
+        utf8 = raw;
+        return true;
+    }
+
+    utf8.clear();
+    const size_t units = (raw.size() - 2) / 2;
+    auto unitAt = [&](size_t i)
+    {
+        return static_cast<uint32_t>(static_cast<uint8_t>(raw[2 + i * 2]))
+            | static_cast<uint32_t>(static_cast<uint8_t>(raw[3 + i * 2])) << 8;
+    };
+
+    for (size_t i = 0; i < units; i++)
+    {
+        uint32_t code = unitAt(i);
+        if (code >= 0xd800 && code < 0xdc00 && i + 1 < units)
+        {
+            const uint32_t low = unitAt(i + 1);
+            if (low >= 0xdc00 && low < 0xe000)
+            {
+                code = 0x10000 + ((code - 0xd800) << 10) + (low - 0xdc00);
+                i++;
+            }
+        }
+
+        if (code < 0x80)
+        {
+            utf8 += static_cast<char>(code);
+        }
+        else if (code < 0x800)
+        {
+            utf8 += static_cast<char>(0xc0 | (code >> 6));
+            utf8 += static_cast<char>(0x80 | (code & 0x3f));
+        }
+        else if (code < 0x10000)
+        {
+            utf8 += static_cast<char>(0xe0 | (code >> 12));
+            utf8 += static_cast<char>(0x80 | ((code >> 6) & 0x3f));
+            utf8 += static_cast<char>(0x80 | (code & 0x3f));
+        }
+        else
+        {
+            utf8 += static_cast<char>(0xf0 | (code >> 18));
+            utf8 += static_cast<char>(0x80 | ((code >> 12) & 0x3f));
+            utf8 += static_cast<char>(0x80 | ((code >> 6) & 0x3f));
+            utf8 += static_cast<char>(0x80 | (code & 0x3f));
+        }
+    }
+    return true;
+}
+
+static std::string EncodeLanguageFile(const std::string &utf8, bool utf16)
+{
+    if (!utf16)
+    {
+        return utf8;
+    }
+
+    std::string raw;
+    raw += static_cast<char>(0xff);
+    raw += static_cast<char>(0xfe);
+    auto put = [&](uint32_t unit)
+    {
+        raw += static_cast<char>(unit & 0xff);
+        raw += static_cast<char>(unit >> 8);
+    };
+
+    for (size_t i = 0; i < utf8.size();)
+    {
+        const uint8_t lead = static_cast<uint8_t>(utf8[i]);
+        uint32_t code;
+        size_t length;
+        if (lead < 0x80) { code = lead; length = 1; }
+        else if (lead >= 0xf0) { code = lead & 0x07; length = 4; }
+        else if (lead >= 0xe0) { code = lead & 0x0f; length = 3; }
+        else { code = lead & 0x1f; length = 2; }
+
+        for (size_t k = 1; k < length && i + k < utf8.size(); k++)
+        {
+            code = (code << 6) | (static_cast<uint8_t>(utf8[i + k]) & 0x3f);
+        }
+        i += length;
+
+        if (code >= 0x10000)
+        {
+            code -= 0x10000;
+            put(0xd800 + (code >> 10));
+            put(0xdc00 + (code & 0x3ff));
+        }
+        else
+        {
+            put(code);
+        }
+    }
+    return raw;
+}
+
+bool GameSchemaPatch::LanguageFileAvailable()
+{
+    return FileExists(LanguagePath);
+}
+
+bool GameSchemaPatch::AddLanguageTokens(std::string &text, const LanguageTokens &tokens)
+{
+    BlockRange block;
+    if (!FindBlock(text, { "lang", "Tokens" }, block))
+    {
+        return false;
+    }
+
+    // a line ending like the file's own
+    const char *eol = text.find("\r\n") != std::string::npos ? "\r\n" : "\n";
+    std::string lines;
+    for (const auto &token : tokens)
+    {
+        lines += "\t\t\"" + token.first + "\"\t\t\"" + token.second + "\"" + eol;
+    }
+    text.insert(InsertionPoint(text, block.close), lines);
+    return true;
+}
+
+bool GameSchemaPatch::ApplyLanguage(const LanguageTokens &tokens)
+{
+    if (tokens.empty() || !FileExists(LanguagePath))
+    {
+        return false;
+    }
+
+    std::string raw;
+    const char *source = FileExists(LanguageBackupPath) ? LanguageBackupPath : LanguagePath;
+    if (!ReadWholeFile(source, raw))
+    {
+        Platform::Print("language patch: could not read %s (errno %d)\n", source, errno);
+        return false;
+    }
+
+    std::string text;
+    bool utf16 = false;
+    if (!DecodeLanguageFile(raw, text, utf16) || !AddLanguageTokens(text, tokens))
+    {
+        Platform::Print("language patch: no lang/Tokens block in %s, finish names not added\n", source);
+        return false;
+    }
+
+    const std::string patched = EncodeLanguageFile(text, utf16);
+    std::string current;
+    if (ReadWholeFile(LanguagePath, current) && current == patched)
+    {
+        return false;
+    }
+
+    if (!FileExists(LanguageBackupPath) && !WriteWholeFile(LanguageBackupPath, raw))
+    {
+        Platform::Print("language patch: could not create the backup %s (errno %d), not patching\n",
+            LanguageBackupPath, errno);
+        return false;
+    }
+
+    if (!WriteWholeFile(LanguagePath, patched))
+    {
+        Platform::Print("language patch: could not write %s (errno %d)\n", LanguagePath, errno);
+        return false;
+    }
+
+    Platform::Print("language patch: added %zu finish name(s) to %s, restart the game to see them\n",
+        tokens.size(), LanguagePath);
+    return true;
+}
+
+bool GameSchemaPatch::RestoreLanguage()
+{
+    if (!FileExists(LanguageBackupPath))
+    {
+        return false;
+    }
+
+    std::string original;
+    if (!ReadWholeFile(LanguageBackupPath, original) || !WriteWholeFile(LanguagePath, original))
+    {
+        Platform::Print("could not restore %s from %s\n", LanguagePath, LanguageBackupPath);
+        return false;
+    }
+
+    remove(LanguageBackupPath);
+    return true;
+}
+
 int GameSchemaPatch::ActivateOperation(std::string &text, int64_t now)
 {
     // the schedule is start + length + slack, twelve weeks in the real file

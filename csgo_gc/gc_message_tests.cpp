@@ -3950,6 +3950,23 @@ static bool StoreListsAddedCustomCases()
 
 // finishes from a mod: the schema knows them, a custom case can use them, and the
 // game file gets entries for them
+static bool LanguageTokensGoLastInTheTokensBlock()
+{
+    std::string language =
+        "\"lang\"\n{\n\t\"Language\"\t\"English\"\n\t\"Tokens\"\n\t{\n\t\t\"A\"\t\t\"a\"\n\t}\n}\n";
+    const GameSchemaPatch::LanguageTokens tokens{ { "PaintKit_x_Tag", "Ex" }, { "PaintKit_y_Tag", "Why" } };
+
+    bool valid = GameSchemaPatch::AddLanguageTokens(language, tokens);
+    const size_t first = language.find("\"PaintKit_x_Tag\"\t\t\"Ex\"");
+    const size_t second = language.find("\"PaintKit_y_Tag\"\t\t\"Why\"");
+    const size_t close = language.rfind("\t}\n}");
+    valid &= language.find("\"A\"") < first && first < second && second < close;
+
+    std::string noTokens = "\"lang\"\n{\n\t\"Language\"\t\"English\"\n}\n";
+    valid &= !GameSchemaPatch::AddLanguageTokens(noTokens, tokens);
+    return valid;
+}
+
 static bool CustomPaintKitsReachTheSchemaAndGameFile()
 {
     RemoveGoldTradeUpFixtures();
@@ -4884,6 +4901,7 @@ int main()
         { "CaseStoreListsPricedCustomCasesAsSpecialOffers", CaseStoreListsPricedCustomCasesAsSpecialOffers },
         { "RconGiveStarsAddsToTheBalance", RconGiveStarsAddsToTheBalance },
         { "CustomPaintKitsReachTheSchemaAndGameFile", CustomPaintKitsReachTheSchemaAndGameFile },
+        { "LanguageTokensGoLastInTheTokensBlock", LanguageTokensGoLastInTheTokensBlock },
         { "StoreListsAddedCustomCases", StoreListsAddedCustomCases },
         { "AddedCaseSkinsTradeUp", AddedCaseSkinsTradeUp },
         { "CustomCasePreviewPatchesOnlyTargetLists", CustomCasePreviewPatchesOnlyTargetLists },

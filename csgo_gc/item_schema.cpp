@@ -325,6 +325,23 @@ ItemSchema::ItemSchema(bool loadFiles)
             paintKits.raritiesText += kit.rarityText;
         }
 
+        GameSchemaPatch::LanguageTokens languageTokens;
+        for (const CustomPaintKit &kit : m_customPaintKits)
+        {
+            if (!kit.nameToken.empty())
+            {
+                languageTokens.emplace_back(kit.nameToken, kit.title);
+            }
+        }
+        if (languageTokens.empty())
+        {
+            GameSchemaPatch::RestoreLanguage();
+        }
+        else
+        {
+            GameSchemaPatch::ApplyLanguage(languageTokens);
+        }
+
         if (!previews.empty() || !recipes.empty() || mixStatTrak || patchStarShop || !addedCases.empty()
             || !paintKits.kitsText.empty())
         {
@@ -1643,11 +1660,19 @@ void ItemSchema::ParseCustomPaintKits(const KeyValue &customKitsKey)
 
         const std::string rarityName{ kitKey.GetString("rarity", "ancient") };
 
+        // the client shows a finish's name from a language token; with the game's language file
+        // extracted next to it, that token is added to it. without it the plain title is all there is
+        std::string nameToken;
+        if (GameSchemaPatch::LanguageFileAvailable())
+        {
+            nameToken = "PaintKit_csgogc_" + name + "_Tag";
+        }
+
         // the entry the schema and the game file share
         KeyValue entry{ std::to_string(defIndex) };
         entry.AddString("name", name);
         entry.AddString("description_string", title);
-        entry.AddString("description_tag", title);
+        entry.AddString("description_tag", nameToken.empty() ? title : "#" + nameToken);
         for (const KeyValue &child : kitKey)
         {
             const std::string_view childName = child.Name();
@@ -1666,6 +1691,8 @@ void ItemSchema::ParseCustomPaintKits(const KeyValue &customKitsKey)
         CustomPaintKit custom;
         custom.defIndex = defIndex;
         custom.name = name;
+        custom.title = title;
+        custom.nameToken = nameToken;
         custom.kitText = "\t\t\"" + std::to_string(defIndex) + "\"\n\t\t{\n";
         WriteKitChildren(custom.kitText, entry, 3);
         custom.kitText += "\t\t}\n";

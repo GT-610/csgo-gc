@@ -279,6 +279,8 @@ public:
     {
         uint32_t defIndex{};
         std::string name;
+        std::string title;
+        std::string nameToken;  // language token holding the title, empty when the tag is the plain title
         std::string kitText;    // the paint_kits block
         std::string rarityText; // the paint_kits_rarity line
     };
