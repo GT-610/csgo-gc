@@ -191,8 +191,28 @@ var CsgoGcCaseStore = ( function()
 		return InventoryAPI.GetFauxItemIDFromDefAndPaintIndex( defIndex, 0 );
 	}
 
+	// the game only knows an item once its items_game.txt has it. New custom cases are added
+	// to that file while the game runs, so they show up one restart later
+	function _Known( id )
+	{
+		try
+		{
+			return !id || id === '0' || InventoryAPI.IsValidItemID( id ) !== false;
+		}
+		catch ( e )
+		{
+			return true;
+		}
+	}
+
 	function _Buy( id, keyId, amount, name )
 	{
+		if ( !_Known( id ) )
+		{
+			m_status.text = name + ' is not loaded yet: close the game completely and start it again, then it can be bought.';
+			return;
+		}
+
 		var ids = [];
 		for ( var i = 0; i < amount; i++ )
 		{
@@ -350,7 +370,13 @@ var CsgoGcCaseStore = ( function()
 			buttons.push( { button: button, amount: amount } );
 		} );
 
-		var record = { panel: tile, name: name.toLowerCase(), kind: kind, price: price, buttons: buttons };
+		var known = _Known( id );
+		if ( !known )
+		{
+			tile.style.opacity = '0.45';
+		}
+
+		var record = { panel: tile, name: name.toLowerCase(), kind: kind, price: price, buttons: buttons, known: known };
 		m_tiles.push( record );
 		return record;
 	}
@@ -461,6 +487,12 @@ static const char CaseStoreScriptPart2[] = R"js(
 
 		_ShowStars();
 		_ApplyFilter();
+
+		var unknown = m_tiles.filter( function( tile ) { return !tile.known; } ).length;
+		if ( unknown )
+		{
+			m_status.text = unknown + ' item' + ( unknown === 1 ? ' is' : 's are' ) + ' not loaded in the game yet (dimmed): close the game completely and start it again.';
+		}
 	}
 
 	function _Open()
