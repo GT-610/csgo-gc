@@ -51,10 +51,11 @@ ItemListMatchesInputsFn s_originalItemListMatchesInputs;
 
 bool s_hookDone;
 
-// logs when a 5-item contract's answer changes, so a greyed-out PROCEED button
-// can be told apart from "the hook never ran"
-int s_lastContractResult = -1;
-int s_contractLogs;
+// logs when a 5-item contract's answer changes, separately for the "could these still become a
+// contract" queries (allowPartial) and the real check, so a greyed-out PROCEED button can be told
+// apart from "the hook never ran"
+int s_lastContractResult[2] = { -1, -1 };
+int s_contractLogs[2];
 
 // the 5-item gold recipes are the only recipes with a single 5-item input group
 bool IsGoldContractRecipe(const uint8_t *recipe)
@@ -80,12 +81,13 @@ bool __fastcall Hk_ItemListMatchesInputs(void *recipe, void *edx, void *items, b
     const bool matches = s_originalItemListMatchesInputs(recipe, edx, items, allowPartial);
     filter = FilterTradeUp;
 
-    if (static_cast<int>(matches) != s_lastContractResult && s_contractLogs < 30)
+    const int kind = allowPartial ? 1 : 0;
+    if (static_cast<int>(matches) != s_lastContractResult[kind] && s_contractLogs[kind] < 30)
     {
-        s_lastContractResult = matches;
-        s_contractLogs++;
-        Platform::Print("Trade-up hook: 5-item contract %s (allowPartial=%d)\n",
-            matches ? "matches" : "does NOT match", allowPartial ? 1 : 0);
+        s_lastContractResult[kind] = matches;
+        s_contractLogs[kind]++;
+        Platform::Print("Trade-up hook: 5-item contract %s (%s)\n", matches ? "matches" : "does NOT match",
+            allowPartial ? "partial, as in adding another item" : "full check");
     }
     return matches;
 }
