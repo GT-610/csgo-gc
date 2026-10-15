@@ -222,6 +222,8 @@ var CsgoGcCaseStore = ( function()
 	var RARITY_COLORS = { 1: '#b0c3d9', 2: '#5e98d9', 3: '#4b69ff', 4: '#8847ff', 5: '#d32ce6', 6: '#eb4b4b', 7: '#e4ae39' };
 	var BUY_AMOUNTS = [ 1, 5, 10 ];
 	var GOLD = '#f5c542';
+	var PRIMARY = '#2d6fb0';        // the colour of the buttons that do something
+	var PRIMARY_EDGE = '#7db4ea';
 	var HOME_CARDS = 6;   // cards in a band on the Home page
 	var PAGE_SIZE = 14;   // cards on a page of a category
 
@@ -388,7 +390,7 @@ var CsgoGcCaseStore = ( function()
 
 		m_current = { id: id, keyId: keyId, price: price, name: name };
 		m_barName.text = name;
-		m_barPrice.text = price > 0 ? ( price + ' ★' ) : '';
+		m_barPrice.text = price > 0 ? ( price + ' \u2605' ) : '';
 		m_bar.visible = true;
 		_ShowAffordability();
 	}
@@ -451,7 +453,7 @@ var CsgoGcCaseStore = ( function()
 		var info = _Panel( card, { width: '100%', flowChildren: 'right', margin: '2px 0px 0px 0px' } );
 		info.hittest = false;
 		_Label( info, subtitle, { fontSize: '12px', color: '#9aa8b8', margin: '0px 0px 0px 12px', verticalAlign: 'center', width: 'fill-parent-flow( 1.0 )' } ).hittest = false;
-		var priceLabel = _Label( info, price > 0 ? ( price + ' ★' ) : 'free', { fontSize: '19px', color: GOLD, fontWeight: 'bold', margin: '0px 12px 0px 0px', horizontalAlign: 'right' } );
+		var priceLabel = _Label( info, price > 0 ? ( price + ' \u2605' ) : 'free', { fontSize: '19px', color: GOLD, fontWeight: 'bold', margin: '0px 12px 0px 0px', horizontalAlign: 'right' } );
 		priceLabel.hittest = false;
 
 		var known = _Known( id );
@@ -528,9 +530,9 @@ static const char CaseStoreScriptCareer[] = R"js(
 		[ [ 'opened', 'OPENED' ], [ 'all', 'ALL CASES' ], [ 'complete', 'COMPLETE' ] ].forEach( function( filter )
 		{
 			var active = m_collectionFilter === filter[ 0 ];
-			_Button( top, filter[ 1 ], { width: '110px', height: '28px', margin: '0px 4px', verticalAlign: 'center',
-				backgroundColor: active ? '#ffffff26' : '#ffffff0d', border: active ? '1px solid #ffffff66' : '1px solid #ffffff1a' },
-				function() { m_collectionFilter = filter[ 0 ]; _RenderCollections(); }, { fontSize: '12px', letterSpacing: '1px', color: active ? '#ffffff' : '#aab4c0' } );
+			_Button( top, filter[ 1 ], { width: '120px', height: '30px', margin: '0px 4px', verticalAlign: 'center',
+				backgroundColor: active ? PRIMARY : '#ffffff30', border: active ? '1px solid ' + PRIMARY_EDGE : '1px solid #ffffff66' },
+				function() { m_collectionFilter = filter[ 0 ]; _RenderCollections(); }, { fontSize: '13px', fontWeight: 'bold', letterSpacing: '1px', color: '#ffffff' } );
 		} );
 		_Label( panel, 'Open a case to find its skins. Find every skin of a case to complete its collection and win ' + ( m_career ? m_career.goalReward : 0 ) + ' stars.', { fontSize: '13px', color: '#cdd6e0', margin: '0px 0px 8px 0px' } );
 
@@ -583,9 +585,9 @@ static const char CaseStoreScriptCareer[] = R"js(
 		[ [ 'all', 'ALL' ], [ 'locked', 'IN PROGRESS' ], [ 'done', 'UNLOCKED' ] ].forEach( function( filter )
 		{
 			var active = m_achievementFilter === filter[ 0 ];
-			_Button( top, filter[ 1 ], { width: '120px', height: '28px', margin: '0px 4px', verticalAlign: 'center',
-				backgroundColor: active ? '#ffffff26' : '#ffffff0d', border: active ? '1px solid #ffffff66' : '1px solid #ffffff1a' },
-				function() { m_achievementFilter = filter[ 0 ]; _RenderAchievements(); }, { fontSize: '12px', letterSpacing: '1px', color: active ? '#ffffff' : '#aab4c0' } );
+			_Button( top, filter[ 1 ], { width: '130px', height: '30px', margin: '0px 4px', verticalAlign: 'center',
+				backgroundColor: active ? PRIMARY : '#ffffff30', border: active ? '1px solid ' + PRIMARY_EDGE : '1px solid #ffffff66' },
+				function() { m_achievementFilter = filter[ 0 ]; _RenderAchievements(); }, { fontSize: '13px', fontWeight: 'bold', letterSpacing: '1px', color: '#ffffff' } );
 		} );
 
 		if ( !list.length )
@@ -680,7 +682,7 @@ static const char CaseStoreScriptCareer[] = R"js(
 		var label = button.GetChild( 0 );
 		if ( label )
 		{
-			label.style.color = active ? '#ffffff' : '#8d99a8';
+			label.style.color = active ? '#ffffff' : '#c5cfdb';
 		}
 	}
 
@@ -711,7 +713,7 @@ static const char CaseStoreScriptCareer[] = R"js(
 		TABS.forEach( function( tab )
 		{
 			m_tabButtons[ tab[ 0 ] ] = _Button( row, tab[ 1 ], { width: '170px', height: '100%', margin: '0px 2px 0px 0px', backgroundColor: '#00000000', borderBottom: '3px solid #00000000' },
-				function() { _SelectTab( tab[ 0 ] ); }, { fontSize: '14px', letterSpacing: '2px', fontWeight: 'bold', color: '#8d99a8' } );
+				function() { _SelectTab( tab[ 0 ] ); }, { fontSize: '14px', letterSpacing: '2px', fontWeight: 'bold', color: '#c5cfdb' } );
 		} );
 	}
 
@@ -794,8 +796,8 @@ static const char CaseStoreScriptPart2[] = R"js(
 			_Label( left, entries.length + ( entries.length === 1 ? ' item' : ' items' ), { fontSize: '13px', color: color, margin: '10px 0px 0px 0px' } );
 			if ( entries.length > HOME_CARDS )
 			{
-				_Button( left, 'VIEW ALL', { width: '130px', height: '32px', margin: '16px 0px 0px 0px', backgroundColor: '#ffffff1c', border: '1px solid #ffffff44' },
-					function() { _SelectCategory( category[ 0 ] ); }, { fontSize: '13px', letterSpacing: '2px' } );
+				_Button( left, 'VIEW ALL', { width: '140px', height: '34px', margin: '16px 0px 0px 0px', backgroundColor: PRIMARY, border: '1px solid ' + PRIMARY_EDGE },
+					function() { _SelectCategory( category[ 0 ] ); }, { fontSize: '14px', fontWeight: 'bold', letterSpacing: '2px' } );
 			}
 
 			var row = _Panel( band, { height: '100%', flowChildren: 'right', padding: '16px 0px 0px 6px' } );
@@ -827,8 +829,8 @@ static const char CaseStoreScriptPart2[] = R"js(
 		m_count.text = entries.length + ( entries.length === 1 ? ' item' : ' items' );
 		m_pageLabel.text = 'PAGE ' + ( m_page + 1 ) + ' / ' + pages;
 		m_pager.visible = pages > 1;
-		m_pager.prev.style.opacity = m_page > 0 ? '1.0' : '0.3';
-		m_pager.next.style.opacity = m_page < pages - 1 ? '1.0' : '0.3';
+		m_pager.prev.style.opacity = m_page > 0 ? '1.0' : '0.35';
+		m_pager.next.style.opacity = m_page < pages - 1 ? '1.0' : '0.35';
 	}
 
 	function _Render()
@@ -965,12 +967,14 @@ static const char CaseStoreScriptPart2[] = R"js(
 
 		m_content = _Panel( main, { width: '100%', height: 'fill-parent-flow( 1.0 )', flowChildren: 'down', overflow: 'squish scroll' } );
 
-		m_pager = _Panel( main, { width: '100%', height: '46px', flowChildren: 'right', horizontalAlign: 'center', padding: '8px 0px 0px 0px' } );
-		m_pager.prev = _Button( m_pager, '‹  PREVIOUS', { width: '140px', height: '30px', backgroundColor: '#ffffff1c', border: '1px solid #ffffff33' },
-			function() { if ( m_page > 0 ) { m_page--; _Render(); } }, { fontSize: '13px', letterSpacing: '1px' } );
-		m_pageLabel = _Label( m_pager, '', { fontSize: '14px', color: '#e2e8f0', verticalAlign: 'center', margin: '0px 22px', width: '110px', textAlign: 'center' } );
-		m_pager.next = _Button( m_pager, 'NEXT  ›', { width: '140px', height: '30px', backgroundColor: '#ffffff1c', border: '1px solid #ffffff33' },
-			function() { m_page++; _Render(); }, { fontSize: '13px', letterSpacing: '1px' } );
+		m_pager = _Panel( main, { width: '100%', height: '54px', flowChildren: 'right', horizontalAlign: 'center', padding: '8px 0px 8px 0px', backgroundColor: '#000000b0' } );
+		_Panel( m_pager, { width: 'fill-parent-flow( 1.0 )', height: '100%' } );
+		m_pager.prev = _Button( m_pager, '\u2039  PREVIOUS', { width: '160px', height: '38px', backgroundColor: PRIMARY, border: '1px solid ' + PRIMARY_EDGE },
+			function() { if ( m_page > 0 ) { m_page--; _Render(); } }, { fontSize: '15px', fontWeight: 'bold', letterSpacing: '1px' } );
+		m_pageLabel = _Label( m_pager, '', { fontSize: '16px', color: '#ffffff', fontWeight: 'bold', verticalAlign: 'center', margin: '0px 24px', width: '130px', textAlign: 'center' } );
+		m_pager.next = _Button( m_pager, 'NEXT  \u203a', { width: '160px', height: '38px', backgroundColor: PRIMARY, border: '1px solid ' + PRIMARY_EDGE },
+			function() { m_page++; _Render(); }, { fontSize: '15px', fontWeight: 'bold', letterSpacing: '1px' } );
+		_Panel( m_pager, { width: 'fill-parent-flow( 1.0 )', height: '100%' } );
 		m_pager.visible = false;
 
 		_BuildTabPanel( 'collections' );
@@ -980,7 +984,7 @@ static const char CaseStoreScriptPart2[] = R"js(
 
 		// back button along the bottom
 		var footer = _Panel( m_overlay, { width: '100%', height: '44px', borderTop: '1px solid #ffffff30' } );
-		_Button( footer, 'BACK', { horizontalAlign: 'right', verticalAlign: 'center', marginRight: '56px', width: '100px', height: '30px', backgroundColor: '#ffffff18' }, _Close, { fontSize: '15px', letterSpacing: '2px' } );
+		_Button( footer, 'BACK', { horizontalAlign: 'right', verticalAlign: 'center', marginRight: '56px', width: '120px', height: '34px', backgroundColor: PRIMARY, border: '1px solid ' + PRIMARY_EDGE }, _Close, { fontSize: '15px', fontWeight: 'bold', letterSpacing: '2px' } );
 
 		_StyleSidebar();
 		_ShowStars();
@@ -1078,7 +1082,7 @@ static const char CaseStoreScriptPart2[] = R"js(
 
 		var button = $.CreatePanel( 'Button', nav, 'CsgoGcCaseStoreNavBtn', { class: 'mainmenu-navbar__btn-small MainMenuModeOnly' } );
 		// a star, matching the star currency (drawn as text so it can't be a missing icon file)
-		var star = $.CreatePanel( 'Label', button, '', { text: '★' } );
+		var star = $.CreatePanel( 'Label', button, '', { text: '\u2605' } );
 		_Style( star, { fontSize: '34px', color: '#f5c542', horizontalAlign: 'center', verticalAlign: 'center', hittest: 'false' } );
 
 		var inventory = nav.FindChildTraverse( 'MainMenuNavBarInventory' );
