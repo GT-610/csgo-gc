@@ -131,6 +131,29 @@ float CaseOpening::PityGoldChance(float baseChance, uint32_t goldlessCases)
     return baseChance + (1.0f - baseChance) * t * t;
 }
 
+float CaseOpening::PityRarityBoost(uint32_t rarity, uint32_t goldlessCases)
+{
+    const CasePityConfig &config = GetConfig().CasePity();
+    if (!config.enabled)
+    {
+        return 1.0f;
+    }
+
+    for (const RarityWeight &boost : config.rarityBoost)
+    {
+        if (boost.rarity == rarity)
+        {
+            // climbs steadily: no boost right after a gold, the full boost
+            // by the guaranteed case
+            const float t = std::min(1.0f,
+                static_cast<float>(goldlessCases) / static_cast<float>(config.guaranteedAt));
+            return 1.0f + (boost.weight - 1.0f) * t;
+        }
+    }
+
+    return 1.0f;
+}
+
 uint32_t CaseOpening::RandomRarityForItems(const std::vector<const LootListItem *> &items,
     uint32_t goldlessCases, PityResult &pity)
 {
@@ -178,6 +201,18 @@ uint32_t CaseOpening::RandomRarityForItems(const std::vector<const LootListItem 
         {
             pity.gotGold = true;
             return ItemSchema::RarityUnusual;
+        }
+    }
+
+    // no gold this time: the longer the gold-less streak, the better the
+    // other rarities (only for cases that can contain a gold)
+    if (hasGold)
+    {
+        totalWeight = 0.0f;
+        for (RarityWeight &pair : weights)
+        {
+            pair.weight *= PityRarityBoost(pair.rarity, goldlessCases);
+            totalWeight += pair.weight;
         }
     }
 

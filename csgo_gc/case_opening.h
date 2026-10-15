@@ -26,6 +26,9 @@ public:
     // gold chance for the next case given the base chance and the pity counter
     static float PityGoldChance(float baseChance, uint32_t goldlessCases);
 
+    // weight multiplier for a non-gold rarity while waiting for a gold
+    static float PityRarityBoost(uint32_t rarity, uint32_t goldlessCases);
+
 private:
     const LootListItem *SelectLootListItem(const std::vector<const LootListItem *> &items,
         uint32_t goldlessCases, PityResult &pity);

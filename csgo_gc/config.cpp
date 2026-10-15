@@ -60,6 +60,8 @@ GCConfig::GCConfig()
     }
     m_customCasePreviews = config.GetNumber("custom_case_previews", m_customCasePreviews);
     m_goldTradeUpRecipes = config.GetNumber("gold_tradeup_recipes", m_goldTradeUpRecipes);
+    m_caseStoreMenu = config.GetNumber("case_store_menu", m_caseStoreMenu);
+    m_tradeUpMixStatTrak = config.GetNumber("tradeup_mix_stattrak", m_tradeUpMixStatTrak);
     m_primeStatus = config.GetNumber("prime_status", m_primeStatus);
 
     std::string_view musicKitStatTrak =
@@ -109,6 +111,18 @@ GCConfig::GCConfig()
         {
             m_casePity.softStart = m_casePity.guaranteedAt - 1;
         }
+
+        if (const KeyValue *boost = casePity->GetSubkey("rarity_boost"))
+        {
+            m_casePity.rarityBoost.clear();
+            for (const KeyValue &subkey : *boost)
+            {
+                RarityWeight weight;
+                weight.rarity = FromString<uint32_t>(subkey.Name());
+                weight.weight = std::max(FromString<float>(subkey.String()), 0.0f);
+                m_casePity.rarityBoost.push_back(weight);
+            }
+        }
     }
 
     const KeyValue *matchDrops = config.GetSubkey("match_drops");
@@ -117,6 +131,7 @@ GCConfig::GCConfig()
         m_matchDrops.enabled = matchDrops->GetNumber("enabled", m_matchDrops.enabled);
         m_matchDrops.dropChance = std::clamp(matchDrops->GetNumber("drop_chance", m_matchDrops.dropChance), 0.0f, 1.0f);
         m_matchDrops.caseChance = std::clamp(matchDrops->GetNumber("case_chance", m_matchDrops.caseChance), 0.0f, 1.0f);
+        m_matchDrops.dropsPerMatch = std::clamp<uint32_t>(matchDrops->GetNumber("drops_per_match", m_matchDrops.dropsPerMatch), 1, 20);
 
         const KeyValue *skinWeights = matchDrops->GetSubkey("skin_rarity_weights");
         if (skinWeights)
@@ -130,6 +145,27 @@ GCConfig::GCConfig()
                 m_matchDrops.skinRarityWeights.push_back(weight);
             }
         }
+    }
+
+    m_itemDeleteMenu = config.GetNumber("item_delete_menu", m_itemDeleteMenu);
+
+    const KeyValue *starShop = config.GetSubkey("star_shop");
+    if (starShop)
+    {
+        m_starShop.enabled = starShop->GetNumber("enabled", m_starShop.enabled);
+        m_starShop.casePrice = starShop->GetNumber("case_price", m_starShop.casePrice);
+        m_starShop.capsulePrice = starShop->GetNumber("capsule_price", m_starShop.capsulePrice);
+        m_starShop.souvenirPrice = starShop->GetNumber("souvenir_price", m_starShop.souvenirPrice);
+        m_starShop.agentPrice = starShop->GetNumber("agent_price", m_starShop.agentPrice);
+        m_starShop.maxCases = starShop->GetNumber("max_cases", m_starShop.maxCases);
+        m_starShop.maxCapsules = starShop->GetNumber("max_capsules", m_starShop.maxCapsules);
+        m_starShop.maxSouvenirPackages = starShop->GetNumber("max_souvenir_packages", m_starShop.maxSouvenirPackages);
+        m_starShop.perKill = starShop->GetNumber("kill", m_starShop.perKill);
+        m_starShop.perHeadshot = starShop->GetNumber("headshot", m_starShop.perHeadshot);
+        m_starShop.perMvp = starShop->GetNumber("mvp", m_starShop.perMvp);
+        m_starShop.perPlant = starShop->GetNumber("plant", m_starShop.perPlant);
+        m_starShop.perDefuse = starShop->GetNumber("defuse", m_starShop.perDefuse);
+        m_starShop.perMatch = starShop->GetNumber("match_complete", m_starShop.perMatch);
     }
 
     m_vacBanned = config.GetNumber("vac_banned", m_vacBanned);

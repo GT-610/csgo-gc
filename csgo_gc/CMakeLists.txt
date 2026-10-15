@@ -43,8 +43,10 @@ add_library(csgo_gc SHARED
     rcon_server.cpp
     saved_item_shuffles.cpp
     souvenir.cpp
+    star_shop.cpp
     steam_hook.cpp
-    tradeup_hook.cpp)
+    tradeup_hook.cpp
+    panorama_hook.cpp)
 
 if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
     target_sources(csgo_gc PRIVATE platform_windows.cpp)
@@ -141,12 +143,15 @@ if (BUILD_TESTING)
         keyvalue.cpp
         networking_client.cpp
         networking_server.cpp
-        souvenir.cpp)
+        panorama_hook.cpp
+        souvenir.cpp
+        star_shop.cpp)
 
     target_precompile_headers(gc_message_tests PRIVATE stdafx.h)
     target_link_libraries(gc_message_tests PRIVATE
         MbedTLS::mbedcrypto
         csgo_gc_protobufs
+        funchook-static
         steam_api
         Threads::Threads)
 
@@ -177,7 +182,8 @@ if (BUILD_TESTING)
         keyvalue.cpp
         networking_client.cpp
         overwatch_tests.cpp
-        souvenir.cpp)
+        souvenir.cpp
+        star_shop.cpp)
 
     target_precompile_headers(overwatch_tests PRIVATE stdafx.h)
     target_link_libraries(overwatch_tests PRIVATE
@@ -219,7 +225,8 @@ if (BUILD_TESTING)
         keyvalue.cpp
         graffiti.cpp
         networking_client.cpp
-        souvenir.cpp)
+        souvenir.cpp
+        star_shop.cpp)
 
     target_precompile_headers(gc_message_non_prime_tests PRIVATE stdafx.h)
     target_link_libraries(gc_message_non_prime_tests PRIVATE
@@ -248,7 +255,8 @@ if (BUILD_TESTING)
         config.cpp
         item_schema.cpp
         game_schema_patch.cpp
-        keyvalue.cpp)
+        keyvalue.cpp
+        star_shop.cpp)
 
     target_precompile_headers(item_schema_tests PRIVATE stdafx.h)
     target_link_libraries(item_schema_tests PRIVATE csgo_gc_protobufs)
@@ -268,7 +276,8 @@ if (BUILD_TESTING)
         game_schema_patch.cpp
         keyvalue.cpp
         souvenir.cpp
-        souvenir_tests.cpp)
+        souvenir_tests.cpp
+        star_shop.cpp)
 
     target_precompile_headers(souvenir_tests PRIVATE stdafx.h)
     target_link_libraries(souvenir_tests PRIVATE csgo_gc_protobufs)

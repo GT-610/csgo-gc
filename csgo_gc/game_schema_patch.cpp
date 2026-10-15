@@ -3,6 +3,7 @@
 
 #include <cerrno>
 #include <filesystem>
+#include <regex>
 
 static bool ReadWholeFile(const char *path, std::string &out)
 {
@@ -166,6 +167,120 @@ size_t GameSchemaPatch::PatchLootLists(std::string &text, const LootListPreviews
     }
 
     return ranges.size();
+}
+
+int GameSchemaPatch::ReplaceRedeemables(std::string &text, uint32_t season, const std::string &blocksText)
+{
+    struct Range
+    {
+        size_t begin;
+        size_t end;
+    };
+
+    const std::string seasonName = std::to_string(season);
+    std::vector<Range> removals;
+    std::vector<std::string> stack;
+    std::vector<size_t> keyStarts; // where each open block's name string begins
+    std::string lastString;
+    size_t lastStringStart = 0;
+    bool haveLastString = false;
+    size_t insertAt = std::string::npos;
+
+    for (size_t i = 0; i < text.size(); i++)
+    {
+        const char c = text[i];
+
+        if (c == '/' && i + 1 < text.size() && text[i + 1] == '/')
+        {
+            while (i < text.size() && text[i] != '\n')
+            {
+                i++;
+            }
+            continue;
+        }
+
+        if (c == '"')
+        {
+            const size_t quote = i;
+            size_t start = ++i;
+            while (i < text.size() && text[i] != '"')
+            {
+                if (text[i] == '\\' && i + 1 < text.size())
+                {
+                    i++;
+                }
+                i++;
+            }
+            lastString.assign(text, start, i - start);
+            lastStringStart = quote;
+            haveLastString = true;
+            continue;
+        }
+
+        if (c == '{')
+        {
+            stack.push_back(haveLastString ? lastString : std::string{});
+            keyStarts.push_back(haveLastString ? lastStringStart : i);
+            haveLastString = false;
+            continue;
+        }
+
+        if (c == '}')
+        {
+            if (stack.size() == 4 && stack[0] == "items_game" && stack[1] == "seasonaloperations"
+                && stack[2] == seasonName && stack[3] == "operational_point_redeemable")
+            {
+                // from the start of the key's line to the end of the closing brace's line
+                size_t begin = keyStarts.back();
+                while (begin > 0 && (text[begin - 1] == '\t' || text[begin - 1] == ' '))
+                {
+                    begin--;
+                }
+                size_t end = i + 1;
+                while (end < text.size() && (text[end] == '\r' || text[end] == '\n'))
+                {
+                    end++;
+                    if (text[end - 1] == '\n')
+                    {
+                        break;
+                    }
+                }
+                removals.push_back({ begin, end });
+            }
+            else if (stack.size() == 3 && stack[0] == "items_game" && stack[1] == "seasonaloperations"
+                && stack[2] == seasonName)
+            {
+                // just before the closing brace's indentation
+                insertAt = i;
+                while (insertAt > 0 && (text[insertAt - 1] == '\t' || text[insertAt - 1] == ' '))
+                {
+                    insertAt--;
+                }
+            }
+
+            if (!stack.empty())
+            {
+                stack.pop_back();
+                keyStarts.pop_back();
+            }
+            haveLastString = false;
+            continue;
+        }
+    }
+
+    if (insertAt == std::string::npos)
+    {
+        return -1;
+    }
+
+    // the insert point is after every removal, so do it first
+    text.insert(insertAt, blocksText);
+    for (auto it = removals.rbegin(); it != removals.rend(); ++it)
+    {
+        text.erase(it->begin, it->end - it->begin);
+    }
+
+    return static_cast<int>(removals.size());
 }
 
 // Recipe ids follow the existing pattern (0..4 by input rarity, +10 for
@@ -351,6 +466,101 @@ bool GameSchemaPatch::InsertRecipes(std::string &text, const std::string &recipe
     return false;
 }
 
+// finds the body of items_game/recipes: [begin, end) between its braces
+static bool FindRecipesBlock(const std::string &text, size_t &begin, size_t &end)
+{
+    std::vector<std::string> stack;
+    std::string lastString;
+    bool haveLastString = false;
+
+    for (size_t i = 0; i < text.size(); i++)
+    {
+        char c = text[i];
+
+        if (c == '/' && i + 1 < text.size() && text[i + 1] == '/')
+        {
+            while (i < text.size() && text[i] != '\n')
+            {
+                i++;
+            }
+            continue;
+        }
+
+        if (c == '"')
+        {
+            size_t start = ++i;
+            while (i < text.size() && text[i] != '"')
+            {
+                if (text[i] == '\\' && i + 1 < text.size())
+                {
+                    i++;
+                }
+                i++;
+            }
+            lastString.assign(text, start, i - start);
+            haveLastString = true;
+            continue;
+        }
+
+        if (c == '{')
+        {
+            stack.push_back(haveLastString ? lastString : std::string{});
+            haveLastString = false;
+            if (stack.size() == 2 && stack[0] == "items_game" && stack[1] == "recipes")
+            {
+                begin = i + 1;
+            }
+            continue;
+        }
+
+        if (c == '}')
+        {
+            if (stack.size() == 2 && stack[0] == "items_game" && stack[1] == "recipes")
+            {
+                end = i;
+                return true;
+            }
+
+            if (!stack.empty())
+            {
+                stack.pop_back();
+            }
+            haveLastString = false;
+        }
+    }
+
+    return false;
+}
+
+size_t GameSchemaPatch::RelaxTradeUpQuality(std::string &text)
+{
+    size_t begin = 0, end = 0;
+    if (!FindRecipesBlock(text, begin, end))
+    {
+        return 0;
+    }
+
+    // "field" "*quality" "operator" "string==" "value" "unique"
+    //   -> "field" "*quality" "operator" "string!=" "value" "unusual"
+    static const std::regex condition{
+        R"re(("field"\s+"\*quality"\s+"operator"\s+)"string=="(\s+"value"\s+)"unique")re" };
+
+    std::string body = text.substr(begin, end - begin);
+    size_t count = 0;
+    for (auto it = std::sregex_iterator(body.begin(), body.end(), condition); it != std::sregex_iterator(); ++it)
+    {
+        count++;
+    }
+
+    if (count)
+    {
+        body = std::regex_replace(body, condition, R"($1"string!="$2"unusual")");
+        text.replace(begin, end - begin, body);
+    }
+
+    return count;
+}
+
 static std::string AbsolutePath(const char *path)
 {
     std::error_code error;
@@ -358,7 +568,8 @@ static std::string AbsolutePath(const char *path)
     return error ? std::string{ path } : absolute.string();
 }
 
-bool GameSchemaPatch::Apply(const LootListPreviews &previews, const std::string &recipesText)
+bool GameSchemaPatch::Apply(const LootListPreviews &previews, const std::string &recipesText, bool mixQualities,
+    const StarShopPatch *starShop)
 {
     const std::string schemaPath = AbsolutePath(SchemaPath);
     Platform::Print("items_game.txt patch: file %s, backup %s\n", schemaPath.c_str(),
@@ -384,11 +595,37 @@ bool GameSchemaPatch::Apply(const LootListPreviews &previews, const std::string 
         Platform::Print("items_game.txt patch: no recipes block found, gold trade-up recipes not added\n");
     }
 
+    size_t relaxed = 0;
+    if (mixQualities)
+    {
+        relaxed = RelaxTradeUpQuality(patched);
+        if (!relaxed)
+        {
+            Platform::Print("items_game.txt patch: no normal-quality trade-up recipes found to allow StatTrak mixing\n");
+        }
+    }
+
+    int starGoodsReplaced = -1;
+    if (starShop)
+    {
+        starGoodsReplaced = ReplaceRedeemables(patched, starShop->season, starShop->blocksText);
+        if (starGoodsReplaced < 0)
+        {
+            Platform::Print("items_game.txt patch: no seasonaloperations block for season %u, star shop goods not added\n",
+                starShop->season);
+        }
+        else
+        {
+            Platform::Print("items_game.txt patch: star shop replaces %d operation page good(s) of season %u\n",
+                starGoodsReplaced, starShop->season);
+        }
+    }
+
     std::string current;
     if (ReadWholeFile(SchemaPath, current) && current == patched)
     {
-        Platform::Print("items_game.txt patch: already up to date (%zu case preview(s)%s)\n",
-            replaced, recipesText.empty() ? "" : ", gold trade-up recipes");
+        Platform::Print("items_game.txt patch: already up to date (%zu case preview(s)%s%s)\n",
+            replaced, recipesText.empty() ? "" : ", gold trade-up recipes", relaxed ? ", StatTrak mixing" : "");
         return false;
     }
 
@@ -405,8 +642,9 @@ bool GameSchemaPatch::Apply(const LootListPreviews &previews, const std::string 
         return false;
     }
 
-    Platform::Print("items_game.txt patch: updated %s (%zu case preview(s)%s), restart the game to see the changes\n",
-        schemaPath.c_str(), replaced, recipesText.empty() ? "" : ", gold trade-up recipes");
+    Platform::Print("items_game.txt patch: updated %s (%zu case preview(s)%s%s), restart the game to see the changes\n",
+        schemaPath.c_str(), replaced, recipesText.empty() ? "" : ", gold trade-up recipes",
+        relaxed ? ", StatTrak mixing" : "");
     return true;
 }
 

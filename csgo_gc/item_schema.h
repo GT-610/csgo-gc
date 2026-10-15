@@ -210,6 +210,9 @@ public:
     const ItemInfo *ItemInfoByName(std::string_view name) const;
     std::optional<TournamentAccessInfo> TournamentAccessByDefIndex(uint32_t defIndex) const;
     std::optional<SeasonPassInfo> SeasonPassByDefIndex(uint32_t defIndex) const;
+    // the newest operation in the schema (what the star shop uses) and its coin
+    std::optional<uint32_t> LatestSeasonalOperation() const { return m_latestSeason; }
+    std::optional<uint32_t> OperationCoinDefIndex(uint32_t season) const;
     bool IsSeasonalMissionCard(uint32_t seasonValue, uint32_t missionCardId) const;
     const PaintKitInfo *PaintKitInfoByDefIndex(uint32_t defIndex) const;
     const StickerKitInfo *StickerKitInfoByDefIndex(uint32_t defIndex) const;
@@ -231,6 +234,9 @@ public:
     const std::vector<uint32_t> &GetDropCrateDefIndexes() const;
     // every container (weapon cases, souvenir packages, sticker/patch/pin capsules...)
     std::vector<uint32_t> GetContainerDefIndexes() const;
+
+    // player agents (item_type "customplayer"), sorted by def index
+    std::vector<uint32_t> GetAgentDefIndexes() const;
 
     enum class ContainerKind
     {
@@ -419,6 +425,7 @@ private:
     std::unordered_map<std::string, uint32_t> m_attributeDefIndexByName;
     std::unordered_map<uint32_t, uint32_t> m_operationCoinDefIndexBySeason;
     std::unordered_map<uint32_t, std::vector<uint32_t>> m_missionCardsBySeason;
+    std::optional<uint32_t> m_latestSeason;
 
     std::unordered_map<std::string, StickerKitInfo> m_stickerKitInfo;
     std::unordered_map<std::string, PaintKitInfo> m_paintKitInfo;

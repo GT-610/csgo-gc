@@ -31,9 +31,29 @@ namespace GameSchemaPatch
     // when there is no recipes block
     bool InsertRecipes(std::string &schemaText, const std::string &recipesText);
 
+    // lets trade-up recipes that take normal items (quality "unique") take
+    // StatTrak and Souvenir items too, so they can be mixed in one contract.
+    // knives/gloves (quality "unusual") stay out. returns the number of recipe
+    // conditions changed
+    size_t RelaxTradeUpQuality(std::string &schemaText);
+
+    // replaces the goods on one operation's page: removes every
+    // operational_point_redeemable block of items_game/seasonaloperations/<season>
+    // and adds the given blocks instead. returns the number of blocks removed,
+    // or -1 when that season isn't in the file
+    int ReplaceRedeemables(std::string &schemaText, uint32_t season, const std::string &blocksText);
+
+    // the star shop's operation page goods (see StarShop::BuildRedeemables)
+    struct StarShopPatch
+    {
+        uint32_t season{};
+        std::string blocksText;
+    };
+
     // writes the patched schema (backing up the original first). returns true
     // when the game file changed and a restart is needed to see it
-    bool Apply(const LootListPreviews &previews, const std::string &recipesText);
+    bool Apply(const LootListPreviews &previews, const std::string &recipesText, bool mixQualities = false,
+        const StarShopPatch *starShop = nullptr);
 
     // puts the original file back if it was patched. returns true when restored
     bool Restore();

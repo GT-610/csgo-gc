@@ -3,6 +3,7 @@
 #include "config.h"
 #include "gc_shared.h"
 #include "inventory.h"
+#include "star_shop.h"
 
 class ClientGC final : public SharedGC
 {
@@ -17,6 +18,7 @@ public:
     // rather than cached, because a server can change its game mode mid-session.
     bool MusicKitStatTrakActive() const;
     std::string RunRconCommand(std::string command);
+    const ItemSchema &GetItemSchema() const { return m_inventory.GetItemSchema(); }
     static std::string RconCommandUsageList();
 
 private:
@@ -89,8 +91,17 @@ private:
     void LocalPlayerRoundMVP();
     // Roll an end-of-match item drop.
     void LocalPlayerMatchEnd();
+    // award stars for something the local player did
+    void LocalPlayerStars(StarShop::Reason reason);
+    // the operation whose redeemable balance is the star count, if the star shop is on
+    std::optional<uint32_t> StarSeason() const;
+    uint32_t StarBalance() const;
+    void PublishStarChange(const Inventory::StarChange &change);
+    void ClientRedeemMissionReward(GCMessageRead &messageRead);
+    void SendStarsMessage(const std::string &text);
     void ApplySticker(GCMessageRead &messageRead);
     void RequestPrestigeCoin(GCMessageRead &messageRead);
+    uint64_t StarCost(const std::vector<PendingStoreLineItem> &lineItems) const;
     void StoreGetUserData(GCMessageRead &messageRead);
     void StorePurchaseInit(GCMessageRead &messageRead);
     void StorePurchaseFinalize(GCMessageRead &messageRead);
@@ -141,6 +152,7 @@ private:
 
     // guards against the match end event firing more than once per match
     std::chrono::steady_clock::time_point m_lastMatchDropTime{};
+    uint32_t m_matchStars{}; // stars earned since the last match end message
 
     // microtransactions, we only have one going at a time
     uint64_t m_transactionId{};

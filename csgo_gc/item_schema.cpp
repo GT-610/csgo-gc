@@ -4,6 +4,7 @@
 #include "keyvalue.h"
 #include "random.h"
 #include "game_schema_patch.h"
+#include "star_shop.h"
 #include <unordered_set>
 
 // ideally this would get parsed from the item schema...
@@ -287,11 +288,23 @@ ItemSchema::ItemSchema(bool loadFiles)
             recipes = GameSchemaPatch::GoldTradeUpRecipes;
         }
 
-        Platform::Print("items_game.txt patch: custom_case_previews=%d (%zu list(s)), gold_tradeup_recipes=%d\n",
-            GetConfig().CustomCasePreviews() ? 1 : 0, previews.size(), GetConfig().GoldTradeUpRecipes() ? 1 : 0);
-        if (!previews.empty() || !recipes.empty())
+        const bool mixStatTrak = GetConfig().TradeUpMixStatTrak();
+        Platform::Print("items_game.txt patch: custom_case_previews=%d (%zu list(s)), gold_tradeup_recipes=%d, tradeup_mix_stattrak=%d\n",
+            GetConfig().CustomCasePreviews() ? 1 : 0, previews.size(), GetConfig().GoldTradeUpRecipes() ? 1 : 0,
+            mixStatTrak ? 1 : 0);
+        // the operation page's goods become the star shop's
+        GameSchemaPatch::StarShopPatch starShop;
+        if (GetConfig().StarShop().enabled && m_latestSeason)
         {
-            GameSchemaPatch::Apply(previews, recipes);
+            starShop.season = *m_latestSeason;
+            starShop.blocksText = StarShop::BuildRedeemablesText(
+                StarShop::BuildRedeemables(*this, GetConfig().StarShop()));
+        }
+        const bool patchStarShop = !starShop.blocksText.empty();
+
+        if (!previews.empty() || !recipes.empty() || mixStatTrak || patchStarShop)
+        {
+            GameSchemaPatch::Apply(previews, recipes, mixStatTrak, patchStarShop ? &starShop : nullptr);
         }
         else
         {
@@ -1294,6 +1307,11 @@ void ItemSchema::ParseSeasonalOperations(const KeyValue *seasonalOperationsKey)
     for (const KeyValue &operationKey : *seasonalOperationsKey)
     {
         const uint32_t seasonValue = FromString<uint32_t>(operationKey.Name());
+        if (!m_latestSeason || seasonValue > *m_latestSeason)
+        {
+            m_latestSeason = seasonValue;
+        }
+
         for (const KeyValue &entry : operationKey)
         {
             if (entry.Name() != "quest_mission_card")
@@ -1779,6 +1797,16 @@ std::optional<SeasonPassInfo> ItemSchema::SeasonPassByDefIndex(uint32_t defIndex
     }
 
     return SeasonPassInfo{ *pass->m_seasonAccess, coin->second };
+}
+
+std::optional<uint32_t> ItemSchema::OperationCoinDefIndex(uint32_t season) const
+{
+    auto coin = m_operationCoinDefIndexBySeason.find(season);
+    if (coin == m_operationCoinDefIndexBySeason.end())
+    {
+        return std::nullopt;
+    }
+    return coin->second;
 }
 
 bool ItemSchema::IsSeasonalMissionCard(uint32_t seasonValue, uint32_t missionCardId) const
@@ -2384,6 +2412,31 @@ const std::vector<uint32_t> &ItemSchema::GetDropCrateDefIndexes() const
 {
     BuildSpecialTradeUpPools();
     return m_dropCrateDefIndexes;
+}
+
+std::vector<uint32_t> ItemSchema::GetAgentDefIndexes() const
+{
+    // agents use the customplayertradable prefab (the default T/CT models use
+    // plain customplayer, and aren't things you can own)
+    std::vector<uint32_t> agents;
+    for (const auto &pair : m_itemInfo)
+    {
+        const ItemInfo &info = pair.second;
+        if (info.m_isCoupon || info.m_name.empty())
+        {
+            continue;
+        }
+
+        const bool tradable = std::any_of(info.m_prefabs.begin(), info.m_prefabs.end(),
+            [](const std::string &prefab) { return EqualsInsensitive(prefab, "customplayertradable"); });
+        if (tradable)
+        {
+            agents.push_back(info.m_defIndex);
+        }
+    }
+
+    std::sort(agents.begin(), agents.end());
+    return agents;
 }
 
 std::vector<uint32_t> ItemSchema::GetContainerDefIndexes() const

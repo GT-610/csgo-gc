@@ -491,6 +491,18 @@ void ClientGC::HandleEvent(GCEvent type, uint64_t id, const std::vector<uint8_t>
         LocalPlayerMatchEnd();
         break;
 
+    case GCEvent::LocalPlayerStars:
+        if (buffer.size() == sizeof(uint32_t))
+        {
+            uint32_t reason;
+            memcpy(&reason, buffer.data(), sizeof(reason));
+            if (reason <= static_cast<uint32_t>(StarShop::Reason::MatchComplete))
+            {
+                LocalPlayerStars(static_cast<StarShop::Reason>(reason));
+            }
+        }
+        break;
+
     case GCEvent::SyncLocalPlayerMusicKitState:
         if (buffer.size() == sizeof(uint32_t))
         {
@@ -1107,6 +1119,10 @@ void ClientGC::HandleMessage(uint32_t type, const void *data, uint32_t size)
 
         case k_EMsgGCStoreGetUserData:
             StoreGetUserData(messageRead);
+            break;
+
+        case k_EMsgGCCStrike15_v2_ClientRedeemMissionReward:
+            ClientRedeemMissionReward(messageRead);
             break;
 
         case k_EMsgGCStorePurchaseInit:
@@ -1777,6 +1793,22 @@ static void AdaptStorePriceSheet(KeyValue &priceSheet, const ItemSchema &itemSch
         }
     }
 
+    // agents aren't sold in the real store, but the client only starts a purchase
+    // for items that have a store entry
+    if (GetConfig().StarShop().enabled && priceTemplate)
+    {
+        size_t agentCount = 0;
+        for (uint32_t agentDefIndex : itemSchema.GetAgentDefIndexes())
+        {
+            const ItemInfo *agent = itemSchema.ItemInfoByDefIndex(agentDefIndex);
+            if (agent && EnsureStoreEntry(*entries, *agent, &*priceTemplate))
+            {
+                ++agentCount;
+            }
+        }
+        Platform::Print("Star shop: %zu agent%s can be bought\n", agentCount, agentCount == 1 ? "" : "s");
+    }
+
     if (enabledCount)
     {
         Platform::Print("Enabled %zu market crate%s for offline store purchase\n", enabledCount,
@@ -2238,6 +2270,8 @@ void ClientGC::IncrementKillCountAttribute(GCMessageRead &messageRead)
 
 void ClientGC::LocalPlayerRoundMVP()
 {
+    LocalPlayerStars(StarShop::Reason::Mvp);
+
     // Music kit StatTrak progress is not driven by the retired official GC path,
     // so mirror the increment locally when the client observes a local round_mvp.
     //
@@ -2287,20 +2321,199 @@ void ClientGC::LocalPlayerMatchEnd()
     }
     m_lastMatchDropTime = now;
 
-    CMsgSOSingleObject newItem;
-    std::string itemName;
-    if (!m_inventory.CreateMatchDrop(newItem, itemName))
+    LocalPlayerStars(StarShop::Reason::MatchComplete);
+    if (m_matchStars)
+    {
+        SendStarsMessage("You earned " + std::to_string(m_matchStars) + " stars this match ("
+            + std::to_string(StarBalance()) + " total)");
+        m_matchStars = 0;
+    }
+
+    for (uint32_t drop = 0; drop < GetConfig().MatchDrops().dropsPerMatch; ++drop)
+    {
+        CMsgSOSingleObject newItem;
+        std::string itemName;
+        if (!m_inventory.CreateMatchDrop(newItem, itemName))
+        {
+            continue;
+        }
+
+        SendMessageToGame(true, k_ESOMsg_Create, newItem);
+
+        CMsgGCCStrike15_v2_GC2ClientTextMsg textMsg;
+        textMsg.set_id(0);
+        textMsg.set_type(0);
+        textMsg.set_payload("You received a match drop: " + itemName);
+        SendMessageToGame(false, k_EMsgGCCStrike15_v2_GC2ClientTextMsg, textMsg);
+    }
+}
+
+std::optional<uint32_t> ClientGC::StarSeason() const
+{
+    if (!GetConfig().StarShop().enabled)
+    {
+        return std::nullopt;
+    }
+    return m_inventory.GetItemSchema().LatestSeasonalOperation();
+}
+
+void ClientGC::PublishStarChange(const Inventory::StarChange &change)
+{
+    if (change.coinCreated)
+    {
+        SendMessageToGame(true, k_ESOMsg_Create, change.coin);
+    }
+
+    if (change.operation.has_object_data())
+    {
+        SendMessageToGame(true, change.operationCreated ? k_ESOMsg_Create : k_ESOMsg_Update, change.operation);
+    }
+}
+
+void ClientGC::LocalPlayerStars(StarShop::Reason reason)
+{
+    const std::optional<uint32_t> season = StarSeason();
+    const uint32_t amount = StarShop::Reward(GetConfig().StarShop(), reason);
+    if (!season || !amount)
     {
         return;
     }
 
-    SendMessageToGame(true, k_ESOMsg_Create, newItem);
+    Inventory::StarChange change;
+    if (!m_inventory.AddStars(*season, amount, change))
+    {
+        return;
+    }
 
+    m_matchStars += amount;
+    Platform::Print("Stars: +%u (reason %u), balance %u\n", amount,
+        static_cast<uint32_t>(reason), m_inventory.Stars(*season));
+    PublishStarChange(change);
+}
+
+void ClientGC::SendStarsMessage(const std::string &text)
+{
     CMsgGCCStrike15_v2_GC2ClientTextMsg textMsg;
     textMsg.set_id(0);
     textMsg.set_type(0);
-    textMsg.set_payload("You received a match drop: " + itemName);
+    textMsg.set_payload(text);
     SendMessageToGame(false, k_EMsgGCCStrike15_v2_GC2ClientTextMsg, textMsg);
+}
+
+void ClientGC::ClientRedeemMissionReward(GCMessageRead &messageRead)
+{
+    CMsgGCCstrike15_v2_ClientRedeemMissionReward request;
+    if (!messageRead.ReadProtobuf(request))
+    {
+        Platform::Print("Parsing CMsgGCCstrike15_v2_ClientRedeemMissionReward failed, ignoring\n");
+        return;
+    }
+
+    const std::optional<uint32_t> season = StarSeason();
+    Platform::Print("Redeem request: campaign %u, redeem id %u, balance %u, cost %u\n",
+        request.campaign_id(), request.redeem_id(), request.redeemable_balance(), request.expected_cost());
+
+    if (!season || request.campaign_id() != *season)
+    {
+        Platform::Print("Redeem ignored: not the star shop's operation (%d)\n", season ? int(*season) : -1);
+        return;
+    }
+
+    const ItemSchema &schema = m_inventory.GetItemSchema();
+    const std::vector<StarShop::Redeemable> redeemables
+        = StarShop::BuildRedeemables(schema, GetConfig().StarShop());
+    if (request.redeem_id() >= redeemables.size())
+    {
+        Platform::Print("Redeem ignored: id %u but the star shop has %zu goods\n",
+            request.redeem_id(), redeemables.size());
+        return;
+    }
+
+    const StarShop::Redeemable &good = redeemables[request.redeem_id()];
+    if (good.points != request.expected_cost())
+    {
+        Platform::Print("Redeem ignored: id %u is %s for %u stars here, but the client expects %u\n",
+            request.redeem_id(), good.itemName.c_str(), good.points, request.expected_cost());
+        return;
+    }
+
+    CMsgSOSingleObject operationUpdate;
+    if (!m_inventory.SpendStars(*season, good.points, operationUpdate))
+    {
+        Platform::Print("Redeem ignored: %u stars needed, have %u\n", good.points, m_inventory.Stars(*season));
+        return;
+    }
+
+    std::vector<CMsgSOSingleObject> created;
+    std::vector<uint64_t> itemIds;
+    auto grant = [&](uint32_t defIndex)
+    {
+        uint64_t id = m_inventory.PurchaseItem(defIndex, created);
+        if (id)
+        {
+            itemIds.push_back(id);
+        }
+        return id != 0;
+    };
+
+    bool granted = false;
+    if (good.kind == StarShop::GoodKind::Agent)
+    {
+        uint64_t id = m_inventory.CreateRandomAgent(created);
+        if (id)
+        {
+            itemIds.push_back(id);
+            granted = true;
+        }
+    }
+    else
+    {
+        granted = grant(good.defIndex);
+        if (granted)
+        {
+            // a case comes with its key
+            for (uint32_t keyDefIndex : schema.GetKeysForCrate(good.defIndex))
+            {
+                if (schema.CanCreateItem(keyDefIndex))
+                {
+                    grant(keyDefIndex);
+                    break;
+                }
+            }
+        }
+    }
+
+    if (!granted)
+    {
+        // give the stars back, nothing was created
+        Inventory::StarChange refund;
+        m_inventory.AddStars(*season, good.points, refund);
+        for (uint64_t itemId : itemIds)
+        {
+            CMsgSOSingleObject discarded;
+            m_inventory.RemoveItem(itemId, discarded);
+        }
+        Platform::Print("Redeem failed: could not create %s, stars refunded\n", good.itemName.c_str());
+        PublishStarChange(refund);
+        return;
+    }
+
+    for (CMsgSOSingleObject &item : created)
+    {
+        SendMessageToGame(true, k_ESOMsg_Create, item);
+    }
+    SendMessageToGame(true, k_ESOMsg_Update, operationUpdate);
+
+    CMsgGCItemCustomizationNotification notification;
+    for (uint64_t itemId : itemIds)
+    {
+        notification.add_item_id(itemId);
+    }
+    notification.set_request(k_EGCItemCustomizationNotification_ClientRedeemMissionReward);
+    SendMessageToGame(false, k_EMsgGCItemCustomizationNotification, notification);
+
+    Platform::Print("Redeemed %s for %u stars, balance %u\n", good.itemName.c_str(), good.points,
+        m_inventory.Stars(*season));
 }
 
 void ClientGC::ApplySticker(GCMessageRead &messageRead)
@@ -2473,6 +2686,28 @@ void ClientGC::StoreGetUserData(GCMessageRead &messageRead)
     SendMessageToGame(false, k_EMsgGCStoreGetUserDataResponse, response, messageRead.JobId());
 }
 
+uint32_t ClientGC::StarBalance() const
+{
+    const std::optional<uint32_t> season = StarSeason();
+    return season ? m_inventory.Stars(*season) : 0;
+}
+
+uint64_t ClientGC::StarCost(const std::vector<PendingStoreLineItem> &lineItems) const
+{
+    if (!StarSeason())
+    {
+        return 0; // no operation in the schema, nothing to pay with, so it stays free
+    }
+
+    uint64_t cost = 0;
+    for (const PendingStoreLineItem &lineItem : lineItems)
+    {
+        cost += static_cast<uint64_t>(lineItem.quantity)
+            * StarShop::Price(m_inventory.GetItemSchema(), GetConfig().StarShop(), lineItem.defIndex);
+    }
+    return cost;
+}
+
 void ClientGC::StorePurchaseInit(GCMessageRead &messageRead)
 {
     CMsgGCStorePurchaseInit message;
@@ -2517,6 +2752,38 @@ void ClientGC::StorePurchaseInit(GCMessageRead &messageRead)
 
         includesStatsSubscription |= isStatsSubscription;
         lineItems.push_back({ item.item_def_id(), item.quantity() });
+    }
+
+    // with the star shop on, only its selection of containers can be bought,
+    // the rest come from match drops
+    if (StarSeason())
+    {
+        const ItemSchema &schema = m_inventory.GetItemSchema();
+        const std::vector<uint32_t> shopContainers = StarShop::ShopContainers(schema, GetConfig().StarShop());
+        for (const PendingStoreLineItem &lineItem : lineItems)
+        {
+            if (StarShop::IsContainer(schema, lineItem.defIndex)
+                && std::find(shopContainers.begin(), shopContainers.end(), lineItem.defIndex) == shopContainers.end())
+            {
+                Platform::Print("StorePurchaseInit rejected: def %u isn't in the star shop\n", lineItem.defIndex);
+                response.set_result(StoreResultInvalid);
+                SendMessageToGame(false, k_EMsgGCStorePurchaseInitResponse, response, messageRead.JobId());
+                return;
+            }
+        }
+    }
+
+    const uint64_t starCost = StarCost(lineItems);
+    const uint32_t starBalance = StarBalance();
+    if (starCost > starBalance)
+    {
+        Platform::Print("StorePurchaseInit rejected: needs %llu stars, have %u\n",
+            starCost, starBalance);
+        SendStarsMessage("Not enough stars: this costs " + std::to_string(starCost)
+            + ", you have " + std::to_string(starBalance));
+        response.set_result(StoreResultInvalid);
+        SendMessageToGame(false, k_EMsgGCStorePurchaseInitResponse, response, messageRead.JobId());
+        return;
     }
 
     do
@@ -2567,13 +2834,29 @@ void ClientGC::StorePurchaseFinalize(GCMessageRead &messageRead)
             return lineItem.defIndex == ItemSchema::ItemStatsSubscription;
         });
 
+    const uint64_t starCost = StarCost(m_transactionLineItems);
+    if (starCost > StarBalance())
+    {
+        Platform::Print("StorePurchaseFinalize rejected: needs %llu stars, have %u\n",
+            starCost, StarBalance());
+        m_transactionId = 0;
+        m_transactionLineItems.clear();
+        response.set_result(StoreResultInvalid);
+        SendMessageToGame(false, k_EMsgGCStorePurchaseFinalizeResponse, response, messageRead.JobId());
+        return;
+    }
+
     std::vector<CMsgSOSingleObject> inventoryUpdate;
     std::vector<uint64_t> itemIds;
     for (const PendingStoreLineItem &lineItem : m_transactionLineItems)
     {
+        const bool agent = StarShop::IsAgent(m_inventory.GetItemSchema(), lineItem.defIndex);
         for (uint32_t i = 0; i < lineItem.quantity; ++i)
         {
-            uint64_t itemId = m_inventory.PurchaseItem(lineItem.defIndex, inventoryUpdate);
+            // agents are random: whichever agent was clicked, you get one of all of them
+            uint64_t itemId = agent
+                ? m_inventory.CreateRandomAgent(inventoryUpdate)
+                : m_inventory.PurchaseItem(lineItem.defIndex, inventoryUpdate);
             if (!itemId)
             {
                 Platform::Print("StorePurchaseFinalize failed to create def %u for transaction %llu\n",
@@ -2599,6 +2882,16 @@ void ClientGC::StorePurchaseFinalize(GCMessageRead &messageRead)
     for (CMsgSOSingleObject &newItem : inventoryUpdate)
     {
         SendMessageToGame(true, k_ESOMsg_Create, newItem);
+    }
+
+    if (starCost)
+    {
+        CMsgSOSingleObject operationUpdate;
+        if (m_inventory.SpendStars(*StarSeason(), static_cast<uint32_t>(starCost), operationUpdate))
+        {
+            SendMessageToGame(true, k_ESOMsg_Update, operationUpdate);
+            Platform::Print("Stars: -%llu, balance %u\n", starCost, StarBalance());
+        }
     }
 
     response.set_result(StoreResultOK);

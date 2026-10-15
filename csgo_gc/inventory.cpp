@@ -2993,6 +2993,95 @@ uint64_t Inventory::PurchaseItem(uint32_t defIndex, std::vector<CMsgSOSingleObje
     return item.id();
 }
 
+uint32_t Inventory::Stars(uint32_t season) const
+{
+    const CSOAccountSeasonalOperation *operation = GetSeasonalOperation(season);
+    return operation ? operation->redeemable_balance() : 0;
+}
+
+bool Inventory::EnsureOperation(uint32_t season, StarChange &change)
+{
+    if (m_seasonalOperations.contains(season))
+    {
+        return true;
+    }
+
+    const std::optional<uint32_t> coinDefIndex = m_itemSchema.OperationCoinDefIndex(season);
+    if (!coinDefIndex)
+    {
+        Platform::Print("Stars: season %u has no operation coin in the schema\n", season);
+        return false;
+    }
+
+    if (!HasItemDefinition(*coinDefIndex))
+    {
+        CSOEconItem &coin = CreateItem(*coinDefIndex, ItemOriginPurchased, UnacknowledgedPurchased);
+        ToSingleObject(change.coin, coin);
+        change.coinCreated = true;
+    }
+
+    CSOAccountSeasonalOperation operation;
+    operation.set_season_value(season);
+    operation.set_tier_unlocked(0);
+    operation.set_premium_tiers(0);
+    operation.set_mission_id(0);
+    operation.set_missions_completed(0);
+    operation.set_redeemable_balance(0);
+    operation.set_season_pass_time(static_cast<uint32_t>(time(nullptr)));
+    m_seasonalOperations.emplace(season, operation);
+    change.operationCreated = true;
+    return true;
+}
+
+bool Inventory::AddStars(uint32_t season, uint32_t amount, StarChange &change)
+{
+    if (!amount || !EnsureOperation(season, change))
+    {
+        return false;
+    }
+
+    CSOAccountSeasonalOperation &operation = m_seasonalOperations[season];
+    const uint32_t balance = operation.redeemable_balance();
+    operation.set_redeemable_balance(std::numeric_limits<uint32_t>::max() - balance < amount
+        ? std::numeric_limits<uint32_t>::max()
+        : balance + amount);
+    ToSingleObject(change.operation, SOTypeAccountSeasonalOperation, operation);
+    WriteToFile();
+    return true;
+}
+
+bool Inventory::SpendStars(uint32_t season, uint32_t amount, CMsgSOSingleObject &operationUpdate)
+{
+    auto operation = m_seasonalOperations.find(season);
+    if (operation == m_seasonalOperations.end() || operation->second.redeemable_balance() < amount)
+    {
+        return false;
+    }
+
+    operation->second.set_redeemable_balance(operation->second.redeemable_balance() - amount);
+    ToSingleObject(operationUpdate, SOTypeAccountSeasonalOperation, operation->second);
+    WriteToFile();
+    return true;
+}
+
+uint64_t Inventory::CreateRandomAgent(std::vector<CMsgSOSingleObject> &update, uint32_t *defIndex)
+{
+    const std::vector<uint32_t> agents = m_itemSchema.GetAgentDefIndexes();
+    if (agents.empty())
+    {
+        Platform::Print("CreateRandomAgent: the schema has no agents\n");
+        return 0;
+    }
+
+    const uint32_t agent = agents[m_random.Integer<size_t>(0, agents.size() - 1)];
+    uint64_t itemId = PurchaseItem(agent, update);
+    if (itemId && defIndex)
+    {
+        *defIndex = agent;
+    }
+    return itemId;
+}
+
 uint64_t Inventory::CreateRconItem(uint32_t defIndex,
     const ParameterizedItemOptions &options,
     CMsgSOSingleObject &update,
@@ -3353,6 +3442,7 @@ bool Inventory::TradeUp(const std::vector<uint64_t> &inputItemIds,
     uint32_t inputRarity = 0;
     bool statTrakSet = false;
     bool hasStatTrak = false;
+    size_t statTrakInputCount = 0;
     float totalWear = 0.0f;           // raw floats (classic CS:GO formula)
     float totalNormalizedWear = 0.0f; // floats normalized to each skin's range (gold contracts)
     int wearCount = 0;
@@ -3566,12 +3656,13 @@ bool Inventory::TradeUp(const std::vector<uint64_t> &inputItemIds,
             return false;
         }
 
+        statTrakInputCount += itemStatTrak ? 1 : 0;
         if (!statTrakSet)
         {
             hasStatTrak = itemStatTrak;
             statTrakSet = true;
         }
-        else if (itemStatTrak != hasStatTrak)
+        else if (itemStatTrak != hasStatTrak && !GetConfig().TradeUpMixStatTrak())
         {
             Platform::Print("Trade-up items must all be StatTrak or all non-StatTrak (expected stattrak=%d, got stattrak=%d)\n",
                 hasStatTrak ? 1 : 0, itemStatTrak ? 1 : 0);
@@ -3587,6 +3678,16 @@ bool Inventory::TradeUp(const std::vector<uint64_t> &inputItemIds,
         Platform::Print("%s trade-up requires exactly %zu items, got %zu\n",
             goldContract ? "Gold" : "Standard", requiredCount, inputCount);
         return false;
+    }
+
+    // mixed StatTrak and normal inputs: the share of StatTrak inputs is the
+    // chance of a StatTrak result
+    if (statTrakInputCount > 0 && statTrakInputCount < inputCount)
+    {
+        const float statTrakChance = static_cast<float>(statTrakInputCount) / static_cast<float>(inputCount);
+        hasStatTrak = m_random.Float(0.0f, 1.0f) < statTrakChance;
+        Platform::Print("Trade-up: %zu of %zu inputs are StatTrak, %.0f%% StatTrak chance, result stattrak=%d\n",
+            statTrakInputCount, inputCount, statTrakChance * 100.0f, hasStatTrak ? 1 : 0);
     }
 
     // average float: raw for standard contracts (classic CS:GO), normalized for gold contracts

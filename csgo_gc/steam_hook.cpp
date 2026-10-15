@@ -19,6 +19,7 @@
 #include "rcon_server.h"
 #include "saved_item_shuffles.h"
 #include "tradeup_hook.h"
+#include "panorama_hook.h"
 #include <funchook.h>
 #include <ctime>
 #include <limits>
@@ -294,6 +295,13 @@ public:
             return;
         }
 
+        if (!strcmp(eventName, "player_death") || !strcmp(eventName, "bomb_planted")
+            || !strcmp(eventName, "bomb_defused"))
+        {
+            PostStarEvent(eventName, event);
+            return;
+        }
+
         if (!strcmp(eventName, "round_start"))
         {
             int localPlayer = s_engineClient->GetLocalPlayer();
@@ -365,6 +373,53 @@ public:
     {
         return EventDebugIdInit;
     }
+
+private:
+    // kills, headshots, plants and defuses by the local player earn stars
+    static void PostStarEvent(const char *eventName, IGameEvent *event)
+    {
+        int localPlayer = s_engineClient->GetLocalPlayer();
+        if (localPlayer <= 0)
+        {
+            return;
+        }
+
+        PlayerInfo playerInfo{};
+        if (!s_engineClient->GetPlayerInfo(localPlayer, &playerInfo) || playerInfo.userId <= 0)
+        {
+            return;
+        }
+
+        auto post = [](StarShop::Reason reason)
+        {
+            uint32_t value = static_cast<uint32_t>(reason);
+            s_clientGC->m_gc.PostToGC(GCEvent::LocalPlayerStars, 0, &value, sizeof(value));
+        };
+
+        if (!strcmp(eventName, "player_death"))
+        {
+            const int attacker = event->GetInt("attacker");
+            const int victim = event->GetInt("userid");
+            if (attacker != playerInfo.userId || victim == playerInfo.userId)
+            {
+                return; // not our kill, or a suicide
+            }
+
+            post(StarShop::Reason::Kill);
+            if (event->GetBool("headshot"))
+            {
+                post(StarShop::Reason::Headshot);
+            }
+            return;
+        }
+
+        if (event->GetInt("userid") != playerInfo.userId)
+        {
+            return;
+        }
+
+        post(!strcmp(eventName, "bomb_planted") ? StarShop::Reason::Plant : StarShop::Reason::Defuse);
+    }
 };
 
 class ServerRoundMVPEventListener final : public IGameEventListener2
@@ -406,6 +461,7 @@ static ServerRoundMVPEventListener s_serverRoundMVPEventListener;
 static bool s_clientRoundMVPListenerRegistered = false;
 static bool s_clientRoundStartListenerRegistered = false;
 static bool s_clientMatchEndListenerRegistered = false;
+static bool s_clientStarListenersRegistered = false;
 static bool s_serverRoundMVPListenerRegistered = false;
 
 static void InitializeClientGameInterfaces()
@@ -479,11 +535,20 @@ static void UpdateGameEventListeners()
                 Platform::Print("Failed to register cs_win_panel_match listener\n");
             }
         }
+
+        if (!s_clientStarListenersRegistered && GetConfig().StarShop().enabled)
+        {
+            const bool ok = s_gameEventManager->AddListener(&s_clientGameEventListener, "player_death", false)
+                && s_gameEventManager->AddListener(&s_clientGameEventListener, "bomb_planted", false)
+                && s_gameEventManager->AddListener(&s_clientGameEventListener, "bomb_defused", false);
+            s_clientStarListenersRegistered = ok;
+            Platform::Print(ok ? "Registered star shop listeners\n" : "Failed to register star shop listeners\n");
+        }
     }
     else
     {
         if (s_clientRoundMVPListenerRegistered || s_clientRoundStartListenerRegistered
-            || s_clientMatchEndListenerRegistered)
+            || s_clientMatchEndListenerRegistered || s_clientStarListenersRegistered)
         {
             s_gameEventManager->RemoveListener(&s_clientGameEventListener);
             if (s_clientRoundMVPListenerRegistered)
@@ -497,6 +562,7 @@ static void UpdateGameEventListeners()
             s_clientRoundMVPListenerRegistered = false;
             s_clientRoundStartListenerRegistered = false;
             s_clientMatchEndListenerRegistered = false;
+            s_clientStarListenersRegistered = false;
         }
     }
 
@@ -1796,6 +1862,10 @@ static void (*Og_SteamGameServer_RunCallbacks)();
 
 static void Hk_SteamAPI_RegisterCallback(class CCallbackBase *pCallback, int iCallback)
 {
+    // client.dll registers its callbacks while loading, which is after
+    // panorama.dll is loaded and before the main menu's scripts run
+    PanoramaHook::TryInstall();
+
     if (GetCallbackHooks().RegisterCallback(pCallback, iCallback))
     {
         return;
@@ -1835,6 +1905,13 @@ static void Hk_SteamAPI_RunCallbacks()
     Og_SteamAPI_RunCallbacks();
 
     UpdateGameEventListeners();
+
+    PanoramaHook::TryInstall();
+    if (s_clientGC && GetConfig().CaseStoreMenu() && !PanoramaHook::HasCaseStoreData())
+    {
+        PanoramaHook::SetCaseStoreData(PanoramaHook::BuildCaseStoreData(s_clientGC->m_gc.GetItemSchema()));
+    }
+    PanoramaHook::Tick();
 
     if (s_clientGC)
     {

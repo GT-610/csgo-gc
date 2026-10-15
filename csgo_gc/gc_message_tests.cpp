@@ -6,8 +6,11 @@
 #include "keyvalue.h"
 #include "networking_client.h"
 #include "networking_server.h"
+#include "panorama_hook.h"
+#include "star_shop.h"
 #include "test_filesystem.h"
 
+#include <cmath>
 #include <cstring>
 #include <cstdio>
 
@@ -4081,6 +4084,266 @@ static bool GoldTradeUpRecipesAreAddedToSchema()
     return valid;
 }
 
+static bool PanoramaPatchLetsKnivesIntoContracts()
+{
+    // the two entries from the final CS:GO scripts/common/item_context_entries.js
+    std::string source =
+        "\t\t\tname: 'tradeup_add',\n"
+        "\t\t\tAvailableForItem: function ( id ) {\n"
+        "\t\t\t\tvar slot = ItemInfo.GetSlotSubPosition(id);\n"
+        "\t\t\t\treturn slot && slot !==\"melee\" && slot !==\"c4\" && slot !==\"clothing_hands\" && !ItemInfo.IsEquippalbleButNotAWeapon(id) &&\n"
+        "\t\t\t\t\t( InventoryAPI.CanTradeUp( id ) || InventoryAPI.GetNumItemsNeededToTradeUp( id ) > 0 );\n"
+        "\t\t\tname: 'tradeup_remove',\n"
+        "\t\t\t\treturn slot && slot !==\"melee\" && slot !==\"c4\" && slot !==\"clothing_hands\" && !ItemInfo.IsEquippalbleButNotAWeapon(id);\n"
+        "\t\t\tname: 'equip_ct', AvailableForItem: function ( id ) { return slot !== \"melee\"; }\n";
+
+    int changes = PanoramaHook::PatchItemContextEntries(source);
+    bool valid = changes == 2
+        && source.find("slot && slot !==\"c4\" &&\n") != std::string::npos
+        && source.find("slot && slot !==\"c4\";") != std::string::npos
+        && source.find("clothing_hands") == std::string::npos
+        && source.find("return slot !== \"melee\";") != std::string::npos; // other entries untouched
+
+    std::string unrelated = "var x = 1;";
+    valid &= PanoramaHook::PatchItemContextEntries(unrelated) == 0 && unrelated == "var x = 1;";
+    valid &= PanoramaHook::CaseStoreScript().find("var CsgoGcCaseStore") != std::string::npos
+        && PanoramaHook::CaseStoreScript().find("SetData: _SetData") != std::string::npos;
+    return valid;
+}
+
+static bool CaseStoreDataListsCasesWithKeys()
+{
+    RemoveGoldTradeUpFixtures();
+    if (!WriteGoldTradeUpFixtures())
+    {
+        RemoveGoldTradeUpFixtures();
+        return false;
+    }
+
+    bool valid;
+    {
+        ClientGC gc{ 76561197960265729ull };
+        std::string data = PanoramaHook::BuildCaseStoreData(gc.GetItemSchema());
+        valid = data.size() > 2 && data.front() == '[' && data.back() == ']'
+            && data.find("[4001,4002,0,") != std::string::npos // crate, its key, weapon case
+            && data.find("[4002,") == std::string::npos; // keys aren't listed on their own
+    }
+
+    RemoveGoldTradeUpFixtures();
+    return valid;
+}
+
+static void RemoveStarShopFixtures()
+{
+    TestFilesystem::RemoveFile("csgo/scripts/items/items_game.txt.csgo_gc_backup");
+    RemoveSeasonalOperationFixtures();
+}
+
+// season 10 with its coin, and one tradable agent
+static bool WriteStarShopFixtures()
+{
+    if (!WriteSeasonalOperationFixtures())
+    {
+        return false;
+    }
+
+    KeyValue schema{ "root" };
+    if (!schema.ParseFromFile("csgo/scripts/items/items_game.txt"))
+    {
+        return false;
+    }
+
+    KeyValue &itemsGame = *schema.GetSubkey("items_game");
+    itemsGame.GetSubkey("prefabs")->AddSubkey("customplayertradable");
+    KeyValue &agent = itemsGame.GetSubkey("items")->AddSubkey("4619");
+    agent.AddString("name", "customplayer_tm_test");
+    agent.AddString("item_type", "customplayer");
+    agent.AddString("prefab", "customplayertradable");
+
+    // the player owns nothing, the operation appears with the first stars
+    KeyValue inventory{ "inventory" };
+    inventory.AddNumber("format_version", 1);
+    inventory.AddSubkey("items");
+    return schema.WriteToFile("csgo/scripts/items/items_game.txt")
+        && inventory.WriteToFile("csgo_gc/inventory.txt");
+}
+
+static bool StarShopPatchReplacesOnlyTheNewestOperationsGoods()
+{
+    std::string text =
+        "\"items_game\"\r\n{\r\n"
+        "\t\"seasonaloperations\"\r\n\t{\r\n"
+        "\t\t\"9\"\r\n\t\t{\r\n"
+        "\t\t\t\"operational_point_redeemable\"\r\n\t\t\t{\r\n\t\t\t\t\"points\"\t\t\"1\"\r\n\t\t\t\t\"item_name\"\t\t\"old9\"\r\n\t\t\t}\r\n"
+        "\t\t}\r\n"
+        "\t\t\"10\"\r\n\t\t{\r\n"
+        "\t\t\t\"quest_mission_card\" { \"id\" \"9051\" }\r\n"
+        "\t\t\t\"operational_point_redeemable\"\r\n\t\t\t{\r\n\t\t\t\t\"points\"\t\t\"2\"\r\n\t\t\t\t\"item_name\"\t\t\"old10a\"\r\n\t\t\t}\r\n"
+        "\t\t\t\"operational_point_redeemable\"\r\n\t\t\t{\r\n\t\t\t\t\"points\"\t\t\"3\"\r\n\t\t\t\t\"item_name\"\t\t\"old10b\"\r\n\t\t\t}\r\n"
+        "\t\t}\r\n"
+        "\t}\r\n}\r\n";
+
+    const std::string goods = StarShop::BuildRedeemablesText({
+        { StarShop::GoodKind::Container, 10, 4001, "crate_new", 2 },
+        { StarShop::GoodKind::Agent, 50, 0, "agent_pack", 1 },
+    });
+
+    std::string patched = text;
+    const int removed = GameSchemaPatch::ReplaceRedeemables(patched, 10, goods);
+    std::string missing = text;
+
+    // the new goods come in order, the other season is untouched and the
+    // surrounding blocks are still balanced
+    const size_t crate = patched.find("crate_new");
+    const size_t agent = patched.find("agent_pack");
+    return removed == 2
+        && GameSchemaPatch::ReplaceRedeemables(missing, 11, goods) == -1
+        && missing == text
+        && patched.find("old10") == std::string::npos
+        && patched.find("old9") != std::string::npos
+        && patched.find("9051") != std::string::npos
+        && crate != std::string::npos && agent != std::string::npos && crate < agent
+        && std::count(patched.begin(), patched.end(), '{') == std::count(patched.begin(), patched.end(), '}');
+}
+
+static bool StarShopEarnsStarsAndRedeemsARandomAgent()
+{
+    constexpr uint64_t SteamId = 76561197960265729ull;
+    RemoveStarShopFixtures();
+    if (!WriteStarShopFixtures())
+    {
+        RemoveStarShopFixtures();
+        return false;
+    }
+
+    bool valid = true;
+    {
+        ClientGC gc{ SteamId };
+        valid &= gc.GetItemSchema().LatestSeasonalOperation() == 10u
+            && gc.GetItemSchema().GetAgentDefIndexes() == std::vector<uint32_t>{ 4619 };
+
+        // 17 defuses at 3 stars each = 51 stars
+        for (int i = 0; i < 17; i++)
+        {
+            uint32_t reason = static_cast<uint32_t>(StarShop::Reason::Defuse);
+            gc.PostToGC(GCEvent::LocalPlayerStars, 0, &reason, sizeof(reason));
+        }
+
+        {
+            CMsgGCCstrike15_v2_ClientRedeemMissionReward early;
+            early.set_campaign_id(10);
+            early.set_redeem_id(0);
+            early.set_expected_cost(60); // wrong price, must be refused
+            SendGCProtobuf(gc, k_EMsgGCCStrike15_v2_ClientRedeemMissionReward, early);
+        }
+
+        CMsgGCCstrike15_v2_ClientRedeemMissionReward request;
+        request.set_campaign_id(10);
+        request.set_redeem_id(0);
+        request.set_expected_cost(50);
+        SendGCProtobuf(gc, k_EMsgGCCStrike15_v2_ClientRedeemMissionReward, request);
+
+        std::vector<EventData> events;
+        valid &= WaitForHostMessagesUntil(gc, k_EMsgGCItemCustomizationNotification, events);
+
+        bool agentCreated = false;
+        uint32_t lastBalance = 0;
+        for (const EventData &event : events)
+        {
+            const uint32_t type = static_cast<uint32_t>(event.id) & ~ProtobufMask;
+            CMsgSOSingleObject object;
+            if ((type != k_ESOMsg_Create && type != k_ESOMsg_Update) || !ParseHostProtobuf(event, object))
+            {
+                continue;
+            }
+
+            if (object.type_id() == SOTypeItem && type == k_ESOMsg_Create)
+            {
+                CSOEconItem item;
+                if (item.ParseFromString(object.object_data()) && item.def_index() == 4619)
+                {
+                    agentCreated = true;
+                }
+            }
+            else if (object.type_id() == SOTypeAccountSeasonalOperation)
+            {
+                CSOAccountSeasonalOperation operation;
+                if (operation.ParseFromString(object.object_data()))
+                {
+                    lastBalance = operation.redeemable_balance();
+                }
+            }
+        }
+
+        valid &= agentCreated && lastBalance == 1;
+
+        // one star left, a second purchase is refused
+        SendGCProtobuf(gc, k_EMsgGCCStrike15_v2_ClientRedeemMissionReward, request);
+        valid &= HostMessageNotReceived(gc, k_EMsgGCItemCustomizationNotification);
+    }
+
+    {
+        Inventory persisted{ SteamId };
+        bool hasAgent = false;
+        for (const auto &pair : persisted.Items())
+        {
+            hasAgent |= pair.second.def_index() == 4619;
+        }
+        valid &= persisted.Stars(10) == 1 && hasAgent;
+    }
+
+    RemoveStarShopFixtures();
+    return valid;
+}
+
+static bool TradeUpRecipesAcceptStatTrakWhenMixing()
+{
+    std::string text =
+        "\"items_game\"\n"
+        "{\n"
+        "\t\"recipes\"\n"
+        "\t{\n"
+        "\t\t\"0\" { \"input_items\" { \"10\" { \"conditions\" {\n"
+        "\t\t\t\"1\"\n\t\t\t{\n\t\t\t\t\"field\"\t\t\"*quality\"\n\t\t\t\t\"operator\"\t\t\"string==\"\n"
+        "\t\t\t\t\"value\"\t\t\"unique\"\n\t\t\t\t\"required\"\t\t\"1\"\n\t\t\t}\n"
+        "\t\t} } } }\n"
+        "\t\t\"5\" { \"input_items\" { \"5\" { \"conditions\" {\n"
+        "\t\t\t\"1\" { \"field\" \"*quality\" \"operator\" \"string==\" \"value\" \"unique\" \"required\" \"1\" }\n"
+        "\t\t} } } }\n"
+        "\t\t\"10\" { \"input_items\" { \"10\" { \"conditions\" {\n"
+        "\t\t\t\"1\" { \"field\" \"*quality\" \"operator\" \"string==\" \"value\" \"strange\" \"required\" \"1\" }\n"
+        "\t\t} } } }\n"
+        "\t}\n"
+        "\t\"other\" { \"field\" \"*quality\" \"operator\" \"string==\" \"value\" \"unique\" }\n"
+        "}\n";
+
+    size_t changed = GameSchemaPatch::RelaxTradeUpQuality(text);
+    size_t unusual = 0;
+    for (size_t pos = text.find("\"string!=\""); pos != std::string::npos; pos = text.find("\"string!=\"", pos + 1))
+    {
+        unusual++;
+    }
+
+    bool valid = changed == 2 && unusual == 2
+        && text.find("\"value\" \"strange\"") != std::string::npos // StatTrak-only recipe untouched
+        && text.find("\"other\" { \"field\" \"*quality\" \"operator\" \"string==\" \"value\" \"unique\" }") != std::string::npos;
+
+    std::string noRecipes = "\"items_game\" { \"items\" { } }";
+    valid &= GameSchemaPatch::RelaxTradeUpQuality(noRecipes) == 0;
+    return valid;
+}
+
+static bool PityBoostsBetterRaritiesBeforeGold()
+{
+    // defaults: purple x3, pink x5, red x8 by the guaranteed case (50)
+    auto near = [](float a, float b) { return std::fabs(a - b) < 0.001f; };
+    return near(CaseOpening::PityRarityBoost(ItemSchema::RarityMythical, 0), 1.0f)
+        && near(CaseOpening::PityRarityBoost(ItemSchema::RarityAncient, 25), 4.5f)
+        && near(CaseOpening::PityRarityBoost(ItemSchema::RarityLegendary, 50), 5.0f)
+        && near(CaseOpening::PityRarityBoost(ItemSchema::RarityAncient, 200), 8.0f)
+        && near(CaseOpening::PityRarityBoost(ItemSchema::RarityRare, 40), 1.0f); // blues unchanged
+}
+
 int main()
 {
     struct TestCase
@@ -4116,6 +4379,13 @@ int main()
         { "CustomCasePreviewPatchesOnlyTargetLists", CustomCasePreviewPatchesOnlyTargetLists },
         { "CustomCasePreviewBacksUpAndRestores", CustomCasePreviewBacksUpAndRestores },
         { "GoldTradeUpRecipesAreAddedToSchema", GoldTradeUpRecipesAreAddedToSchema },
+        { "PanoramaPatchLetsKnivesIntoContracts", PanoramaPatchLetsKnivesIntoContracts },
+        { "CaseStoreDataListsCasesWithKeys", CaseStoreDataListsCasesWithKeys },
+        { "TradeUpRecipesAcceptStatTrakWhenMixing", TradeUpRecipesAcceptStatTrakWhenMixing },
+        { "StarShopPatchReplacesOnlyTheNewestOperationsGoods",
+            StarShopPatchReplacesOnlyTheNewestOperationsGoods },
+        { "StarShopEarnsStarsAndRedeemsARandomAgent", StarShopEarnsStarsAndRedeemsARandomAgent },
+        { "PityBoostsBetterRaritiesBeforeGold", PityBoostsBetterRaritiesBeforeGold },
         { "StorePurchasesFinalizeTransactionally", StorePurchasesFinalizeTransactionally },
         { "LegacyStorePriceSheetMatchesClientSchema",
             LegacyStorePriceSheetMatchesClientSchema },

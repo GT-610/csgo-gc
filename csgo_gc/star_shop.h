@@ -1,0 +1,63 @@
+#pragma once
+
+#include "config.h"
+
+#include <string>
+#include <vector>
+
+class ItemSchema;
+
+// Stars are earned from playing and spent in the Case Store: weapon cases,
+// souvenir packages, capsules (each with its key) and random agents.
+namespace StarShop
+{
+    enum class Reason : uint32_t
+    {
+        Kill,
+        Headshot, // on top of the kill
+        Mvp,
+        Plant,
+        Defuse,
+        MatchComplete,
+    };
+
+    // stars awarded for a reason, 0 when the star shop is off
+    uint32_t Reward(const StarShopConfig &config, Reason reason);
+
+    // what one unit of a store item costs. 0 = free (keys, which come with
+    // their case, and everything that isn't a case, capsule or agent)
+    uint32_t Price(const ItemSchema &itemSchema, const StarShopConfig &config, uint32_t defIndex);
+
+    bool IsAgent(const ItemSchema &itemSchema, uint32_t defIndex);
+    // cases, souvenir packages, capsules and other crate_* containers (not keys)
+    bool IsContainer(const ItemSchema &itemSchema, uint32_t defIndex);
+
+    // the containers the star store sells: the enabled kinds, newest first,
+    // limited to the best max_* of each kind
+    std::vector<uint32_t> ShopContainers(const ItemSchema &itemSchema, const StarShopConfig &config);
+
+    // --- the operation page ---
+    // The goods listed on the operation page. The game reads them from the
+    // operational_point_redeemable blocks of items_game.txt (patched from this
+    // same list) and tells the GC which one was bought by its position, so the
+    // GC rebuilds the identical list to know what to hand out.
+    enum class GoodKind
+    {
+        Container, // a case, souvenir package or capsule (cases come with their key)
+        Agent, // a random agent, whichever agent the page shows
+    };
+
+    struct Redeemable
+    {
+        GoodKind kind;
+        uint32_t points; // star cost
+        uint32_t defIndex; // the container, 0 for agents
+        std::string itemName; // items_game name shown by the page
+        uint32_t uiOrder;
+    };
+
+    std::vector<Redeemable> BuildRedeemables(const ItemSchema &itemSchema, const StarShopConfig &config);
+
+    // the operational_point_redeemable blocks for items_game.txt
+    std::string BuildRedeemablesText(const std::vector<Redeemable> &goods);
+}

@@ -17,6 +17,14 @@ struct CasePityConfig
     bool enabled{ true };
     uint32_t softStart{ 25 };
     uint32_t guaranteedAt{ 50 };
+    // while waiting for a gold, Restricted/Classified/Covert get more likely:
+    // their weight is multiplied by up to this much, climbing steadily from
+    // the first gold-less case to guaranteed_at (1 = no boost)
+    std::vector<RarityWeight> rarityBoost{
+        { 4, 3.0f }, // restricted (purple)
+        { 5, 5.0f }, // classified (pink)
+        { 6, 8.0f }, // covert (red)
+    };
 };
 
 // end-of-match item drops, modeled on old CS:GO weekly drops
@@ -25,6 +33,7 @@ struct MatchDropConfig
     bool enabled{ true };
     float dropChance{ 1.0f }; // chance of a drop when a match ends
     float caseChance{ 0.35f }; // chance that a drop is a case rather than a skin
+    uint32_t dropsPerMatch{ 1 }; // separate drops rolled when a match ends
     // skin drop rarity weights (old CS:GO drops were almost always Consumer/Industrial)
     std::vector<RarityWeight> skinRarityWeights{
         { ItemSchema::RarityCommon, 45 },
@@ -34,6 +43,28 @@ struct MatchDropConfig
         { ItemSchema::RarityLegendary, 1.5f },
         { ItemSchema::RarityAncient, 0.5f },
     };
+};
+
+// stars earned from playing, spent in the Case Store. a case (or other
+// container) costs casePrice stars with its key included
+struct StarShopConfig
+{
+    bool enabled{ true };
+    uint32_t casePrice{ 10 };
+    uint32_t capsulePrice{ 5 };
+    uint32_t souvenirPrice{ 25 };
+    uint32_t agentPrice{ 50 }; // a random agent
+    // how many of each the star store sells, newest first (0 = all of them).
+    // the rest can only be found through match drops
+    uint32_t maxCases{ 12 };
+    uint32_t maxCapsules{ 10 };
+    uint32_t maxSouvenirPackages{ 0 };
+    uint32_t perKill{ 1 };
+    uint32_t perHeadshot{ 1 }; // on top of the kill
+    uint32_t perMvp{ 3 };
+    uint32_t perPlant{ 2 };
+    uint32_t perDefuse{ 3 };
+    uint32_t perMatch{ 5 }; // finishing a match
 };
 
 // for Platform::Print calls
@@ -77,6 +108,8 @@ public:
     bool StoreHideIndividualItems() const { return m_storeHideIndividualItems; }
     bool CustomCasePreviews() const { return m_customCasePreviews; }
     bool GoldTradeUpRecipes() const { return m_goldTradeUpRecipes; }
+    bool CaseStoreMenu() const { return m_caseStoreMenu; }
+    bool TradeUpMixStatTrak() const { return m_tradeUpMixStatTrak; }
 
     MusicKit::StatTrakGate MusicKitStatTrakGate() const { return m_musicKitStatTrakGate; }
 
@@ -94,6 +127,8 @@ public:
 
     const CasePityConfig &CasePity() const { return m_casePity; }
     const MatchDropConfig &MatchDrops() const { return m_matchDrops; }
+    const StarShopConfig &StarShop() const { return m_starShop; }
+    bool ItemDeleteMenu() const { return m_itemDeleteMenu; }
 
 private:
     LogOutput m_logOutput{ LogOutputConsole };
@@ -124,6 +159,9 @@ private:
     bool m_storeHideIndividualItems{ true };
     bool m_customCasePreviews{ false };
     bool m_goldTradeUpRecipes{ true };
+    bool m_caseStoreMenu{ true };
+    bool m_tradeUpMixStatTrak{ true };
+    bool m_itemDeleteMenu{ true };
 
     // Music kit StatTrak follows competitive rules by default, matching the only
     // scope the official backend ever supported.
@@ -152,6 +190,7 @@ private:
 
     CasePityConfig m_casePity;
     MatchDropConfig m_matchDrops;
+    StarShopConfig m_starShop;
 };
 
 const GCConfig &GetConfig();
