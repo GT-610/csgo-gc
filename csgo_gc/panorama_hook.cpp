@@ -78,6 +78,8 @@ var CsgoGcCaseStore = ( function()
 	var m_search = null;
 	var m_count = null;
 	var m_status = null;
+	var m_balance = null;
+	var m_stars = -1;
 	var m_tabs = [];
 	var m_tiles = [];
 	var m_kind = -1;
@@ -240,6 +242,8 @@ static const char CaseStoreScriptPart2[] = R"js(
 		m_search.SetPanelEvent( 'ontextentrychange', _ApplyFilter );
 
 		var right = _Panel( header, { width: 'fill-parent-flow( 1.0 )', height: '100%' } );
+		m_balance = _Label( right, '', { horizontalAlign: 'right', verticalAlign: 'center', marginRight: '150px', fontSize: '24px', color: '#f5c542', fontWeight: 'bold' } );
+		_ShowStars();
 		_Button( right, 'CLOSE', { horizontalAlign: 'right', verticalAlign: 'center', width: '120px', height: '42px', backgroundColor: '#ffffff18' }, _Close );
 
 		var tabs = _Panel( m_overlay, { width: '100%', flowChildren: 'right', marginBottom: '10px' } );
@@ -263,6 +267,20 @@ static const char CaseStoreScriptPart2[] = R"js(
 		m_grid = _Panel( m_overlay, { width: '100%', height: 'fill-parent-flow( 1.0 )', flowChildren: 'right-wrap', overflow: 'squish scroll' } );
 		m_data.forEach( _MakeTile );
 		_ApplyFilter();
+	}
+
+	function _ShowStars()
+	{
+		if ( m_balance )
+		{
+			m_balance.text = m_stars >= 0 ? ( 'STARS: ' + m_stars ) : '';
+		}
+	}
+
+	function _SetStars( stars )
+	{
+		m_stars = stars;
+		_ShowStars();
 	}
 
 	function _Open()
@@ -327,6 +345,7 @@ static const char CaseStoreScriptPart2[] = R"js(
 
 	return {
 		SetData: _SetData,
+		SetStars: _SetStars,
 		Open: _Open,
 		Close: _Close
 	};
@@ -374,6 +393,7 @@ void *s_mainMenuPanel;
 std::string s_caseStoreData;
 bool s_caseStoreDataSent;
 bool s_loggedContextPatch;
+int64_t s_starsSent = -2; // what the UI was last told
 
 struct Section
 {
@@ -514,6 +534,7 @@ void __fastcall Hk_RunScript(void *engine, void *edx, void *panel, const char *s
         s_uiEngine = engine;
         s_mainMenuPanel = panel;
         s_caseStoreDataSent = false;
+        s_starsSent = -2;
         s_originalRunScript(engine, edx, panel, PanoramaHook::CaseStoreScript().c_str(), CaseStoreScriptPath, 0, 0, 0, 0);
         Platform::Print("Panorama: Case Store added to the main menu\n");
         PanoramaHook::Tick();
@@ -591,15 +612,28 @@ bool PanoramaHook::HasCaseStoreData()
 
 void PanoramaHook::Tick()
 {
-    if (!s_originalRunScript || !s_mainMenuPanel || s_caseStoreDataSent || s_caseStoreData.empty())
+    if (!s_originalRunScript || !s_mainMenuPanel)
     {
         return;
     }
 
-    s_caseStoreDataSent = true;
-    std::string script = "if ( typeof CsgoGcCaseStore !== 'undefined' ) CsgoGcCaseStore.SetData( "
-        + s_caseStoreData + " );";
-    s_originalRunScript(s_uiEngine, nullptr, s_mainMenuPanel, script.c_str(), CaseStoreDataPath, 0, 0, 0, 0);
+    if (!s_caseStoreDataSent && !s_caseStoreData.empty())
+    {
+        s_caseStoreDataSent = true;
+        s_starsSent = -2;
+        std::string script = "if ( typeof CsgoGcCaseStore !== 'undefined' ) CsgoGcCaseStore.SetData( "
+            + s_caseStoreData + " );";
+        s_originalRunScript(s_uiEngine, nullptr, s_mainMenuPanel, script.c_str(), CaseStoreDataPath, 0, 0, 0, 0);
+    }
+
+    const int64_t stars = StarShop::DisplayBalance();
+    if (s_caseStoreDataSent && stars != s_starsSent)
+    {
+        s_starsSent = stars;
+        std::string script = "if ( typeof CsgoGcCaseStore !== 'undefined' ) CsgoGcCaseStore.SetStars( "
+            + std::to_string(stars) + " );";
+        s_originalRunScript(s_uiEngine, nullptr, s_mainMenuPanel, script.c_str(), CaseStoreDataPath, 0, 0, 0, 0);
+    }
 }
 
 #else

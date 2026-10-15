@@ -43,11 +43,19 @@ namespace GameSchemaPatch
     // or -1 when that season isn't in the file
     int ReplaceRedeemables(std::string &schemaText, uint32_t season, const std::string &blocksText);
 
+    // The game only shows an operation's page while the operation is running,
+    // which it works out from items_game/quest_schedule (start, length, slack).
+    // Riptide's schedule is long over, so move its start to just before now when
+    // now isn't inside the window. returns 1 when the start was moved, 0 when it
+    // was already running, -1 when there is no quest_schedule start
+    int ActivateOperation(std::string &schemaText, int64_t now);
+
     // the star shop's operation page goods (see StarShop::BuildRedeemables)
     struct StarShopPatch
     {
         uint32_t season{};
         std::string blocksText;
+        bool activateOperation{}; // see ActivateOperation
     };
 
     // writes the patched schema (backing up the original first). returns true

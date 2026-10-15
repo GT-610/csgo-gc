@@ -59,6 +59,9 @@ struct StarShopConfig
     uint32_t maxCases{ 12 };
     uint32_t maxCapsules{ 10 };
     uint32_t maxSouvenirPackages{ 0 };
+    // make the game think the operation is running so its page shows
+    // (moves quest_schedule's start in items_game.txt)
+    bool operationActive{ true };
     uint32_t perKill{ 1 };
     uint32_t perHeadshot{ 1 }; // on top of the kill
     uint32_t perMvp{ 3 };

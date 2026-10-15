@@ -36,6 +36,11 @@ namespace StarShop
     // limited to the best max_* of each kind
     std::vector<uint32_t> ShopContainers(const ItemSchema &itemSchema, const StarShopConfig &config);
 
+    // the balance the Case Store screen shows (-1 = hide it). set by the GC,
+    // read by the UI hook; safe from any thread
+    void SetDisplayBalance(int64_t stars);
+    int64_t DisplayBalance();
+
     // --- the operation page ---
     // The goods listed on the operation page. The game reads them from the
     // operational_point_redeemable blocks of items_game.txt (patched from this

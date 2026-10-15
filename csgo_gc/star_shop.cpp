@@ -23,6 +23,18 @@ uint32_t StarShop::Reward(const StarShopConfig &config, Reason reason)
     return 0;
 }
 
+static std::atomic<int64_t> s_displayBalance{ -1 };
+
+void StarShop::SetDisplayBalance(int64_t stars)
+{
+    s_displayBalance = stars;
+}
+
+int64_t StarShop::DisplayBalance()
+{
+    return s_displayBalance;
+}
+
 bool StarShop::IsAgent(const ItemSchema &itemSchema, uint32_t defIndex)
 {
     const std::vector<uint32_t> agents = itemSchema.GetAgentDefIndexes();

@@ -2009,6 +2009,7 @@ void ClientGC::SendRankUpdate()
 
 void ClientGC::OnClientHello(GCMessageRead &messageRead)
 {
+    PublishStarBalance();
     CMsgClientHello hello;
     if (!messageRead.ReadProtobuf(hello))
     {
@@ -2357,8 +2358,15 @@ std::optional<uint32_t> ClientGC::StarSeason() const
     return m_inventory.GetItemSchema().LatestSeasonalOperation();
 }
 
+void ClientGC::PublishStarBalance()
+{
+    StarShop::SetDisplayBalance(StarSeason() ? static_cast<int64_t>(StarBalance()) : -1);
+}
+
 void ClientGC::PublishStarChange(const Inventory::StarChange &change)
 {
+    PublishStarBalance();
+
     if (change.coinCreated)
     {
         SendMessageToGame(true, k_ESOMsg_Create, change.coin);
@@ -2503,6 +2511,7 @@ void ClientGC::ClientRedeemMissionReward(GCMessageRead &messageRead)
         SendMessageToGame(true, k_ESOMsg_Create, item);
     }
     SendMessageToGame(true, k_ESOMsg_Update, operationUpdate);
+    PublishStarBalance();
 
     CMsgGCItemCustomizationNotification notification;
     for (uint64_t itemId : itemIds)
@@ -2891,6 +2900,7 @@ void ClientGC::StorePurchaseFinalize(GCMessageRead &messageRead)
         {
             SendMessageToGame(true, k_ESOMsg_Update, operationUpdate);
             Platform::Print("Stars: -%llu, balance %u\n", starCost, StarBalance());
+            PublishStarBalance();
         }
     }
 

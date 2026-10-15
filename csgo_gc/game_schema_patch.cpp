@@ -283,6 +283,110 @@ int GameSchemaPatch::ReplaceRedeemables(std::string &text, uint32_t season, cons
     return static_cast<int>(removals.size());
 }
 
+int GameSchemaPatch::ActivateOperation(std::string &text, int64_t now)
+{
+    // the schedule is start + length + slack, twelve weeks in the real file
+    constexpr int64_t RunningSeconds = 12 * 7 * 24 * 3600;
+
+    std::vector<std::string> stack;
+    std::string lastString;
+    size_t lastStringStart = 0;
+    size_t keyStart = 0, valueStart = 0, valueEnd = 0;
+    bool haveLastString = false;
+    bool pendingKey = false; // "start" was just read, its value is next
+    bool found = false;
+
+    for (size_t i = 0; i < text.size() && !found; i++)
+    {
+        const char c = text[i];
+
+        if (c == '/' && i + 1 < text.size() && text[i + 1] == '/')
+        {
+            while (i < text.size() && text[i] != '\n')
+            {
+                i++;
+            }
+            continue;
+        }
+
+        if (c == '"')
+        {
+            const size_t quote = i;
+            size_t start = ++i;
+            while (i < text.size() && text[i] != '"')
+            {
+                if (text[i] == '\\' && i + 1 < text.size())
+                {
+                    i++;
+                }
+                i++;
+            }
+
+            const std::string value(text, start, i - start);
+            if (pendingKey)
+            {
+                valueStart = start;
+                valueEnd = i;
+                found = true;
+            }
+            else if (stack.size() == 2 && stack[0] == "items_game" && stack[1] == "quest_schedule"
+                && value == "start")
+            {
+                pendingKey = true;
+            }
+
+            lastString = value;
+            lastStringStart = quote;
+            haveLastString = true;
+            continue;
+        }
+
+        if (c == '{')
+        {
+            stack.push_back(haveLastString ? lastString : std::string{});
+            haveLastString = false;
+            continue;
+        }
+
+        if (c == '}')
+        {
+            if (!stack.empty())
+            {
+                stack.pop_back();
+            }
+            haveLastString = false;
+            continue;
+        }
+    }
+    (void)keyStart;
+    (void)lastStringStart;
+
+    if (!found)
+    {
+        return -1;
+    }
+
+    int64_t start = 0;
+    const std::string current(text, valueStart, valueEnd - valueStart);
+    for (char digit : current)
+    {
+        if (digit < '0' || digit > '9')
+        {
+            return -1;
+        }
+        start = start * 10 + (digit - '0');
+    }
+
+    // running (with a week to spare) means nothing to do
+    if (start <= now && now < start + RunningSeconds - 7 * 24 * 3600)
+    {
+        return 0;
+    }
+
+    text.replace(valueStart, valueEnd - valueStart, std::to_string(now - 24 * 3600));
+    return 1;
+}
+
 // Recipe ids follow the existing pattern (0..4 by input rarity, +10 for
 // StatTrak), which is also what the GC's craft handler expects.
 const char *const GameSchemaPatch::GoldTradeUpRecipes = R"(		"5"
@@ -618,6 +722,20 @@ bool GameSchemaPatch::Apply(const LootListPreviews &previews, const std::string 
         {
             Platform::Print("items_game.txt patch: star shop replaces %d operation page good(s) of season %u\n",
                 starGoodsReplaced, starShop->season);
+        }
+    }
+
+    if (starShop && starShop->activateOperation)
+    {
+        const int moved = ActivateOperation(patched, static_cast<int64_t>(time(nullptr)));
+        if (moved < 0)
+        {
+            Platform::Print("items_game.txt patch: no quest_schedule start found, the operation page may stay hidden\n");
+        }
+        else
+        {
+            Platform::Print(moved ? "items_game.txt patch: operation schedule moved to now so its page shows\n"
+                                  : "items_game.txt patch: operation schedule already running\n");
         }
     }
 

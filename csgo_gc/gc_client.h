@@ -97,6 +97,8 @@ private:
     std::optional<uint32_t> StarSeason() const;
     uint32_t StarBalance() const;
     void PublishStarChange(const Inventory::StarChange &change);
+    // tells the Case Store screen the current balance
+    void PublishStarBalance();
     void ClientRedeemMissionReward(GCMessageRead &messageRead);
     void SendStarsMessage(const std::string &text);
     void ApplySticker(GCMessageRead &messageRead);
