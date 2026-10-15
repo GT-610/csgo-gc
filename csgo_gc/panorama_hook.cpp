@@ -78,7 +78,13 @@ bool PanoramaHook::AddSellEntry(std::string &source, const SellPrices &prices)
 				return 'TopSeparator';
 			},
 			AvailableForItem: function ( id ) {
-				return InventoryAPI.IsDeletable( id ) && CsgoGcSellPrice( id ) > 0;
+				var price = CsgoGcSellPrice( id );
+				var deletable = InventoryAPI.IsDeletable( id );
+				if ( price > 0 && !deletable )
+				{
+					$.Msg( '[csgo_gc] sell: item ' + id + ' is worth ' + price + ' stars but the game says it can not be deleted' );
+				}
+				return deletable && price > 0;
 			},
 			OnSelected: function ( id ) {
 				$.DispatchEvent( 'ContextMenuEvent', '' );
