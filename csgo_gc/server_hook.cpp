@@ -66,12 +66,14 @@ void *__fastcall Hk_GiveNamedItem(void *player, void *edx, const char *name, int
     void *scriptItem, bool force, void *origin)
 {
     const bool isBot = player && name && (Field<uint32_t>(player, PlayerFlagsOffset) & FlagFakeClient);
-    static int s_logged;
-    if (s_logged < 12 && name)
+    // what the game asks for, for the first few humans and the first bot calls
+    static int s_loggedHuman;
+    static int s_loggedBot;
+    const char *requested = name;
+    const bool logThis = name && (isBot ? s_loggedBot < 60 : s_loggedHuman < 3);
+    if (logThis)
     {
-        ++s_logged;
-        Platform::Print("Bot skins: GiveNamedItem(%s) bot=%d flags=0x%x\n", name, isBot ? 1 : 0,
-            player ? Field<uint32_t>(player, PlayerFlagsOffset) : 0u);
+        (isBot ? s_loggedBot : s_loggedHuman)++;
     }
     const uint64_t botKey = reinterpret_cast<uintptr_t>(player);
 
@@ -85,6 +87,13 @@ void *__fastcall Hk_GiveNamedItem(void *player, void *edx, const char *name, int
     }
 
     void *weapon = s_originalGiveNamedItem(player, edx, name, subType, scriptItem, force, origin);
+
+    if (logThis)
+    {
+        Platform::Print("Bot skins: %s %p asked for %s%s%s -> %s\n", isBot ? "bot" : "human", player, requested,
+            name != requested ? ", given " : "", name != requested ? name : "",
+            weapon ? "a weapon was created" : "nothing created");
+    }
 
     if (!weapon || !isBot)
     {
