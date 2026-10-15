@@ -826,24 +826,24 @@
 	"items"
 	{
 		// Mil-Spec
-		"[am_jorm_green]weapon_mp9"		"rare"
-		"[am_ossify]weapon_famas"		"rare"
-		"[an_emerald]weapon_p250"		"rare"
-		"[hy_snakeskin]weapon_mac10"		"rare"
 		"[so_green]weapon_glock"		"rare"
-		"[am_jade]weapon_usp_silencer"		"rare"
+		"[hy_snakeskin]weapon_mac10"		"rare"
+		"[sp_nukestripe_green]weapon_cz75a"		"rare"
+		"[am_jorm_green]weapon_mp9"		"rare"
+		"[an_emerald_bravo]weapon_famas"		"rare"
+		"[so_moss]weapon_usp_silencer"		"rare"
 
 		// Restricted
-		"[am_gamma_doppler_phase1]weapon_m4a1"		"mythical"
-		"[am_gamma_doppler_phase2]weapon_ak47"		"mythical"
-		"[am_gamma_doppler_phase3]weapon_deagle"		"mythical"
-		"[am_gamma_doppler_phase4]weapon_awp"		"mythical"
-		"[am_emerald_marbleized]weapon_m4a1_silencer"		"mythical"
+		"[am_ossify]weapon_ak47"		"mythical"
+		"[am_jade]weapon_m4a1"		"mythical"
+		"[an_emerald]weapon_deagle"		"mythical"
+		"[am_crystallized_dark_green]weapon_awp"		"mythical"
+		"[hy_zombie]weapon_m4a1_silencer"		"mythical"
 
 		// Classified
-		"[am_gamma_doppler_phase1]weapon_ak47"		"legendary"
+		"[am_gamma_doppler_phase2]weapon_ak47"		"legendary"
 		"[am_gamma_doppler_phase3]weapon_awp"		"legendary"
-		"[am_gamma_doppler_phase2]weapon_m4a1_silencer"		"legendary"
+		"[am_emerald_marbleized]weapon_m4a1_silencer"		"legendary"
 
 		// Covert
 		"[am_gamma_doppler_phase4]weapon_ak47"		"ancient"
