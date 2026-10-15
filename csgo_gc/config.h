@@ -60,6 +60,8 @@ struct StarShopConfig
     uint32_t maxCases{ 12 };
     uint32_t maxCapsules{ 10 };
     uint32_t maxSouvenirPackages{ 0 };
+    // how many sticker capsules SkinStop lists: the most popular ones (0 = all of them)
+    uint32_t shopCapsules{ 20 };
     // make the game think the operation is running so its page shows
     // (moves quest_schedule's start in items_game.txt)
     bool operationActive{ true };

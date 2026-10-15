@@ -175,6 +175,7 @@ GCConfig::GCConfig()
         }
         m_starShop.maxCases = starShop->GetNumber("max_cases", m_starShop.maxCases);
         m_starShop.maxCapsules = starShop->GetNumber("max_capsules", m_starShop.maxCapsules);
+        m_starShop.shopCapsules = starShop->GetNumber("shop_capsules", m_starShop.shopCapsules);
         m_starShop.maxSouvenirPackages = starShop->GetNumber("max_souvenir_packages", m_starShop.maxSouvenirPackages);
         m_starShop.perKill = starShop->GetNumber("kill", m_starShop.perKill);
         m_starShop.perHeadshot = starShop->GetNumber("headshot", m_starShop.perHeadshot);

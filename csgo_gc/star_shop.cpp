@@ -62,7 +62,7 @@ uint32_t StarShop::Price(const ItemSchema &itemSchema, const StarShopConfig &con
         return 0;
     }
 
-    if (IsAgent(itemSchema, defIndex))
+    if (IsAgent(itemSchema, defIndex) || defIndex == RandomAgentItem(itemSchema))
     {
         return config.agentPrice;
     }
@@ -86,7 +86,44 @@ uint32_t StarShop::Price(const ItemSchema &itemSchema, const StarShopConfig &con
     }
 }
 
-std::vector<uint32_t> StarShop::ShopContainers(const ItemSchema &itemSchema, const StarShopConfig &config)
+uint32_t StarShop::RandomAgentItem(const ItemSchema &itemSchema)
+{
+    const std::vector<uint32_t> agents = itemSchema.GetAgentDefIndexes();
+    return agents.empty() ? 0 : agents.front();
+}
+
+uint32_t StarShop::RandomAgentPicture(const ItemSchema &itemSchema)
+{
+    const ItemInfo *pack = itemSchema.ItemInfoByName("character_operator_dossier_op11_legendary");
+    return pack ? pack->m_defIndex : 0;
+}
+
+// the sticker capsules people know best, most popular first: the first tournaments, then each Major's Legends
+// capsule, and a few of the big community ones
+static const char *const PopularCapsules[] = {
+    "crate_sticker_pack_kat2014_01",
+    "crate_sticker_pack_kat2014_02",
+    "crate_sticker_pack_cologne2014_01",
+    "crate_sticker_pack_eslkatowice2015_01",
+    "crate_sticker_pack_eslkatowice2015_02",
+    "crate_sticker_pack_cluj2015_legends",
+    "crate_sticker_pack_columbus2016_legends",
+    "crate_sticker_pack_cologne2016_legends",
+    "crate_sticker_pack_atlanta2017_legends",
+    "crate_sticker_pack_boston2018_legends",
+    "crate_sticker_pack_katowice2019_legends",
+    "crate_sticker_pack_berlin2019_legends",
+    "crate_sticker_pack_stockh2021_legends",
+    "crate_sticker_pack_antwerp2022_legends",
+    "crate_sticker_pack_rio2022_legends",
+    "crate_sticker_pack_paris2023_legends",
+    "crate_sticker_pack_cs20_capsule",
+    "crate_sticker_pack_csgo10_capsule",
+    "crate_sticker_pack_enfu_capsule",
+    "crate_sticker_pack_community01",
+};
+
+std::vector<uint32_t> StarShop::ShopContainers(const ItemSchema &itemSchema, const StarShopConfig &config, bool applyLimits)
 {
     using Kind = ItemSchema::ContainerKind;
     const GCConfig &gcConfig = GetConfig();
@@ -137,6 +174,7 @@ std::vector<uint32_t> StarShop::ShopContainers(const ItemSchema &itemSchema, con
         }
     }
 
+    std::vector<uint32_t> capsuleCandidates; // newest first
     std::array<uint32_t, 4> taken{};
     for (uint32_t crate : crates)
     {
@@ -160,7 +198,14 @@ std::vector<uint32_t> StarShop::ShopContainers(const ItemSchema &itemSchema, con
             continue;
         }
 
-        const uint32_t limit = limitFor(kind);
+        // SkinStop lists a selection of the capsules (the popular ones), picked below
+        if (kind == Kind::Capsule && !applyLimits && config.shopCapsules)
+        {
+            capsuleCandidates.push_back(crate);
+            continue;
+        }
+
+        const uint32_t limit = applyLimits ? limitFor(kind) : 0;
         uint32_t &count = taken[static_cast<size_t>(kind)];
         if (limit && count >= limit)
         {
@@ -169,6 +214,34 @@ std::vector<uint32_t> StarShop::ShopContainers(const ItemSchema &itemSchema, con
 
         ++count;
         selected.push_back(crate);
+    }
+
+    // the popular capsules in their order, then the newest of the rest, up to the count
+    if (!capsuleCandidates.empty())
+    {
+        std::vector<uint32_t> chosen;
+        for (const char *name : PopularCapsules)
+        {
+            const ItemInfo *info = itemSchema.ItemInfoByName(name);
+            if (info && std::find(capsuleCandidates.begin(), capsuleCandidates.end(), info->m_defIndex) != capsuleCandidates.end())
+            {
+                chosen.push_back(info->m_defIndex);
+            }
+        }
+        for (uint32_t crate : capsuleCandidates)
+        {
+            if (chosen.size() >= config.shopCapsules)
+            {
+                break;
+            }
+            if (std::find(chosen.begin(), chosen.end(), crate) == chosen.end())
+            {
+                chosen.push_back(crate);
+            }
+        }
+
+        chosen.resize(std::min<size_t>(chosen.size(), config.shopCapsules));
+        selected.insert(selected.end(), chosen.begin(), chosen.end());
     }
 
     return selected;
@@ -209,7 +282,7 @@ std::vector<StarShop::Redeemable> StarShop::BuildRedeemables(const ItemSchema &i
 
     using Kind = ItemSchema::ContainerKind;
     std::vector<Redeemable> containers;
-    for (uint32_t crate : ShopContainers(itemSchema, config))
+    for (uint32_t crate : ShopContainers(itemSchema, config, true))
     {
         const Kind kind = itemSchema.GetContainerKind(crate);
         const ItemInfo *info = itemSchema.ItemInfoByDefIndex(crate);

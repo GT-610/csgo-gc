@@ -37,9 +37,15 @@ namespace StarShop
     // cases, souvenir packages, capsules and other crate_* containers (not keys)
     bool IsContainer(const ItemSchema &itemSchema, uint32_t defIndex);
 
-    // the containers the star store sells: the enabled kinds, newest first,
-    // limited to the best max_* of each kind
-    std::vector<uint32_t> ShopContainers(const ItemSchema &itemSchema, const StarShopConfig &config);
+    // the containers the star store sells: the enabled kinds, newest first. with applyLimits only the best max_*
+    // of each kind (what the operation page has room for); without, every one of them
+    std::vector<uint32_t> ShopContainers(const ItemSchema &itemSchema, const StarShopConfig &config, bool applyLimits);
+
+    // the one item the star store sells in place of every agent: buying it gives a random agent, whichever agent
+    // it is. 0 when the schema has no agents
+    uint32_t RandomAgentItem(const ItemSchema &itemSchema);
+    // the item whose picture stands for it in the shop (the agent pack), or 0 to use the item itself
+    uint32_t RandomAgentPicture(const ItemSchema &itemSchema);
 
     // the balance the Case Store screen shows (-1 = hide it). set by the GC,
     // read by the UI hook; safe from any thread

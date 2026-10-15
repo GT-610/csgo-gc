@@ -2001,20 +2001,15 @@ static void AdaptStorePriceSheet(KeyValue &priceSheet, const ItemSchema &itemSch
         }
     }
 
-    // agents aren't sold in the real store, but the client only starts a purchase
-    // for items that have a store entry
+    // agents aren't sold in the real store, but the client only starts a purchase for items that have a store
+    // entry. one item stands for all of them: buying it gives a random agent
     if (GetConfig().StarShop().enabled && priceTemplate)
     {
-        size_t agentCount = 0;
-        for (uint32_t agentDefIndex : itemSchema.GetAgentDefIndexes())
-        {
-            const ItemInfo *agent = itemSchema.ItemInfoByDefIndex(agentDefIndex);
-            if (agent && EnsureStoreEntry(*entries, *agent, &*priceTemplate))
-            {
-                ++agentCount;
-            }
-        }
-        Platform::Print("Star shop: %zu agent%s can be bought\n", agentCount, agentCount == 1 ? "" : "s");
+        const uint32_t agentItem = StarShop::RandomAgentItem(itemSchema);
+        const ItemInfo *agent = agentItem ? itemSchema.ItemInfoByDefIndex(agentItem) : nullptr;
+        const bool ok = agent && EnsureStoreEntry(*entries, *agent, &*priceTemplate);
+        Platform::Print("Star shop: random agent (%zu agents) %s\n", itemSchema.GetAgentDefIndexes().size(),
+            ok ? "can be bought" : "can't be bought");
     }
 
     if (enabledCount)
@@ -2996,7 +2991,7 @@ void ClientGC::StorePurchaseInit(GCMessageRead &messageRead)
     if (StarSeason())
     {
         const ItemSchema &schema = m_inventory.GetItemSchema();
-        const std::vector<uint32_t> shopContainers = StarShop::ShopContainers(schema, GetConfig().StarShop());
+        const std::vector<uint32_t> shopContainers = StarShop::ShopContainers(schema, GetConfig().StarShop(), false);
         for (const PendingStoreLineItem &lineItem : lineItems)
         {
             if (StarShop::IsContainer(schema, lineItem.defIndex)
@@ -3087,9 +3082,11 @@ void ClientGC::StorePurchaseFinalize(GCMessageRead &messageRead)
     std::vector<uint64_t> itemIds;
     for (const PendingStoreLineItem &lineItem : m_transactionLineItems)
     {
+        const bool randomAgent = StarSeason() && lineItem.defIndex == StarShop::RandomAgentItem(m_inventory.GetItemSchema());
         for (uint32_t i = 0; i < lineItem.quantity; ++i)
         {
-            uint64_t itemId = m_inventory.PurchaseItem(lineItem.defIndex, inventoryUpdate);
+            uint64_t itemId = randomAgent ? m_inventory.CreateRandomAgent(inventoryUpdate)
+                                          : m_inventory.PurchaseItem(lineItem.defIndex, inventoryUpdate);
             if (!itemId)
             {
                 Platform::Print("StorePurchaseFinalize failed to create def %u for transaction %llu\n",

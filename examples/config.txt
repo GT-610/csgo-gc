@@ -144,11 +144,15 @@
 	"custom_case_price"	"100"	// cases from custom_cases.txt, shown first in the shop
 	"agent_price"		"50"	// a random agent, any of them
 
-	// how many of each the shop sells, newest first (0 = all of them). the rest
-	// can only be found through match drops
+	// how many of each the operation page's shop has room for, newest first (0 = all of them).
+	// SkinStop (the star button) lists every case and package and is not limited by these
 	"max_cases"					"12"
 	"max_capsules"				"10"
 	"max_souvenir_packages"		"0"
+
+	// how many sticker capsules SkinStop lists: the most popular ones (the early tournaments, then each
+	// Major's Legends capsule, CS20 and a few community ones). 0 = all of them
+	"shop_capsules"				"20"
 
 	// what deleting a skin pays (0 = nothing). only skins, knives and gloves
 	"sell"
