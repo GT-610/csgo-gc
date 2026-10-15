@@ -252,7 +252,20 @@ public:
     bool IsSingleItemCoupon(uint32_t defIndex) const;
     // custom_cases.txt display name for a crate, or null
     const std::string *CustomCaseName(uint32_t crateDefIndex) const;
-    // crates whose contents custom_cases.txt replaces, sorted
+    // cases custom_cases.txt adds as new items (a name instead of a def index,
+    // with "based_on" naming the case to copy the look and key from)
+    struct AddedCase
+    {
+        uint32_t defIndex;
+        uint32_t basedOn;
+        uint32_t series; // supply crate series, unique to the new case
+        std::string name; // items_game name, e.g. crate_csgogc_gold_rush
+        std::vector<std::string> previewEntries; // "[paint_kit]weapon" of its regular skins
+    };
+    const std::vector<AddedCase> &AddedCases() const { return m_addedCases; }
+    bool IsAddedCase(uint32_t crateDefIndex) const;
+
+    // crates whose contents custom_cases.txt replaces (or adds), sorted
     std::vector<uint32_t> GetCustomCaseDefIndexes() const;
     bool IsCustomCase(uint32_t crateDefIndex) const;
     // keys that open this crate (empty when the crate needs no specific key)
@@ -443,6 +456,7 @@ private:
     std::unordered_map<uint32_t, const LootList *> m_customCaseLootLists;
     std::unordered_map<uint32_t, std::string> m_customCaseNames;
     std::map<uint32_t, std::vector<std::string>> m_customCasePreviewEntries;
+    std::vector<AddedCase> m_addedCases;
 
     friend class ItemSchemaTestFixture;
     friend class SouvenirTestFixture;

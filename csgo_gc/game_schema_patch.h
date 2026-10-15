@@ -58,10 +58,26 @@ namespace GameSchemaPatch
         bool activateOperation{}; // see ActivateOperation
     };
 
+    // a case custom_cases.txt adds: a copy of an existing case's item with its own
+    // def index, name, series and contents list
+    struct AddedCasePatch
+    {
+        uint32_t defIndex{};
+        uint32_t basedOn{};
+        uint32_t series{};
+        std::string name;
+        std::vector<std::string> previewEntries; // "[paint_kit]weapon"
+    };
+
+    // adds the cases to items_game/items (copied from the case they're based on),
+    // items_game/revolving_loot_lists and items_game/client_loot_lists. returns
+    // how many were added; one whose base case isn't in the file is skipped
+    size_t AddCases(std::string &schemaText, const std::vector<AddedCasePatch> &cases);
+
     // writes the patched schema (backing up the original first). returns true
     // when the game file changed and a restart is needed to see it
     bool Apply(const LootListPreviews &previews, const std::string &recipesText, bool mixQualities = false,
-        const StarShopPatch *starShop = nullptr);
+        const StarShopPatch *starShop = nullptr, const std::vector<AddedCasePatch> *addedCases = nullptr);
 
     // puts the original file back if it was patched. returns true when restored
     bool Restore();

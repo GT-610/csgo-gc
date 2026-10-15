@@ -261,7 +261,7 @@ ItemSchema::ItemSchema(bool loadFiles)
             for (const auto &pair : m_customCasePreviewEntries)
             {
                 const ItemInfo *crateInfo = ItemInfoByDefIndex(pair.first);
-                if (!crateInfo)
+                if (!crateInfo || IsAddedCase(pair.first))
                 {
                     continue;
                 }
@@ -303,9 +303,16 @@ ItemSchema::ItemSchema(bool loadFiles)
         starShop.activateOperation = GetConfig().StarShop().operationActive;
         const bool patchStarShop = !starShop.blocksText.empty();
 
-        if (!previews.empty() || !recipes.empty() || mixStatTrak || patchStarShop)
+        std::vector<GameSchemaPatch::AddedCasePatch> addedCases;
+        for (const AddedCase &added : m_addedCases)
         {
-            GameSchemaPatch::Apply(previews, recipes, mixStatTrak, patchStarShop ? &starShop : nullptr);
+            addedCases.push_back({ added.defIndex, added.basedOn, added.series, added.name, added.previewEntries });
+        }
+
+        if (!previews.empty() || !recipes.empty() || mixStatTrak || patchStarShop || !addedCases.empty())
+        {
+            GameSchemaPatch::Apply(previews, recipes, mixStatTrak, patchStarShop ? &starShop : nullptr,
+                addedCases.empty() ? nullptr : &addedCases);
         }
         else
         {
@@ -323,6 +330,13 @@ ItemSchema::ItemSchema(bool loadFiles)
 //   }
 // Rarity names: common, uncommon, rare, mythical, legendary, ancient. When the
 // value isn't a rarity name the paint kit's own rarity is used.
+// a crate named crate_* with contents, i.e. a case or package
+static bool IsKeyedCrate(const ItemInfo &info)
+{
+    return !info.m_isCoupon && info.m_name.compare(0, 6, "crate_") == 0
+        && (info.m_supplyCrateSeries || !info.m_lootListName.empty());
+}
+
 void ItemSchema::ParseCustomCases(const KeyValue &customCasesKey)
 {
     const std::pair<std::string_view, uint32_t> rarityNames[] = {
@@ -386,9 +400,68 @@ void ItemSchema::ParseCustomCases(const KeyValue &customCasesKey)
         }
     };
 
+    // a key that isn't a number adds a new case. its def index comes from the
+    // key's name, so it is the same on every run and saved items keep working
+    auto isNumber = [](std::string_view text)
+    {
+        return !text.empty() && std::all_of(text.begin(), text.end(), [](char c) { return c >= '0' && c <= '9'; });
+    };
+    auto addedDefIndex = [&](std::string_view key)
+    {
+        uint32_t hash = 2166136261u;
+        for (char c : key)
+        {
+            hash = (hash ^ static_cast<uint8_t>(c)) * 16777619u;
+        }
+
+        uint32_t defIndex = 20000 + hash % 30000;
+        while (m_itemInfo.contains(defIndex))
+        {
+            defIndex = defIndex >= 49999 ? 20000 : defIndex + 1;
+        }
+        return defIndex;
+    };
+
     for (const KeyValue &caseKey : customCasesKey)
     {
-        uint32_t crateDefIndex = FromString<uint32_t>(caseKey.Name());
+        uint32_t crateDefIndex = 0;
+        uint32_t addedBasedOn = 0;
+        std::string addedName;
+        if (isNumber(caseKey.Name()))
+        {
+            crateDefIndex = FromString<uint32_t>(caseKey.Name());
+        }
+        else
+        {
+            addedBasedOn = caseKey.GetNumber<uint32_t>("based_on");
+            const ItemInfo *basedOn = ItemInfoByDefIndex(addedBasedOn);
+            if (!basedOn || !IsKeyedCrate(*basedOn))
+            {
+                Platform::Print("custom_cases: %s needs \"based_on\" with the def index of an existing case\n",
+                    std::string{ caseKey.Name() }.c_str());
+                continue;
+            }
+
+            addedName = "crate_csgogc_";
+            for (char c : caseKey.Name())
+            {
+                addedName += (isalnum(static_cast<unsigned char>(c))) ? static_cast<char>(tolower(c)) : '_';
+            }
+            if (m_itemDefIndexByName.contains(addedName))
+            {
+                Platform::Print("custom_cases: another case is already called %s\n", addedName.c_str());
+                continue;
+            }
+
+            crateDefIndex = addedDefIndex(caseKey.Name());
+            ItemInfo added = *basedOn;
+            added.m_defIndex = crateDefIndex;
+            added.m_name = addedName;
+            added.m_supplyCrateSeries = crateDefIndex; // unique, so it gets its own contents list
+            m_itemInfo.emplace(crateDefIndex, std::move(added));
+            m_itemDefIndexByName.emplace(addedName, crateDefIndex);
+        }
+
         currentCrateDefIndex = crateDefIndex;
         const ItemInfo *crateInfo = ItemInfoByDefIndex(crateDefIndex);
         if (!crateInfo)
@@ -412,6 +485,11 @@ void ItemSchema::ParseCustomCases(const KeyValue &customCasesKey)
         {
             m_customCasePreviewEntries.erase(crateDefIndex);
             Platform::Print("custom_cases: case %u has no valid items, ignoring\n", crateDefIndex);
+            if (addedBasedOn)
+            {
+                m_itemDefIndexByName.erase(addedName);
+                m_itemInfo.erase(crateDefIndex);
+            }
             continue;
         }
 
@@ -428,6 +506,11 @@ void ItemSchema::ParseCustomCases(const KeyValue &customCasesKey)
         }
 
         m_customCaseLootLists[crateDefIndex] = &root;
+        if (addedBasedOn)
+        {
+            m_addedCases.push_back({ crateDefIndex, addedBasedOn, crateDefIndex, addedName,
+                m_customCasePreviewEntries[crateDefIndex] });
+        }
 
         std::string_view customName = caseKey.GetString("name");
         if (!customName.empty())
@@ -984,6 +1067,12 @@ std::vector<uint32_t> ItemSchema::GetCustomCaseDefIndexes() const
     }
     std::sort(cases.begin(), cases.end());
     return cases;
+}
+
+bool ItemSchema::IsAddedCase(uint32_t crateDefIndex) const
+{
+    return std::any_of(m_addedCases.begin(), m_addedCases.end(),
+        [&](const AddedCase &added) { return added.defIndex == crateDefIndex; });
 }
 
 bool ItemSchema::IsCustomCase(uint32_t crateDefIndex) const

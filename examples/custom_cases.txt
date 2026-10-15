@@ -1,14 +1,31 @@
-// Custom cases: replace what an existing case gives you when you open it.
-// Copy this file to csgo_gc/custom_cases.txt in your game folder to use it.
+// Custom cases. Copy this file to csgo_gc/custom_cases.txt in your game folder to use it.
 //
-// Each block is keyed by the def index of an existing case. Opening that case
-// rolls from the lists below instead. Pick an old case you don't care about.
+// Two kinds of block:
+//
+//   ADD a new case: the block's name is any word you like, and "based_on" is the def
+//   index of an existing case to copy the look and key from. The new case appears next
+//   to the originals, which stay as they are. It is listed first in the shop (see
+//   star_shop in config.txt) and its contents preview shows its own skins. The game's
+//   items_game.txt is edited to add it (restart the game twice the first time).
+//       "my_case"
+//       {
+//           "based_on"  "4001"
+//           "name"      "My Case"
+//           ...
+//       }
+//
+//   REPLACE an existing case: the block's name is the def index of that case. Opening
+//   it rolls from the lists below instead. Pick an old case you don't care about.
+//       "4001"
+//       {
+//           ...
+//       }
 //
 // "name" (optional) is shown on the case like a name tag, e.g. "Galaxy Case".
-// The case keeps its icon and key. The contents preview (inspecting the case)
-// comes from the game's own files, so it shows the original skins unless you
-// turn on "custom_case_previews" in config.txt (experimental, edits the game's
-// items_game.txt with a backup, restart the game after changes).
+// A replaced case's contents preview (inspecting the case) comes from the game's own
+// files, so it shows the original skins unless you turn on "custom_case_previews" in
+// config.txt (experimental, edits items_game.txt with a backup). An added case always
+// shows its own skins.
 //
 // Items are written like the game's loot lists: "[paint_kit_name]weapon_name".
 // Any paint kit can go on any weapon, including unused/unreleased paint kits,
@@ -34,9 +51,10 @@
 
 // "Galaxy Case": real finishes on weapons they never shipped on, checked against
 // the final CS:GO items_game.txt (all names exist, none of these combos are in
-// the game). Replaces the original CS:GO Weapon Case (def 4001).
-"4001"
+// the game). Looks like the CS:GO Weapon Case (def 4001) and uses its key.
+"galaxy"
 {
+	"based_on"	"4001"
 	"name"	"Galaxy Case"
 
 	"items"
@@ -88,9 +106,10 @@
 	}
 }
 
-// "Gold Rush Case": gold, bronze and orange. Replaces CS:GO Weapon Case 2 (def 4004).
-"4004"
+// "Gold Rush Case": gold, bronze and orange. Looks like CS:GO Weapon Case 2 (def 4004) and uses its key.
+"gold_rush"
 {
+	"based_on"	"4004"
 	"name"	"Gold Rush Case"
 
 	"items"
@@ -135,9 +154,10 @@
 	}
 }
 
-// "Deep Blue Case": blues. Replaces CS:GO Weapon Case 3 (def 4010).
-"4010"
+// "Deep Blue Case": blues. Looks like CS:GO Weapon Case 3 (def 4010) and uses its key.
+"deep_blue"
 {
+	"based_on"	"4010"
 	"name"	"Deep Blue Case"
 
 	"items"
@@ -180,9 +200,10 @@
 	}
 }
 
-// "Crimson Case": reds. Replaces the eSports 2013 Case (def 4002).
-"4002"
+// "Crimson Case": reds. Looks like the eSports 2013 Case (def 4002) and uses its key.
+"crimson"
 {
+	"based_on"	"4002"
 	"name"	"Crimson Case"
 
 	"items"
@@ -225,9 +246,10 @@
 	}
 }
 
-// "Emerald Case": greens. Replaces the eSports 2013 Winter Case (def 4005).
-"4005"
+// "Emerald Case": greens. Looks like the eSports 2013 Winter Case (def 4005) and uses its key.
+"emerald"
 {
+	"based_on"	"4005"
 	"name"	"Emerald Case"
 
 	"items"
@@ -272,9 +294,10 @@
 
 // "Phantom Blade Case": the newer knives (Survival, Paracord, Nomad, Skeleton, Classic,
 // Bowie, Ursus, Navaja, Stiletto, Talon) in Doppler, Marble Fade, Tiger Tooth, Fade and
-// Crimson Web, which they never shipped with. Replaces Community Case 2 (def 4011).
-"4011"
+// Crimson Web, which they never shipped with. Looks like Community Case 2 (def 4011) and uses its key.
+"phantom_blade"
 {
+	"based_on"	"4011"
 	"name"	"Phantom Blade Case"
 
 	"items"

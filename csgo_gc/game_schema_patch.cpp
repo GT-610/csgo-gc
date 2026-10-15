@@ -283,6 +283,163 @@ int GameSchemaPatch::ReplaceRedeemables(std::string &text, uint32_t season, cons
     return static_cast<int>(removals.size());
 }
 
+namespace
+{
+struct BlockRange
+{
+    size_t keyBegin; // the block's name string
+    size_t close; // its closing brace
+};
+
+// the first block at exactly this path (e.g. items_game/items/4001)
+bool FindBlock(const std::string &text, const std::vector<std::string> &path, BlockRange &out)
+{
+    std::vector<std::string> stack;
+    std::vector<size_t> keyStarts;
+    std::string lastString;
+    size_t lastStringStart = 0;
+    bool haveLastString = false;
+
+    for (size_t i = 0; i < text.size(); i++)
+    {
+        const char c = text[i];
+
+        if (c == '/' && i + 1 < text.size() && text[i + 1] == '/')
+        {
+            while (i < text.size() && text[i] != '\n')
+            {
+                i++;
+            }
+            continue;
+        }
+
+        if (c == '"')
+        {
+            const size_t quote = i;
+            size_t start = ++i;
+            while (i < text.size() && text[i] != '"')
+            {
+                if (text[i] == '\\' && i + 1 < text.size())
+                {
+                    i++;
+                }
+                i++;
+            }
+            lastString.assign(text, start, i - start);
+            lastStringStart = quote;
+            haveLastString = true;
+            continue;
+        }
+
+        if (c == '{')
+        {
+            stack.push_back(haveLastString ? lastString : std::string{});
+            keyStarts.push_back(haveLastString ? lastStringStart : i);
+            haveLastString = false;
+            continue;
+        }
+
+        if (c == '}')
+        {
+            if (stack == path)
+            {
+                out = { keyStarts.back(), i };
+                return true;
+            }
+
+            if (!stack.empty())
+            {
+                stack.pop_back();
+                keyStarts.pop_back();
+            }
+            haveLastString = false;
+            continue;
+        }
+    }
+
+    return false;
+}
+
+// where to put new text so it ends up last inside the block that closes at `close`
+size_t InsertionPoint(const std::string &text, size_t close)
+{
+    size_t at = close;
+    while (at > 0 && (text[at - 1] == '\t' || text[at - 1] == ' '))
+    {
+        at--;
+    }
+    return at;
+}
+} // namespace
+
+size_t GameSchemaPatch::AddCases(std::string &text, const std::vector<AddedCasePatch> &cases)
+{
+    std::string itemsText, revolvingText, listsText;
+    size_t added = 0;
+
+    for (const AddedCasePatch &addedCase : cases)
+    {
+        BlockRange source;
+        if (!FindBlock(text, { "items_game", "items", std::to_string(addedCase.basedOn) }, source))
+        {
+            Platform::Print("custom_cases: case %u isn't in items_game.txt, can't add %s\n", addedCase.basedOn,
+                addedCase.name.c_str());
+            continue;
+        }
+
+        std::string block = text.substr(source.keyBegin, source.close + 1 - source.keyBegin);
+
+        // its own def index, name and series
+        const std::string oldKey = "\"" + std::to_string(addedCase.basedOn) + "\"";
+        if (block.compare(0, oldKey.size(), oldKey) != 0)
+        {
+            continue;
+        }
+        block.replace(0, oldKey.size(), "\"" + std::to_string(addedCase.defIndex) + "\"");
+        block = std::regex_replace(block, std::regex{ R"re(("name"\s+)"[^"]*")re" },
+            "$1\"" + addedCase.name + "\"", std::regex_constants::format_first_only);
+        block = std::regex_replace(block,
+            std::regex{ R"re(("set supply crate series"\s*\{[^}]*?"value"\s+)"[^"]*")re" },
+            "$1\"" + std::to_string(addedCase.series) + "\"", std::regex_constants::format_first_only);
+
+        itemsText += "\t\t" + block + "\n";
+        revolvingText += "\t\t\"" + std::to_string(addedCase.series) + "\"\t\t\"" + addedCase.name + "\"\n";
+        listsText += "\t\t\"" + addedCase.name + "\"\n\t\t{\n";
+        for (const std::string &entry : addedCase.previewEntries)
+        {
+            listsText += "\t\t\t\"" + entry + "\"\t\t\"1\"\n";
+        }
+        listsText += "\t\t}\n";
+        added++;
+    }
+
+    if (!added)
+    {
+        return 0;
+    }
+
+    // put each piece last in its section, doing the later sections first so the
+    // earlier offsets stay valid is not needed: each is looked up again
+    struct Piece
+    {
+        const char *section;
+        const std::string *text;
+    };
+    for (const Piece &piece : { Piece{ "items", &itemsText }, Piece{ "revolving_loot_lists", &revolvingText },
+             Piece{ "client_loot_lists", &listsText } })
+    {
+        BlockRange section;
+        if (!FindBlock(text, { "items_game", piece.section }, section))
+        {
+            Platform::Print("custom_cases: no %s section in items_game.txt, added cases may not work\n", piece.section);
+            return 0;
+        }
+        text.insert(InsertionPoint(text, section.close), *piece.text);
+    }
+
+    return added;
+}
+
 int GameSchemaPatch::ActivateOperation(std::string &text, int64_t now)
 {
     // the schedule is start + length + slack, twelve weeks in the real file
@@ -673,7 +830,7 @@ static std::string AbsolutePath(const char *path)
 }
 
 bool GameSchemaPatch::Apply(const LootListPreviews &previews, const std::string &recipesText, bool mixQualities,
-    const StarShopPatch *starShop)
+    const StarShopPatch *starShop, const std::vector<AddedCasePatch> *addedCases)
 {
     const std::string schemaPath = AbsolutePath(SchemaPath);
     Platform::Print("items_game.txt patch: file %s, backup %s\n", schemaPath.c_str(),
@@ -723,6 +880,12 @@ bool GameSchemaPatch::Apply(const LootListPreviews &previews, const std::string 
             Platform::Print("items_game.txt patch: star shop replaces %d operation page good(s) of season %u\n",
                 starGoodsReplaced, starShop->season);
         }
+    }
+
+    if (addedCases && !addedCases->empty())
+    {
+        const size_t count = AddCases(patched, *addedCases);
+        Platform::Print("items_game.txt patch: added %zu of %zu custom case(s) as new items\n", count, addedCases->size());
     }
 
     if (starShop && starShop->activateOperation)
