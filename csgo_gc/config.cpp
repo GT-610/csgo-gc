@@ -157,6 +157,7 @@ GCConfig::GCConfig()
         m_starShop.capsulePrice = starShop->GetNumber("capsule_price", m_starShop.capsulePrice);
         m_starShop.souvenirPrice = starShop->GetNumber("souvenir_price", m_starShop.souvenirPrice);
         m_starShop.agentPrice = starShop->GetNumber("agent_price", m_starShop.agentPrice);
+        m_starShop.operationActive = starShop->GetNumber("operation_active", m_starShop.operationActive);
         m_starShop.maxCases = starShop->GetNumber("max_cases", m_starShop.maxCases);
         m_starShop.maxCapsules = starShop->GetNumber("max_capsules", m_starShop.maxCapsules);
         m_starShop.maxSouvenirPackages = starShop->GetNumber("max_souvenir_packages", m_starShop.maxSouvenirPackages);

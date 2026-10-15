@@ -125,6 +125,13 @@
 {
 	"enabled"			"1"
 
+	// the game only shows an operation's page while the operation is running and
+	// Riptide ended long ago. this moves the start of the operation schedule in
+	// items_game.txt to now so the page shows up (restart the game twice).
+	// once the operation page works you can turn the Case Store button off with
+	// "case_store_menu" "0"
+	"operation_active"	"1"
+
 	// prices in stars. a case comes with its key
 	"case_price"		"10"
 	"capsule_price"		"5"

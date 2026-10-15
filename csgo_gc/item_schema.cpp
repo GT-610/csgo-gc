@@ -300,6 +300,7 @@ ItemSchema::ItemSchema(bool loadFiles)
             starShop.blocksText = StarShop::BuildRedeemablesText(
                 StarShop::BuildRedeemables(*this, GetConfig().StarShop()));
         }
+        starShop.activateOperation = GetConfig().StarShop().operationActive;
         const bool patchStarShop = !starShop.blocksText.empty();
 
         if (!previews.empty() || !recipes.empty() || mixStatTrak || patchStarShop)

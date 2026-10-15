@@ -4206,6 +4206,28 @@ static bool StarShopPatchReplacesOnlyTheNewestOperationsGoods()
         && std::count(patched.begin(), patched.end(), '{') == std::count(patched.begin(), patched.end(), '}');
 }
 
+static bool StarShopMovesTheOperationScheduleToNow()
+{
+    const std::string text =
+        "\"items_game\"\r\n{\r\n\t\"other\" { \"start\" \"5\" }\r\n"
+        "\t\"quest_schedule\"\r\n\t{\r\n\t\t\"start\"\t\t\"1632254400\"\r\n"
+        "\t\t\"length\"\t\t\"P9W\"\r\n\t\t\"slack\"\t\t\"P3W\"\r\n\t}\r\n}\r\n";
+
+    const int64_t now = 1792000000;
+    std::string moved = text;
+    std::string running = text;
+    const bool valid = GameSchemaPatch::ActivateOperation(moved, now) == 1
+        && moved.find("\"1791913600\"") != std::string::npos // a day before now
+        && moved.find("\"start\" \"5\"") != std::string::npos // other starts are left alone
+        && moved.find("P9W") != std::string::npos
+        && GameSchemaPatch::ActivateOperation(moved, now) == 0 // now inside the window
+        && GameSchemaPatch::ActivateOperation(running, 1632254400 + 3600) == 0
+        && running == text;
+
+    std::string none = "\"items_game\"\n{\n}\n";
+    return valid && GameSchemaPatch::ActivateOperation(none, now) == -1;
+}
+
 static bool StarShopEarnsStarsAndRedeemsARandomAgent()
 {
     constexpr uint64_t SteamId = 76561197960265729ull;
@@ -4384,6 +4406,7 @@ int main()
         { "TradeUpRecipesAcceptStatTrakWhenMixing", TradeUpRecipesAcceptStatTrakWhenMixing },
         { "StarShopPatchReplacesOnlyTheNewestOperationsGoods",
             StarShopPatchReplacesOnlyTheNewestOperationsGoods },
+        { "StarShopMovesTheOperationScheduleToNow", StarShopMovesTheOperationScheduleToNow },
         { "StarShopEarnsStarsAndRedeemsARandomAgent", StarShopEarnsStarsAndRedeemsARandomAgent },
         { "PityBoostsBetterRaritiesBeforeGold", PityBoostsBetterRaritiesBeforeGold },
         { "StorePurchasesFinalizeTransactionally", StorePurchasesFinalizeTransactionally },
