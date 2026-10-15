@@ -1058,6 +1058,53 @@ bool PathIsFile(const char *path, const char *fileName)
     return (separator == '/' || separator == '\\') && _stricmp(tail, fileName) == 0;
 }
 
+// panorama_debug: appended to the trade-up page's script (crafting.js). Whenever the contract changes it logs what
+// the game's own calls say, so it's clear why READY is or isn't enabled
+static const char CraftingDiagnosticScript[] = R"js(
+( function()
+{
+	function log( text ) { $.Msg( '[csgo_gc] craft: ' + text ); }
+	function ask( name, fn )
+	{
+		try { log( name + ' = ' + fn() ); }
+		catch ( e ) { log( name + ' failed: ' + e ); }
+	}
+
+	function report( why )
+	{
+		log( '--- ' + why );
+		ask( 'IsCraftReady', function() { return InventoryAPI.IsCraftReady(); } );
+		ask( 'ingredient count', function() { return InventoryAPI.GetCraftIngredientCount(); } );
+		ask( 'contract item id', function() { return InventoryAPI.GetTradeUpContractItemID(); } );
+		ask( 'recipe filter attribute', function() { return InventoryAPI.GetItemAttributeValue( InventoryAPI.GetTradeUpContractItemID(), 'recipe filter' ); } );
+
+		try
+		{
+			var list = $.GetContextPanel().FindChildTraverse( 'Crafting-Ingredients' );
+			for ( var i = 0; list && i < list.GetChildCount(); i++ )
+			{
+				var id = list.GetChild( i ).itemid;
+				if ( !id )
+				{
+					continue;
+				}
+				ask( 'ingredient ' + id + ' (' + InventoryAPI.GetItemName( id ) + ') CanTradeUp / needed',
+					function() { return InventoryAPI.CanTradeUp( id ) + ' / ' + InventoryAPI.GetNumItemsNeededToTradeUp( id ); } );
+			}
+		}
+		catch ( e )
+		{
+			log( 'listing the ingredients failed: ' + e );
+		}
+	}
+
+	[ 'UpdateTradeUpPanel', 'PanoramaComponent_Inventory_CraftIngredientAdded', 'PanoramaComponent_Inventory_CraftIngredientRemoved' ].forEach( function( name )
+	{
+		$.RegisterForUnhandledEvent( name, function() { $.Schedule( 0.2, function() { report( name ); } ); } );
+	} );
+} )();
+)js";
+
 void __fastcall Hk_RunScript(void *engine, void *edx, void *panel, const char *source,
     const char *path, int line, int column, int arg6, int arg7)
 {
@@ -1089,6 +1136,14 @@ void __fastcall Hk_RunScript(void *engine, void *edx, void *panel, const char *s
             s_originalRunScript(engine, edx, panel, patched.c_str(), path, line, column, arg6, arg7);
             return;
         }
+    }
+
+    if (GetConfig().PanoramaDebug() && PathIsFile(path, "crafting.js"))
+    {
+        std::string withDiagnostics = std::string{ source } + "\n" + CraftingDiagnosticScript;
+        s_originalRunScript(engine, edx, panel, withDiagnostics.c_str(), path, line, column, arg6, arg7);
+        Platform::Print("Panorama: trade-up page diagnostics added (panorama_debug)\n");
+        return;
     }
 
     s_originalRunScript(engine, edx, panel, source, path, line, column, arg6, arg7);
