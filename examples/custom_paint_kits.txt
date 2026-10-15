@@ -2,10 +2,10 @@
 //
 // These are the unused ("concept") glove finishes from the gloves mod (the "unused gloves" folders). For each one:
 //   1. put its .vmt in   csgo/materials/models/weapons/customization/paints_gloves/
-//   2. put its texture (.vtf, converted from the mod's .png/.jpg with VTFEdit if needed) where the
-//      .vmt's "$basetexture" points, usually the same folder
-//   3. restart the game twice (the first start adds the finishes to items_game.txt)
-// A finish without its files shows as a missing-texture checkerboard in game.
+//      (that is all: the .vmt only sets colours on textures the game already has, so there is nothing
+//      to convert; the mod's .png/.jpg pictures are previews and aren't used)
+//   2. restart the game twice (the first start adds the finishes to items_game.txt)
+// A finish without its .vmt shows as a missing-texture checkerboard in game.
 //
 // One block per finish, named after the finish. Every key is optional except what the finish needs:
 //   "id"      a number; picked from the name when missing
