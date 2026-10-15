@@ -169,6 +169,12 @@ GCConfig::GCConfig()
         m_starShop.perMatch = starShop->GetNumber("match_complete", m_starShop.perMatch);
     }
 
+    const KeyValue *botSkins = config.GetSubkey("bot_skins");
+    if (botSkins)
+    {
+        m_botSkins.enabled = botSkins->GetNumber("enabled", m_botSkins.enabled);
+    }
+
     m_vacBanned = config.GetNumber("vac_banned", m_vacBanned);
     m_commendedFriendly = config.GetNumber("cmd_friendly", m_commendedFriendly);
     m_commendedTeaching = config.GetNumber("cmd_teaching", m_commendedTeaching);

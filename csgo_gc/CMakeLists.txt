@@ -46,6 +46,8 @@ add_library(csgo_gc SHARED
     star_shop.cpp
     steam_hook.cpp
     tradeup_hook.cpp
+    server_hook.cpp
+    bot_skins.cpp
     panorama_hook.cpp)
 
 if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
@@ -144,6 +146,7 @@ if (BUILD_TESTING)
         networking_client.cpp
         networking_server.cpp
         panorama_hook.cpp
+        bot_skins.cpp
         souvenir.cpp
         star_shop.cpp)
 

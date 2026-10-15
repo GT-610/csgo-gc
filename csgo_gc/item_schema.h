@@ -215,6 +215,7 @@ public:
     std::optional<uint32_t> OperationCoinDefIndex(uint32_t season) const;
     bool IsSeasonalMissionCard(uint32_t seasonValue, uint32_t missionCardId) const;
     const PaintKitInfo *PaintKitInfoByDefIndex(uint32_t defIndex) const;
+    const PaintKitInfo *FindPaintKitByName(std::string_view name) const;
     const StickerKitInfo *StickerKitInfoByDefIndex(uint32_t defIndex) const;
     const MusicDefinitionInfo *MusicDefinitionInfoByDefIndex(uint32_t defIndex) const;
     const StickerKitInfo *FindStickerKitInfoByName(std::string_view name) const;
