@@ -35,6 +35,101 @@ int PanoramaHook::PatchItemContextEntries(std::string &source)
     return count;
 }
 
+int PanoramaHook::PatchContextMenuLabels(std::string &source)
+{
+    // elLabel.text = '#inv_context_' + displayName;
+    static const std::regex label{ R"re(elLabel\.text\s*=\s*'#inv_context_'\s*\+\s*displayName\s*;)re" };
+    int count = 0;
+    for (auto it = std::sregex_iterator(source.begin(), source.end(), label); it != std::sregex_iterator(); ++it)
+    {
+        count++;
+    }
+
+    if (count)
+    {
+        source = std::regex_replace(source, label,
+            "elLabel.text = ( displayName.charAt( 0 ) === '!' ) ? displayName.substring( 1 ) : '#inv_context_' + displayName;");
+    }
+    return count;
+}
+
+bool PanoramaHook::AddSellEntry(std::string &source, const SellPrices &prices)
+{
+    // the object of the delete entry:  { name: 'delete', ...
+    static const std::regex deleteEntry{ R"re(\{(\s*)name:\s*'delete')re" };
+    std::smatch match;
+    if (!std::regex_search(source, match, deleteEntry))
+    {
+        return false;
+    }
+
+    std::string rarities = "{";
+    for (int rarity = 1; rarity <= 6; rarity++)
+    {
+        rarities += (rarity > 1 ? "," : "") + std::to_string(rarity) + ":" + std::to_string(prices.byRarity[rarity]);
+    }
+    rarities += "}";
+
+    const std::string entry = R"js({
+			name: function ( id ) {
+				return '!Sell for ' + CsgoGcSellPrice( id ) + ' stars';
+			},
+			style: function ( id ) {
+				return 'TopSeparator';
+			},
+			AvailableForItem: function ( id ) {
+				return InventoryAPI.IsDeletable( id ) && CsgoGcSellPrice( id ) > 0;
+			},
+			OnSelected: function ( id ) {
+				$.DispatchEvent( 'ContextMenuEvent', '' );
+				var price = CsgoGcSellPrice( id );
+				var sell = function() { InventoryAPI.DeleteItem( id ); };
+				try
+				{
+					UiToolkitAPI.ShowGenericPopupOkCancel( 'Sell item', 'Sell this item for ' + price + ' stars? It will be removed from your inventory.', '', sell, function() {} );
+				}
+				catch ( e )
+				{
+					$.Msg( '[csgo_gc] sell: no confirm popup (' + e + '), using the delete popup' );
+					UiToolkitAPI.ShowCustomLayoutPopupParameters( '', 'file://{resources}/layout/popups/popup_inventory_inspect.xml',
+						'itemid=' + id + '&asyncworktype=delete&asyncworkbtnstyle=Negative' );
+				}
+			}
+		},
+		)js";
+
+    source.replace(match.position(0), 0, entry + "\n\t\t");
+
+    // the price of an item, by its tier: knives and gloves, then painted weapons by rarity. what the GC really
+    // pays is decided by the GC (star_shop sell in config.txt); these are the same numbers
+    source += "\n\nvar CsgoGcSellPrices = " + rarities + ";\nvar CsgoGcSellKnifeOrGlove = " + std::to_string(prices.knifeOrGlove)
+        + R"js(;
+var CsgoGcSellPrice = function ( id )
+{
+	try
+	{
+		if ( InventoryAPI.IsItemDefault( id ) )
+		{
+			return 0;
+		}
+
+		var slot = ItemInfo.GetSlotSubPosition( id );
+		if ( slot === 'melee' || slot === 'clothing_hands' )
+		{
+			return CsgoGcSellKnifeOrGlove;
+		}
+
+		return ItemInfo.IsWeapon( id ) ? ( CsgoGcSellPrices[ InventoryAPI.GetItemRarity( id ) ] || 0 ) : 0;
+	}
+	catch ( e )
+	{
+		return 0;
+	}
+};
+)js";
+    return true;
+}
+
 static void AppendJsString(std::string &out, std::string_view text)
 {
     out += '"';
@@ -1119,23 +1214,57 @@ void __fastcall Hk_RunScript(void *engine, void *edx, void *panel, const char *s
         DumpScript(path, source);
     }
 
-    if (GetConfig().GoldTradeUpRecipes() && PathIsFile(path, "item_context_entries.js"))
+    const StarShopConfig &starShop = GetConfig().StarShop();
+    const bool sellMenu = starShop.enabled && starShop.sellEnabled;
+
+    if (PathIsFile(path, "item_context_entries.js") && (GetConfig().GoldTradeUpRecipes() || sellMenu))
     {
         std::string patched = source;
-        int changes = PanoramaHook::PatchItemContextEntries(patched);
-        if (!s_loggedContextPatch)
+        int changes = 0;
+        if (GetConfig().GoldTradeUpRecipes())
         {
-            s_loggedContextPatch = true;
-            Platform::Print(changes
-                    ? "Panorama: knives and gloves can be added to trade-up contracts\n"
-                    : "Panorama: item_context_entries.js didn't match, knives can't be added to contracts from the menu\n");
+            changes = PanoramaHook::PatchItemContextEntries(patched);
+            if (!s_loggedContextPatch)
+            {
+                s_loggedContextPatch = true;
+                Platform::Print(changes
+                        ? "Panorama: knives and gloves can be added to trade-up contracts\n"
+                        : "Panorama: item_context_entries.js didn't match, knives can't be added to contracts from the menu\n");
+            }
         }
 
-        if (changes)
+        bool sellAdded = false;
+        if (sellMenu)
+        {
+            PanoramaHook::SellPrices prices;
+            prices.byRarity[1] = starShop.sellConsumer;
+            prices.byRarity[2] = starShop.sellIndustrial;
+            prices.byRarity[3] = starShop.sellMilSpec;
+            prices.byRarity[4] = starShop.sellRestricted;
+            prices.byRarity[5] = starShop.sellClassified;
+            prices.byRarity[6] = starShop.sellCovert;
+            prices.knifeOrGlove = starShop.sellKnifeOrGlove;
+            sellAdded = PanoramaHook::AddSellEntry(patched, prices);
+            Platform::Print(sellAdded ? "Panorama: right-click Sell entry added\n"
+                                      : "Panorama: item_context_entries.js has no delete entry, no Sell entry added\n");
+        }
+
+        if (changes || sellAdded)
         {
             s_originalRunScript(engine, edx, panel, patched.c_str(), path, line, column, arg6, arg7);
             return;
         }
+    }
+
+    if (sellMenu && PathIsFile(path, "context_menu_inventory_item.js"))
+    {
+        std::string patched = source;
+        if (PanoramaHook::PatchContextMenuLabels(patched))
+        {
+            s_originalRunScript(engine, edx, panel, patched.c_str(), path, line, column, arg6, arg7);
+            return;
+        }
+        Platform::Print("Panorama: context_menu_inventory_item.js didn't match, the Sell entry has no label\n");
     }
 
     if (GetConfig().PanoramaDebug() && PathIsFile(path, "crafting.js"))
@@ -1172,7 +1301,8 @@ void PanoramaHook::TryInstall()
         return;
     }
 
-    if (!GetConfig().CaseStoreMenu() && !GetConfig().GoldTradeUpRecipes() && !GetConfig().PanoramaDebug())
+    const bool sellMenu = GetConfig().StarShop().enabled && GetConfig().StarShop().sellEnabled;
+    if (!GetConfig().CaseStoreMenu() && !GetConfig().GoldTradeUpRecipes() && !GetConfig().PanoramaDebug() && !sellMenu)
     {
         s_installDone = true;
         return;

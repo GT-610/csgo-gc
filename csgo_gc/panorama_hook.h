@@ -35,6 +35,22 @@ namespace PanoramaHook
     // scripts/common/item_context_entries.js. returns the number of changes
     int PatchItemContextEntries(std::string &source);
 
+    // the sell prices the right-click "Sell" entry shows, by rarity 1..6 (Consumer to Covert) and for knives and gloves
+    struct SellPrices
+    {
+        uint32_t byRarity[7]{}; // index 0 unused
+        uint32_t knifeOrGlove{};
+    };
+
+    // adds a "Sell for N stars" entry to item_context_entries.js, before the delete entry. selling is what the
+    // game's own delete does once the star shop's selling is on: the GC pays for the item it removes.
+    // returns false when the delete entry isn't found
+    bool AddSellEntry(std::string &source, const SellPrices &prices);
+
+    // lets a context menu entry whose name starts with '!' show that text as it is (the menu would look the
+    // name up as a language token). returns the number of changes
+    int PatchContextMenuLabels(std::string &source);
+
     // JS array of [crateDefIndex, keyDefIndex or 0, kind] in store order
     // (weapon cases, souvenir packages, capsules, other; newest first),
     // limited to the kinds enabled in store_containers

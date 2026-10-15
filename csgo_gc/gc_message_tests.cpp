@@ -3950,6 +3950,46 @@ static bool StoreListsAddedCustomCases()
 
 // finishes from a mod: the schema knows them, a custom case can use them, and the
 // game file gets entries for them
+static bool ContextMenuGetsASellEntry()
+{
+    std::string entries =
+        "'use strict';\n"
+        "var ItemContextEntires = ( function() {\n"
+        "\tvar list = [\n"
+        "\t\t{\n\t\t\tname: 'sell',\n\t\t\tAvailableForItem: function ( id ) { return true; }\n\t\t},\n"
+        "\t\t{\n\t\t\tname: 'delete',\n\t\t\tAvailableForItem: function ( id ) { return true; }\n\t\t}\n"
+        "\t];\n} )();\n";
+
+    PanoramaHook::SellPrices prices;
+    for (uint32_t rarity = 1; rarity <= 6; rarity++)
+    {
+        prices.byRarity[rarity] = rarity * 10;
+    }
+    prices.knifeOrGlove = 150;
+
+    bool valid = PanoramaHook::AddSellEntry(entries, prices);
+
+    // the new entry sits right before the delete entry and carries the prices
+    const size_t sell = entries.find("Sell for ");
+    const size_t del = entries.find("name: 'delete'");
+    valid &= sell != std::string::npos && del != std::string::npos && sell < del
+        && entries.find("CsgoGcSellPrices = {1:10,2:20,3:30,4:40,5:50,6:60}") != std::string::npos
+        && entries.find("CsgoGcSellKnifeOrGlove = 150;") != std::string::npos
+        && entries.find("InventoryAPI.DeleteItem( id )") != std::string::npos;
+
+    std::string noDelete = "var list = [ { name: 'sell' } ];";
+    valid &= !PanoramaHook::AddSellEntry(noDelete, prices);
+
+    // the menu shows a '!' name as it is, and looks up every other name as before
+    std::string menu = "\t\t\t\telLabel.text = '#inv_context_' + displayName;\n";
+    valid &= PanoramaHook::PatchContextMenuLabels(menu) == 1
+        && menu.find("displayName.charAt( 0 ) === '!'") != std::string::npos
+        && menu.find("'#inv_context_' + displayName") != std::string::npos;
+    std::string other = "var x = 1;";
+    valid &= PanoramaHook::PatchContextMenuLabels(other) == 0;
+    return valid;
+}
+
 static bool CareerTracksGoalsAchievementsAndPersists()
 {
     constexpr const char *Path = "csgo_gc/career_test.txt";
@@ -5010,6 +5050,7 @@ int main()
         { "CustomPaintKitsReachTheSchemaAndGameFile", CustomPaintKitsReachTheSchemaAndGameFile },
         { "LanguageTokensGoLastInTheTokensBlock", LanguageTokensGoLastInTheTokensBlock },
         { "CareerTracksGoalsAchievementsAndPersists", CareerTracksGoalsAchievementsAndPersists },
+        { "ContextMenuGetsASellEntry", ContextMenuGetsASellEntry },
         { "StoreListsAddedCustomCases", StoreListsAddedCustomCases },
         { "AddedCaseSkinsTradeUp", AddedCaseSkinsTradeUp },
         { "CustomCasePreviewPatchesOnlyTargetLists", CustomCasePreviewPatchesOnlyTargetLists },
