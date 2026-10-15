@@ -168,3 +168,17 @@
 	"rarity"	"ancient"
 	"vmt_path"	"materials/models/weapons/customization/paints_gloves/dark_metal_leather.vmt"
 }
+
+"operation_10_snakeskin_black"
+{
+	"title"	"Snakeskin Black II"
+	"rarity"	"ancient"
+	"vmt_path"	"materials/models/weapons/customization/paints_gloves/operation_10_snakeskin_black.vmt"
+}
+
+"operation_10_metalic_green"
+{
+	"title"	"Metalic Green II"
+	"rarity"	"ancient"
+	"vmt_path"	"materials/models/weapons/customization/paints_gloves/operation_10_metalic_green.vmt"
+}
