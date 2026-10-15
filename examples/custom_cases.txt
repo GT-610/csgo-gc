@@ -420,7 +420,6 @@
 		"[sporty_red]sporty_gloves"		""
 		"[sporty_pink]sporty_gloves"		""
 		"[sporty_fade]sporty_gloves"		""
-		"[operation_10_snakeskin_black]studded_brokenfang_gloves"		""
 	}
 }
 
@@ -546,9 +545,7 @@
 		"[sporty_jaguar]sporty_gloves"		""
 		"[handwrap_leathery_ducttape]leather_handwraps"		""
 		// concept gloves (need custom_paint_kits.txt)
-		"[mayan_green]sporty_gloves"		""
 		"[specialist_green_red_black]specialist_gloves"		""
-		"[slick_snakeskin_green]slick_gloves"		""
 	}
 }
 
@@ -670,9 +667,6 @@
 		"[slick_stitched_black_white]slick_gloves"		""
 		"[bloodhound_hydra_black_green]studded_hydra_gloves"		""
 		// concept gloves (need custom_paint_kits.txt)
-		"[slick_snakeskin]slick_gloves"		""
-		"[slick_chainmail_knight]slick_gloves"		""
-		"[slick_chainmail_gold]slick_gloves"		""
 		// Callhood knives (need custom_paint_kits.txt and the textures)
 		"[csgogc_watchmen_huntsman_comedian_s_smiley_1]weapon_knife_tactical"		""
 		"[csgogc_summer_butterfly_waves]weapon_knife_butterfly"		""
@@ -798,10 +792,6 @@
 		"[specialist_fade]specialist_gloves"		""
 		"[handwrap_leathery_ducttape]leather_handwraps"		""
 		// concept gloves (need custom_paint_kits.txt)
-		"[slick_bamboo]slick_gloves"		""
-		"[motorcycle_green_circuitboard]motorcycle_gloves"		""
-		"[motorcycle_doppler_phase2]motorcycle_gloves"		""
-		"[operation_10_metalic_green]studded_brokenfang_gloves"		""
 	}
 }
 
@@ -927,9 +917,6 @@
 		"[slick_black]slick_gloves"		""
 		"[handwrap_leathery_fabric_giraffe]leather_handwraps"		""
 		// concept gloves (need custom_paint_kits.txt)
-		"[motorcycle_checker_flag_green]motorcycle_gloves"		""
-		"[handwrap_leathery_fabric_yellow_camo]leather_handwraps"		""
-		"[handwrap_leathery_fabric_red_beige]leather_handwraps"		""
 	}
 }
 
@@ -1051,9 +1038,6 @@
 		"[handwrap_leathery_fabric_giraffe]leather_handwraps"		""
 		"[slick_stitched_green_grey]slick_gloves"		""
 		// concept gloves (need custom_paint_kits.txt)
-		"[handwrap_leathery_fabric_nuclear]leather_handwraps"		""
-		"[handwrap_leathery_fabric_beige_camo]leather_handwraps"		""
-		"[handwrap_leathery_catskulls_bw]leather_handwraps"		""
 		// Callhood knives (need custom_paint_kits.txt and the textures)
 		"[csgogc_summer_gut_voley]weapon_knife_gut"		""
 		"[csgogc_watchmen_butterfly_comedian_s_smiley_2]weapon_knife_butterfly"		""
@@ -1179,9 +1163,6 @@
 		"[sporty_poison_frog_blue_white]sporty_gloves"		""
 		"[slick_stitched_black_white]slick_gloves"		""
 		// concept gloves (need custom_paint_kits.txt)
-		"[operation_10_jaguar_purple]studded_brokenfang_gloves"		""
-		"[operation10_jaguar_purple]studded_brokenfang_gloves"		""
-		"[operation10_poison_frog_red_green]studded_brokenfang_gloves"		""
 	}
 }
 
@@ -1307,7 +1288,6 @@
 		"[handwrap_fabric_orange_camo]leather_handwraps"		""
 		"[slick_jaguar_white]slick_gloves"		""
 		// concept gloves (need custom_paint_kits.txt)
-		"[dark_metal_leather]studded_bloodhound_gloves"		""
 		"[sporty_red]sporty_gloves"		""
 		"[sporty_pink]sporty_gloves"		""
 	}
@@ -1432,7 +1412,6 @@
 		"[motorcycle_checker_flag_blue_green]motorcycle_gloves"		""
 		// concept gloves (need custom_paint_kits.txt)
 		"[sporty_fade]sporty_gloves"		""
-		"[mayan_green]sporty_gloves"		""
 		"[specialist_green_red_black]specialist_gloves"		""
 		// Callhood knives (need custom_paint_kits.txt and the textures)
 		"[csgogc_watchmen_m9_mars_thinking]weapon_knife_m9_bayonet"		""
@@ -1559,9 +1538,6 @@
 		"[handwrap_leathery_fabric_blue_skulls]leather_handwraps"		""
 		"[motorcycle_trigrid_blue]motorcycle_gloves"		""
 		// concept gloves (need custom_paint_kits.txt)
-		"[slick_snakeskin_green]slick_gloves"		""
-		"[slick_snakeskin]slick_gloves"		""
-		"[slick_chainmail_knight]slick_gloves"		""
 	}
 }
 
@@ -1687,9 +1663,6 @@
 		"[sporty_blue_pink]sporty_gloves"		""
 		"[slick_red]slick_gloves"		""
 		// concept gloves (need custom_paint_kits.txt)
-		"[slick_chainmail_gold]slick_gloves"		""
-		"[slick_bamboo]slick_gloves"		""
-		"[motorcycle_green_circuitboard]motorcycle_gloves"		""
 	}
 }
 
@@ -1811,9 +1784,6 @@
 		"[sporty_purple]sporty_gloves"		""
 		"[motorcycle_basic_black]motorcycle_gloves"		""
 		// concept gloves (need custom_paint_kits.txt)
-		"[motorcycle_doppler_phase2]motorcycle_gloves"		""
-		"[motorcycle_checker_flag_green]motorcycle_gloves"		""
-		"[handwrap_leathery_fabric_yellow_camo]leather_handwraps"		""
 		// Callhood knives (need custom_paint_kits.txt and the textures)
 		"[csgogc_summer_huntsman_waves]weapon_knife_tactical"		""
 		"[csgogc_watchmen_bayonet_rorschach]weapon_bayonet"		""
@@ -1939,9 +1909,6 @@
 		"[slick_stitched_black_orange]slick_gloves"		""
 		"[motorcycle_yellow_camo]motorcycle_gloves"		""
 		// concept gloves (need custom_paint_kits.txt)
-		"[handwrap_leathery_fabric_red_beige]leather_handwraps"		""
-		"[handwrap_leathery_fabric_nuclear]leather_handwraps"		""
-		"[handwrap_leathery_fabric_beige_camo]leather_handwraps"		""
 	}
 }
 
@@ -2067,9 +2034,6 @@
 		"[bloodhound_snakeskin_brass]studded_bloodhound_gloves"		""
 		"[handwrap_red_slaughter]leather_handwraps"		""
 		// concept gloves (need custom_paint_kits.txt)
-		"[handwrap_leathery_catskulls_bw]leather_handwraps"		""
-		"[operation_10_jaguar_purple]studded_brokenfang_gloves"		""
-		"[operation10_jaguar_purple]studded_brokenfang_gloves"		""
 	}
 }
 
@@ -2191,8 +2155,6 @@
 		"[slick_jaguar_yellow]slick_gloves"		""
 		"[bloodhound_hydra_snakeskin_brass]studded_hydra_gloves"		""
 		// concept gloves (need custom_paint_kits.txt)
-		"[operation10_poison_frog_red_green]studded_brokenfang_gloves"		""
-		"[dark_metal_leather]studded_bloodhound_gloves"		""
 		"[sporty_red]sporty_gloves"		""
 		// Callhood knives (need custom_paint_kits.txt and the textures)
 		"[csgogc_watchmen_karambit_inkblot]weapon_knife_karambit"		""
@@ -4827,27 +4789,7 @@
 		"[sporty_red]sporty_gloves"		""
 		"[sporty_pink]sporty_gloves"		""
 		"[sporty_fade]sporty_gloves"		""
-		"[mayan_green]sporty_gloves"		""
 		"[specialist_green_red_black]specialist_gloves"		""
-		"[slick_snakeskin_green]slick_gloves"		""
-		"[slick_snakeskin]slick_gloves"		""
-		"[slick_chainmail_knight]slick_gloves"		""
-		"[slick_chainmail_gold]slick_gloves"		""
-		"[slick_bamboo]slick_gloves"		""
-		"[motorcycle_green_circuitboard]motorcycle_gloves"		""
-		"[motorcycle_doppler_phase2]motorcycle_gloves"		""
-		"[motorcycle_checker_flag_green]motorcycle_gloves"		""
-		"[handwrap_leathery_fabric_yellow_camo]leather_handwraps"		""
-		"[handwrap_leathery_fabric_red_beige]leather_handwraps"		""
-		"[handwrap_leathery_fabric_nuclear]leather_handwraps"		""
-		"[handwrap_leathery_fabric_beige_camo]leather_handwraps"		""
-		"[handwrap_leathery_catskulls_bw]leather_handwraps"		""
-		"[operation_10_jaguar_purple]studded_brokenfang_gloves"		""
-		"[operation10_jaguar_purple]studded_brokenfang_gloves"		""
-		"[operation10_poison_frog_red_green]studded_brokenfang_gloves"		""
-		"[dark_metal_leather]studded_bloodhound_gloves"		""
-		"[operation_10_snakeskin_black]studded_brokenfang_gloves"		""
-		"[operation_10_metalic_green]studded_brokenfang_gloves"		""
 	}
 }
 

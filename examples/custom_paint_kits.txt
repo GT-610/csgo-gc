@@ -1,6 +1,6 @@
 // Custom finishes. Copy this file to csgo_gc/custom_paint_kits.txt in your game folder.
 //
-// These are the unused ("concept") glove finishes from the gloves mod (the "unused gloves" folders). For each one:
+// These are the Sporty and Specialist glove finishes from the unused ("concept") gloves mod; the rest of that mod rendered black or chrome in game, so they were dropped. For each one:
 //   1. put its .vmt in   csgo/materials/models/weapons/customization/paints_gloves/
 //      (that is all: the .vmt only sets colours on textures the game already has, so there is nothing
 //      to convert; the mod's .png/.jpg pictures are previews and aren't used)
@@ -36,12 +36,6 @@
 	"vmt_path"	"materials/models/weapons/customization/paints_gloves/sporty_fade.vmt"
 }
 
-"mayan_green"
-{
-	"title"	"Mayan Green"
-	"rarity"	"ancient"
-	"vmt_path"	"materials/models/weapons/customization/paints_gloves/mayan_green.vmt"
-}
 
 "specialist_green_red_black"
 {
@@ -50,138 +44,24 @@
 	"vmt_path"	"materials/models/weapons/customization/paints_gloves/specialist_green_red_black.vmt"
 }
 
-"slick_snakeskin_green"
-{
-	"title"	"Snakeskin Green"
-	"rarity"	"ancient"
-	"vmt_path"	"materials/models/weapons/customization/paints_gloves/slick_snakeskin_green.vmt"
-}
 
-"slick_snakeskin"
-{
-	"title"	"Snakeskin"
-	"rarity"	"ancient"
-	"vmt_path"	"materials/models/weapons/customization/paints_gloves/slick_snakeskin.vmt"
-}
 
-"slick_chainmail_knight"
-{
-	"title"	"Chainmail Knight"
-	"rarity"	"ancient"
-	"vmt_path"	"materials/models/weapons/customization/paints_gloves/slick_chainmail_knight.vmt"
-}
 
-"slick_chainmail_gold"
-{
-	"title"	"Chainmail Gold"
-	"rarity"	"ancient"
-	"vmt_path"	"materials/models/weapons/customization/paints_gloves/slick_chainmail_gold.vmt"
-}
 
-"slick_bamboo"
-{
-	"title"	"Bamboo"
-	"rarity"	"ancient"
-	"vmt_path"	"materials/models/weapons/customization/paints_gloves/slick_bamboo.vmt"
-}
 
-"motorcycle_green_circuitboard"
-{
-	"title"	"Green Circuitboard"
-	"rarity"	"ancient"
-	"vmt_path"	"materials/models/weapons/customization/paints_gloves/motorcycle_green_circuitboard.vmt"
-}
 
-"motorcycle_doppler_phase2"
-{
-	"title"	"Doppler Phase 2"
-	"rarity"	"ancient"
-	"vmt_path"	"materials/models/weapons/customization/paints_gloves/motorcycle_doppler_phase2.vmt"
-}
 
-"motorcycle_checker_flag_green"
-{
-	"title"	"Checker Flag Green"
-	"rarity"	"ancient"
-	"vmt_path"	"materials/models/weapons/customization/paints_gloves/motorcycle_checker_flag_green.vmt"
-}
 
-"handwrap_leathery_fabric_yellow_camo"
-{
-	"title"	"Yellow Camo"
-	"rarity"	"ancient"
-	"vmt_path"	"materials/models/weapons/customization/paints_gloves/handwrap_leathery_fabric_yellow_camo.vmt"
-}
 
-"handwrap_leathery_fabric_red_beige"
-{
-	"title"	"Red Beige"
-	"rarity"	"ancient"
-	"vmt_path"	"materials/models/weapons/customization/paints_gloves/handwrap_leathery_fabric_red_beige.vmt"
-}
 
-"handwrap_leathery_fabric_nuclear"
-{
-	"title"	"Nuclear"
-	"rarity"	"ancient"
-	"vmt_path"	"materials/models/weapons/customization/paints_gloves/handwrap_leathery_fabric_nuclear.vmt"
-}
 
-"handwrap_leathery_fabric_beige_camo"
-{
-	"title"	"Beige Camo"
-	"rarity"	"ancient"
-	"vmt_path"	"materials/models/weapons/customization/paints_gloves/handwrap_leathery_fabric_beige_camo.vmt"
-}
 
-"handwrap_leathery_catskulls_bw"
-{
-	"title"	"Catskulls"
-	"rarity"	"ancient"
-	"vmt_path"	"materials/models/weapons/customization/paints_gloves/handwrap_leathery_catskulls_bw.vmt"
-}
 
-"operation_10_jaguar_purple"
-{
-	"title"	"Jaguar Purple"
-	"rarity"	"ancient"
-	"vmt_path"	"materials/models/weapons/customization/paints_gloves/operation_10_jaguar_purple.vmt"
-}
 
-"operation10_jaguar_purple"
-{
-	"title"	"Jaguar Purple II"
-	"rarity"	"ancient"
-	"vmt_path"	"materials/models/weapons/customization/paints_gloves/operation10_jaguar_purple.vmt"
-}
 
-"operation10_poison_frog_red_green"
-{
-	"title"	"Poison Frog Red Green"
-	"rarity"	"ancient"
-	"vmt_path"	"materials/models/weapons/customization/paints_gloves/operation10_poison_frog_red_green.vmt"
-}
 
-"dark_metal_leather"
-{
-	"title"	"Dark Metal Leather"
-	"rarity"	"ancient"
-	"vmt_path"	"materials/models/weapons/customization/paints_gloves/dark_metal_leather.vmt"
-}
 
-"operation_10_snakeskin_black"
-{
-	"title"	"Snakeskin Black II"
-	"rarity"	"ancient"
-	"vmt_path"	"materials/models/weapons/customization/paints_gloves/operation_10_snakeskin_black.vmt"
-}
 
-"operation_10_metalic_green"
-{
-	"title"	"Metalic Green II"
-	"rarity"	"ancient"
-	"vmt_path"	"materials/models/weapons/customization/paints_gloves/operation_10_metalic_green.vmt"
-}
 
 // ---------------------------------------------------------------------------------------------
 // Knife and AWP skins from Callhood's WATCHMEN and SUMMER SKINS packs. Each is a texture painted for
