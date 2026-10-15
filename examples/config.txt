@@ -153,6 +153,17 @@
 	"match_complete"	"5"
 }
 
+// EXPERIMENTAL: bots get skins. each bot gets a colour theme for the match (red, blue,
+// green, purple and pink, gold and orange, black and white) with a knife and weapons in
+// those colours, using popular skins (AK-47 Redline, AWP Dragon Lore, ...). a new match
+// means new loadouts. works in bot matches started from the game (listen server) and
+// needs the final CS:GO server.dll; gloves are not changed. if the game crashes when a
+// match starts, set this back to 0
+"bot_skins"
+{
+	"enabled"	"0"
+}
+
 // remove keys, cases, stickers, etc. after they've been used
 "destroy_used_items"	"1"
 

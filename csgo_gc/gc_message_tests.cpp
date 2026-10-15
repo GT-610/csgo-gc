@@ -8,6 +8,7 @@
 #include "networking_server.h"
 #include "panorama_hook.h"
 #include "star_shop.h"
+#include "bot_skins.h"
 #include "test_filesystem.h"
 
 #include <cmath>
@@ -4206,6 +4207,105 @@ static bool StarShopPatchReplacesOnlyTheNewestOperationsGoods()
         && std::count(patched.begin(), patched.end(), '{') == std::count(patched.begin(), patched.end(), '}');
 }
 
+// a small schema with a few weapons and paint kits, loaded from fixtures
+static bool WriteBotSkinFixtures()
+{
+    if (!TestFilesystem::MakeDirectory("csgo") || !TestFilesystem::MakeDirectory("csgo/scripts")
+        || !TestFilesystem::MakeDirectory("csgo/scripts/items") || !TestFilesystem::MakeDirectory("csgo_gc"))
+    {
+        return false;
+    }
+
+    KeyValue schema{ "root" };
+    KeyValue &itemsGame = schema.AddSubkey("items_game");
+    KeyValue &paintKits = itemsGame.AddSubkey("paint_kits");
+    KeyValue &defaultKit = paintKits.AddSubkey("0");
+    defaultKit.AddString("name", "default");
+    defaultKit.AddNumber("wear_remap_min", 0.0f);
+    defaultKit.AddNumber("wear_remap_max", 1.0f);
+    struct Kit { const char *name; int index; };
+    for (const Kit &kit : { Kit{ "cu_ak47_cobra", 282 }, Kit{ "cu_fireserpent_ak47_bravo", 180 },
+             Kit{ "am_ruby_marbleized", 415 }, Kit{ "hy_webs", 12 }, Kit{ "am_marble_fade", 413 },
+             Kit{ "aq_blued", 42 }, Kit{ "hy_ak47lam_blue", 226 } })
+    {
+        KeyValue &key = paintKits.AddSubkey(std::to_string(kit.index));
+        key.AddString("name", kit.name);
+        key.AddNumber("wear_remap_min", 0.0f);
+        key.AddNumber("wear_remap_max", 1.0f);
+    }
+    itemsGame.AddSubkey("items");
+
+    KeyValue inventory{ "inventory" };
+    inventory.AddNumber("format_version", 1);
+    inventory.AddSubkey("items");
+    KeyValue unusualLootLists{ "unusual_loot_lists" };
+    KeyValue gcLootLists{ "gc_loot_lists" };
+    return schema.WriteToFile("csgo/scripts/items/items_game.txt")
+        && inventory.WriteToFile("csgo_gc/inventory.txt")
+        && unusualLootLists.WriteToFile("csgo_gc/unusual_loot_lists.txt")
+        && gcLootLists.WriteToFile("csgo_gc/gc_loot_lists.txt");
+}
+
+static bool BotSkinsPickThemedStableSkins()
+{
+    RemoveSeasonalOperationFixtures();
+    if (!WriteBotSkinFixtures())
+    {
+        RemoveSeasonalOperationFixtures();
+        return false;
+    }
+
+    bool valid = true;
+    {
+        ClientGC gc{ 76561197960265729ull };
+        BotSkins::Build(gc.GetItemSchema());
+        valid &= BotSkins::IsBuilt();
+
+        // a bot's pick doesn't change during a match
+        BotSkins::Skin first{}, again{};
+        valid &= BotSkins::Pick("weapon_ak47", 1234, first) && BotSkins::Pick("weapon_ak47", 1234, again)
+            && first.paintKit == again.paintKit && first.seed == again.seed && first.wear == again.wear
+            && (first.paintKit == 282 || first.paintKit == 180 || first.paintKit == 226)
+            && first.seed < 1000 && first.wear >= 0.0f && first.wear <= 1.0f;
+
+        // no skin for things that can't have one
+        BotSkins::Skin none{};
+        valid &= !BotSkins::Pick("weapon_hegrenade", 1234, none) && !BotSkins::Pick("weapon_c4", 1234, none);
+
+        // only the plain starting knife is swapped, for one of the themed knives
+        valid &= BotSkins::KnifeFor("weapon_ak47", 1234) == nullptr
+            && BotSkins::KnifeFor("weapon_knife_karambit", 1234) == nullptr;
+        const char *knife = BotSkins::KnifeFor("weapon_knife", 1234);
+        valid &= knife && std::string_view{ knife }.rfind("weapon_", 0) == 0
+            && std::string_view{ knife } != "weapon_knife"
+            && BotSkins::KnifeFor("weapon_knife_t", 1234) == knife;
+        BotSkins::Skin knifeSkin{};
+        valid &= knife && BotSkins::Pick(knife, 1234, knifeSkin)
+            && (knifeSkin.paintKit == 415 || knifeSkin.paintKit == 12 || knifeSkin.paintKit == 413
+                || knifeSkin.paintKit == 42);
+
+        // a new match can give different bots different themes: across many bots
+        // more than one theme shows up
+        std::unordered_set<std::string> themes;
+        for (uint64_t bot = 1; bot <= 40; bot++)
+        {
+            themes.insert(BotSkins::ThemeName(bot * 7919));
+        }
+        valid &= themes.size() > 1;
+
+        BotSkins::NewMatch();
+        std::unordered_set<std::string> afterThemes;
+        for (uint64_t bot = 1; bot <= 40; bot++)
+        {
+            afterThemes.insert(BotSkins::ThemeName(bot * 7919));
+        }
+        valid &= !afterThemes.empty();
+    }
+
+    RemoveSeasonalOperationFixtures();
+    return valid;
+}
+
 static bool StarShopMovesTheOperationScheduleToNow()
 {
     const std::string text =
@@ -4407,6 +4507,7 @@ int main()
         { "StarShopPatchReplacesOnlyTheNewestOperationsGoods",
             StarShopPatchReplacesOnlyTheNewestOperationsGoods },
         { "StarShopMovesTheOperationScheduleToNow", StarShopMovesTheOperationScheduleToNow },
+        { "BotSkinsPickThemedStableSkins", BotSkinsPickThemedStableSkins },
         { "StarShopEarnsStarsAndRedeemsARandomAgent", StarShopEarnsStarsAndRedeemsARandomAgent },
         { "PityBoostsBetterRaritiesBeforeGold", PityBoostsBetterRaritiesBeforeGold },
         { "StorePurchasesFinalizeTransactionally", StorePurchasesFinalizeTransactionally },

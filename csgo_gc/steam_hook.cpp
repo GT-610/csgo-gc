@@ -19,6 +19,8 @@
 #include "rcon_server.h"
 #include "saved_item_shuffles.h"
 #include "tradeup_hook.h"
+#include "server_hook.h"
+#include "bot_skins.h"
 #include "panorama_hook.h"
 #include <funchook.h>
 #include <ctime>
@@ -292,6 +294,7 @@ public:
             // end-of-match scoreboard: roll a match drop
             Platform::Print("Listener saw cs_win_panel_match, requesting match drop\n");
             s_clientGC->m_gc.PostToGC(GCEvent::LocalPlayerMatchEnd, 0, nullptr, 0);
+            BotSkins::NewMatch(); // bots get new loadouts next match
             return;
         }
 
@@ -496,6 +499,15 @@ static void UpdateGameEventListeners()
     if (s_clientGC)
     {
         TryInstallTradeUpHook();
+
+        if (GetConfig().BotSkins().enabled)
+        {
+            if (!BotSkins::IsBuilt())
+            {
+                BotSkins::Build(s_clientGC->m_gc.GetItemSchema());
+            }
+            TryInstallServerHook();
+        }
 
         if (!s_clientRoundMVPListenerRegistered)
         {

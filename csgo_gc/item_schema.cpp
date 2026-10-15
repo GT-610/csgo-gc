@@ -1906,6 +1906,12 @@ PaintKitInfo *ItemSchema::PaintKitInfoByName(std::string_view name)
     return &it->second;
 }
 
+const PaintKitInfo *ItemSchema::FindPaintKitByName(std::string_view name) const
+{
+    auto it = m_paintKitInfo.find(std::string{ name });
+    return it == m_paintKitInfo.end() ? nullptr : &it->second;
+}
+
 const PaintKitInfo *ItemSchema::PaintKitInfoByDefIndex(uint32_t defIndex) const
 {
     for (const auto &pair : m_paintKitInfo)

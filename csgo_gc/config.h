@@ -70,6 +70,13 @@ struct StarShopConfig
     uint32_t perMatch{ 5 }; // finishing a match
 };
 
+// random popular skins for bots, set on their weapons by a hook in server.dll
+// (listen servers, i.e. bot matches started from the game; experimental)
+struct BotSkinsConfig
+{
+    bool enabled{ false };
+};
+
 // for Platform::Print calls
 enum LogOutput
 {
@@ -131,6 +138,7 @@ public:
     const CasePityConfig &CasePity() const { return m_casePity; }
     const MatchDropConfig &MatchDrops() const { return m_matchDrops; }
     const StarShopConfig &StarShop() const { return m_starShop; }
+    const BotSkinsConfig &BotSkins() const { return m_botSkins; }
     bool ItemDeleteMenu() const { return m_itemDeleteMenu; }
 
 private:
@@ -194,6 +202,7 @@ private:
     CasePityConfig m_casePity;
     MatchDropConfig m_matchDrops;
     StarShopConfig m_starShop;
+    BotSkinsConfig m_botSkins;
 };
 
 const GCConfig &GetConfig();
