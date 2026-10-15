@@ -3,6 +3,7 @@
 #include "config.h"
 #include "item_schema.h"
 #include "platform.h"
+#include "star_shop.h"
 
 #include <regex>
 
@@ -34,41 +35,12 @@ int PanoramaHook::PatchItemContextEntries(std::string &source)
 
 std::string PanoramaHook::BuildCaseStoreData(const ItemSchema &itemSchema)
 {
-    using Kind = ItemSchema::ContainerKind;
-    const GCConfig &config = GetConfig();
-    auto kindEnabled = [&](Kind kind)
-    {
-        switch (kind)
-        {
-        case Kind::WeaponCase: return config.StoreWeaponCases();
-        case Kind::SouvenirPackage: return config.StoreSouvenirPackages();
-        case Kind::Capsule: return config.StoreCapsules();
-        default: return config.StoreOtherContainers();
-        }
-    };
-
-    std::vector<uint32_t> crates = itemSchema.GetContainerDefIndexes();
-    std::stable_sort(crates.begin(), crates.end(), [&](uint32_t a, uint32_t b)
-    {
-        Kind kindA = itemSchema.GetContainerKind(a);
-        Kind kindB = itemSchema.GetContainerKind(b);
-        if (kindA != kindB)
-        {
-            return kindA < kindB;
-        }
-        return a > b; // newest first
-    });
+    const StarShopConfig &starShop = GetConfig().StarShop();
 
     std::string data = "[";
     bool first = true;
-    for (uint32_t crate : crates)
+    for (uint32_t crate : StarShop::ShopContainers(itemSchema, starShop))
     {
-        Kind kind = itemSchema.GetContainerKind(crate);
-        if (!kindEnabled(kind))
-        {
-            continue;
-        }
-
         std::vector<uint32_t> keys = itemSchema.GetKeysForCrate(crate);
         uint32_t key = keys.empty() ? 0 : keys.front();
 
@@ -83,7 +55,9 @@ std::string PanoramaHook::BuildCaseStoreData(const ItemSchema &itemSchema)
         data += ',';
         data += std::to_string(key);
         data += ',';
-        data += std::to_string(static_cast<int>(kind));
+        data += std::to_string(static_cast<int>(itemSchema.GetContainerKind(crate)));
+        data += ',';
+        data += std::to_string(itemSchema.LatestSeasonalOperation() ? StarShop::Price(itemSchema, starShop, crate) : 0);
         data += ']';
     }
     data += ']';
@@ -195,7 +169,8 @@ var CsgoGcCaseStore = ( function()
 		imageButton.SetPanelEvent( 'onactivate', function() { _ShowContents( id ); } );
 
 		_Label( tile, name, { fontSize: '17px', color: '#ffffff', margin: '6px 10px 0px 10px', height: '46px' } );
-		_Label( tile, ( KIND_NAMES[ kind ] || '' ) + ( keyId ? ' • key included' : '' ),
+		var price = entry[ 3 ] ? ( ' • ' + entry[ 3 ] + ' stars' ) : '';
+		_Label( tile, ( KIND_NAMES[ kind ] || '' ) + ( keyId ? ' • key included' : '' ) + price,
 			{ fontSize: '13px', color: '#9aa4b1', margin: '0px 10px 0px 10px' } );
 
 		var buttons = _Panel( tile, { flowChildren: 'right', horizontalAlign: 'center', marginTop: '10px' } );
@@ -399,7 +374,6 @@ void *s_mainMenuPanel;
 std::string s_caseStoreData;
 bool s_caseStoreDataSent;
 bool s_loggedContextPatch;
-std::atomic<int64_t> s_stars{ -1 };
 
 struct Section
 {
@@ -604,11 +578,6 @@ void PanoramaHook::TryInstall()
     Platform::Print("Panorama: UI hook installed\n");
 }
 
-void PanoramaHook::SetStars(int64_t stars)
-{
-    s_stars = stars; // not shown in the UI yet
-}
-
 void PanoramaHook::SetCaseStoreData(std::string data)
 {
     s_caseStoreData = std::move(data);
@@ -636,10 +605,6 @@ void PanoramaHook::Tick()
 #else
 
 void PanoramaHook::TryInstall()
-{
-}
-
-void PanoramaHook::SetStars(int64_t)
 {
 }
 

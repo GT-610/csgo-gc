@@ -33,6 +33,7 @@ struct MatchDropConfig
     bool enabled{ true };
     float dropChance{ 1.0f }; // chance of a drop when a match ends
     float caseChance{ 0.35f }; // chance that a drop is a case rather than a skin
+    uint32_t dropsPerMatch{ 1 }; // separate drops rolled when a match ends
     // skin drop rarity weights (old CS:GO drops were almost always Consumer/Industrial)
     std::vector<RarityWeight> skinRarityWeights{
         { ItemSchema::RarityCommon, 45 },
@@ -53,6 +54,11 @@ struct StarShopConfig
     uint32_t capsulePrice{ 5 };
     uint32_t souvenirPrice{ 25 };
     uint32_t agentPrice{ 50 }; // a random agent
+    // how many of each the star store sells, newest first (0 = all of them).
+    // the rest can only be found through match drops
+    uint32_t maxCases{ 12 };
+    uint32_t maxCapsules{ 10 };
+    uint32_t maxSouvenirPackages{ 0 };
     uint32_t perKill{ 1 };
     uint32_t perHeadshot{ 1 }; // on top of the kill
     uint32_t perMvp{ 3 };

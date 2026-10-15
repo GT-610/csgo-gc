@@ -472,7 +472,6 @@ void Inventory::ReadFromFile()
     if (playerState)
     {
         m_goldlessCases = playerState->GetNumber<uint32_t>("cases_since_gold", 0);
-        m_stars = playerState->GetNumber<uint32_t>("stars", 0);
     }
 
     const KeyValue *itemsKey = inventoryKey.GetSubkey("items");
@@ -734,7 +733,6 @@ bool Inventory::WriteToFile() const
         playerState.AddNumber("level", m_playerLevel);
         playerState.AddNumber("xp", m_playerXp);
         playerState.AddNumber("cases_since_gold", m_goldlessCases);
-        playerState.AddNumber("stars", m_stars);
     }
 
     {
@@ -2995,27 +2993,73 @@ uint64_t Inventory::PurchaseItem(uint32_t defIndex, std::vector<CMsgSOSingleObje
     return item.id();
 }
 
-void Inventory::AddStars(uint32_t amount)
+uint32_t Inventory::Stars(uint32_t season) const
 {
-    if (!amount)
-    {
-        return;
-    }
-
-    m_stars = (std::numeric_limits<uint32_t>::max() - m_stars < amount)
-        ? std::numeric_limits<uint32_t>::max()
-        : m_stars + amount;
-    WriteToFile();
+    const CSOAccountSeasonalOperation *operation = GetSeasonalOperation(season);
+    return operation ? operation->redeemable_balance() : 0;
 }
 
-bool Inventory::SpendStars(uint32_t amount)
+bool Inventory::EnsureOperation(uint32_t season, StarChange &change)
 {
-    if (amount > m_stars)
+    if (m_seasonalOperations.contains(season))
+    {
+        return true;
+    }
+
+    const std::optional<uint32_t> coinDefIndex = m_itemSchema.OperationCoinDefIndex(season);
+    if (!coinDefIndex)
+    {
+        Platform::Print("Stars: season %u has no operation coin in the schema\n", season);
+        return false;
+    }
+
+    if (!HasItemDefinition(*coinDefIndex))
+    {
+        CSOEconItem &coin = CreateItem(*coinDefIndex, ItemOriginPurchased, UnacknowledgedPurchased);
+        ToSingleObject(change.coin, coin);
+        change.coinCreated = true;
+    }
+
+    CSOAccountSeasonalOperation operation;
+    operation.set_season_value(season);
+    operation.set_tier_unlocked(0);
+    operation.set_premium_tiers(0);
+    operation.set_mission_id(0);
+    operation.set_missions_completed(0);
+    operation.set_redeemable_balance(0);
+    operation.set_season_pass_time(static_cast<uint32_t>(time(nullptr)));
+    m_seasonalOperations.emplace(season, operation);
+    change.operationCreated = true;
+    return true;
+}
+
+bool Inventory::AddStars(uint32_t season, uint32_t amount, StarChange &change)
+{
+    if (!amount || !EnsureOperation(season, change))
     {
         return false;
     }
 
-    m_stars -= amount;
+    CSOAccountSeasonalOperation &operation = m_seasonalOperations[season];
+    const uint32_t balance = operation.redeemable_balance();
+    operation.set_redeemable_balance(std::numeric_limits<uint32_t>::max() - balance < amount
+        ? std::numeric_limits<uint32_t>::max()
+        : balance + amount);
+    ToSingleObject(change.operation, SOTypeAccountSeasonalOperation, operation);
+    WriteToFile();
+    return true;
+}
+
+bool Inventory::SpendStars(uint32_t season, uint32_t amount, CMsgSOSingleObject &operationUpdate)
+{
+    auto operation = m_seasonalOperations.find(season);
+    if (operation == m_seasonalOperations.end() || operation->second.redeemable_balance() < amount)
+    {
+        return false;
+    }
+
+    operation->second.set_redeemable_balance(operation->second.redeemable_balance() - amount);
+    ToSingleObject(operationUpdate, SOTypeAccountSeasonalOperation, operation->second);
     WriteToFile();
     return true;
 }

@@ -1,6 +1,5 @@
 #pragma once
 
-#include <cstdint>
 #include <string>
 
 class ItemSchema;
@@ -26,10 +25,6 @@ namespace PanoramaHook
     // as soon as both the data and the main menu exist
     void SetCaseStoreData(std::string data);
     bool HasCaseStoreData();
-
-    // the player's star balance for the Case Store (-1 = star shop off).
-    // may be called from any thread
-    void SetStars(int64_t stars);
 
     // sends pending data to the UI. call from the game's main thread
     void Tick();

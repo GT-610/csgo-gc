@@ -131,6 +131,7 @@ GCConfig::GCConfig()
         m_matchDrops.enabled = matchDrops->GetNumber("enabled", m_matchDrops.enabled);
         m_matchDrops.dropChance = std::clamp(matchDrops->GetNumber("drop_chance", m_matchDrops.dropChance), 0.0f, 1.0f);
         m_matchDrops.caseChance = std::clamp(matchDrops->GetNumber("case_chance", m_matchDrops.caseChance), 0.0f, 1.0f);
+        m_matchDrops.dropsPerMatch = std::clamp<uint32_t>(matchDrops->GetNumber("drops_per_match", m_matchDrops.dropsPerMatch), 1, 20);
 
         const KeyValue *skinWeights = matchDrops->GetSubkey("skin_rarity_weights");
         if (skinWeights)
@@ -156,6 +157,9 @@ GCConfig::GCConfig()
         m_starShop.capsulePrice = starShop->GetNumber("capsule_price", m_starShop.capsulePrice);
         m_starShop.souvenirPrice = starShop->GetNumber("souvenir_price", m_starShop.souvenirPrice);
         m_starShop.agentPrice = starShop->GetNumber("agent_price", m_starShop.agentPrice);
+        m_starShop.maxCases = starShop->GetNumber("max_cases", m_starShop.maxCases);
+        m_starShop.maxCapsules = starShop->GetNumber("max_capsules", m_starShop.maxCapsules);
+        m_starShop.maxSouvenirPackages = starShop->GetNumber("max_souvenir_packages", m_starShop.maxSouvenirPackages);
         m_starShop.perKill = starShop->GetNumber("kill", m_starShop.perKill);
         m_starShop.perHeadshot = starShop->GetNumber("headshot", m_starShop.perHeadshot);
         m_starShop.perMvp = starShop->GetNumber("mvp", m_starShop.perMvp);

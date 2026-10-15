@@ -255,7 +255,8 @@ if (BUILD_TESTING)
         config.cpp
         item_schema.cpp
         game_schema_patch.cpp
-        keyvalue.cpp)
+        keyvalue.cpp
+        star_shop.cpp)
 
     target_precompile_headers(item_schema_tests PRIVATE stdafx.h)
     target_link_libraries(item_schema_tests PRIVATE csgo_gc_protobufs)
@@ -275,7 +276,8 @@ if (BUILD_TESTING)
         game_schema_patch.cpp
         keyvalue.cpp
         souvenir.cpp
-        souvenir_tests.cpp)
+        souvenir_tests.cpp
+        star_shop.cpp)
 
     target_precompile_headers(souvenir_tests PRIVATE stdafx.h)
     target_link_libraries(souvenir_tests PRIVATE csgo_gc_protobufs)

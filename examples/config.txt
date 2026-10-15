@@ -58,6 +58,7 @@
 	"enabled"		"1"
 	"drop_chance"	"1.0"	// chance of getting a drop at all
 	"case_chance"	"0.35"	// chance the drop is a case instead of a skin
+	"drops_per_match"	"1"	// separate drops rolled when a match ends (1-20)
 
 	// skin drop rarity weights (relative, like rarity_weights above)
 	"skin_rarity_weights"
@@ -113,6 +114,37 @@
 // (the original is kept as items_game.txt.csgo_gc_backup and is put back when
 // this is turned off). restart the game after changing custom_cases.txt.
 "custom_case_previews"	"0"
+
+// star shop. stars are earned by playing and shown on the operation page (the newest
+// operation in items_game.txt, Riptide) as its star balance, which is where they are
+// spent. csgo_gc replaces that page's goods with cases, souvenir packages, capsules and
+// one random agent, and creates the operation and its coin on your first star.
+// restart the game after changing prices or limits (it edits items_game.txt).
+// the Case Store menu sells the same goods and takes stars from the same balance
+"star_shop"
+{
+	"enabled"			"1"
+
+	// prices in stars. a case comes with its key
+	"case_price"		"10"
+	"capsule_price"		"5"
+	"souvenir_price"	"25"
+	"agent_price"		"50"	// a random agent, any of them
+
+	// how many of each the shop sells, newest first (0 = all of them). the rest
+	// can only be found through match drops
+	"max_cases"					"12"
+	"max_capsules"				"10"
+	"max_souvenir_packages"		"0"
+
+	// stars earned
+	"kill"				"1"
+	"headshot"			"1"	// on top of the kill
+	"mvp"				"3"
+	"plant"				"2"
+	"defuse"			"3"
+	"match_complete"	"5"
+}
 
 // remove keys, cases, stickers, etc. after they've been used
 "destroy_used_items"	"1"

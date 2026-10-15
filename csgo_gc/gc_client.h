@@ -93,7 +93,11 @@ private:
     void LocalPlayerMatchEnd();
     // award stars for something the local player did
     void LocalPlayerStars(StarShop::Reason reason);
-    void PublishStars();
+    // the operation whose redeemable balance is the star count, if the star shop is on
+    std::optional<uint32_t> StarSeason() const;
+    uint32_t StarBalance() const;
+    void PublishStarChange(const Inventory::StarChange &change);
+    void ClientRedeemMissionReward(GCMessageRead &messageRead);
     void SendStarsMessage(const std::string &text);
     void ApplySticker(GCMessageRead &messageRead);
     void RequestPrestigeCoin(GCMessageRead &messageRead);
