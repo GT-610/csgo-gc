@@ -331,6 +331,8 @@ ClientGC::ClientGC(uint64_t steamId)
     // also called from ServerGC's constructor
     Graffiti::Initialize();
 
+    m_career.Load();
+
     // The inventory exists before the worker thread starts, so seed the
     // round_mvp event cache here and keep later refreshes on the worker thread.
     // This only mirrors the inventory; whether the value is published is decided
@@ -553,6 +555,9 @@ const ClientGC::RconCommandDef *ClientGC::RconCommands(size_t &count)
         { "remove_item", "remove_item <itemid>", &ClientGC::RconRemoveItem },
         { "sell_item", "sell_item <itemid>", &ClientGC::RconSellItem },
         { "give_stars", "give_stars <amount>", &ClientGC::RconGiveStars },
+        { "career", "career", &ClientGC::RconCareer },
+        { "goals", "goals [all]", &ClientGC::RconGoals },
+        { "achievements", "achievements", &ClientGC::RconAchievements },
         { "refresh_inventory", "refresh_inventory", &ClientGC::RconRefreshInventory },
         { "save_inventory", "save_inventory", &ClientGC::RconSaveInventory },
     };
@@ -1035,6 +1040,90 @@ std::string ClientGC::RconGiveStars(const RconRequest &request)
     PublishStarChange(change);
     Platform::Print("Stars: +%u from RCON, balance %u\n", amount, m_inventory.Stars(*season));
     return "OK balance " + std::to_string(m_inventory.Stars(*season));
+}
+
+std::string ClientGC::RconCareer(const RconRequest &request)
+{
+    if (!request.args.empty())
+    {
+        return Usage("career");
+    }
+    return m_career.StatsText();
+}
+
+std::string ClientGC::RconGoals(const RconRequest &request)
+{
+    if (request.args.size() > 1 || (request.args.size() == 1 && request.args[0] != "all"))
+    {
+        return Usage("goals [all]");
+    }
+
+    const ItemSchema &schema = m_inventory.GetItemSchema();
+    std::vector<std::pair<uint32_t, Career::CaseInfo>> cases;
+    for (uint32_t crate : schema.GetContainerDefIndexes())
+    {
+        Career::CaseInfo info;
+        if (StarShop::IsContainer(schema, crate) && Career::BuildCaseInfo(schema, crate, info))
+        {
+            cases.emplace_back(crate, std::move(info));
+        }
+    }
+
+    return m_career.GoalsText(cases, !request.args.empty());
+}
+
+std::string ClientGC::RconAchievements(const RconRequest &request)
+{
+    if (!request.args.empty())
+    {
+        return Usage("achievements");
+    }
+    return m_career.AchievementsText();
+}
+
+void ClientGC::RecordCaseOpened(uint32_t crateDefIndex, const CMsgSOSingleObject &newItem)
+{
+    if (!GetConfig().CareerTracking())
+    {
+        return;
+    }
+
+    CSOEconItem item;
+    if (!newItem.has_object_data() || !item.ParseFromString(newItem.object_data()))
+    {
+        return;
+    }
+
+    const ItemSchema &schema = m_inventory.GetItemSchema();
+    Career::CaseInfo info;
+    Career::Pull pull;
+    if (!Career::BuildCaseInfo(schema, crateDefIndex, info) || !Career::BuildPull(schema, item, pull))
+    {
+        return;
+    }
+
+    GrantCareerRewards(m_career.RecordCaseOpened(crateDefIndex, info, pull));
+}
+
+void ClientGC::GrantCareerRewards(const std::vector<Career::Unlock> &unlocks)
+{
+    const std::optional<uint32_t> season = StarSeason();
+    for (const Career::Unlock &unlock : unlocks)
+    {
+        std::string text = unlock.text;
+        if (unlock.stars && season)
+        {
+            Inventory::StarChange change;
+            if (m_inventory.AddStars(*season, unlock.stars, change))
+            {
+                PublishStarChange(change);
+                text += " (+" + std::to_string(unlock.stars) + " stars)";
+            }
+        }
+
+        Platform::Print("Career: %s\n", text.c_str());
+        SendStarsMessage(text);
+    }
 }
 
 std::string ClientGC::RconSellItem(const RconRequest &request)
@@ -2484,6 +2573,11 @@ void ClientGC::LocalPlayerStars(StarShop::Reason reason)
     Platform::Print("Stars: +%u (reason %u), balance %u\n", amount,
         static_cast<uint32_t>(reason), m_inventory.Stars(*season));
     PublishStarChange(change);
+
+    if (GetConfig().CareerTracking())
+    {
+        GrantCareerRewards(m_career.RecordStarsEarned(amount));
+    }
 }
 
 void ClientGC::SendStarsMessage(const std::string &text)
@@ -3046,6 +3140,7 @@ void ClientGC::UnlockCrate(GCMessageRead &messageRead)
     CMsgGCItemCustomizationNotification notification;
 
     const CSOEconItem *crate = m_inventory.GetItem(crateId);
+    const uint32_t crateDefIndex = crate ? crate->def_index() : 0;
     if (keyId == 0
         && crate
         && crate->def_index() == ItemSchema::ItemStatTrakSwapToolBundle
@@ -3112,6 +3207,8 @@ void ClientGC::UnlockCrate(GCMessageRead &messageRead)
         SendMessageToGame(true, k_ESOMsg_Create, newItem);
 
         SendMessageToGame(false, k_EMsgGCItemCustomizationNotification, notification);
+
+        RecordCaseOpened(crateDefIndex, newItem);
     }
     else
     {
@@ -3307,6 +3404,11 @@ void ClientGC::Craft(GCMessageRead &messageRead)
             SendMessageToGame(true, k_EMsgGCCStrike15_v2_GC2ClientTextMsg, textMsg);
         }
         
+        if (craftedItem && GetConfig().CareerTracking())
+        {
+            GrantCareerRewards(m_career.RecordTradeUp(craftedItem->quality() == ItemSchema::QualityUnusual));
+        }
+
         Platform::Print("Trade-up completed successfully!\n");
     }
     else

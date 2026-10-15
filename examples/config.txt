@@ -103,6 +103,11 @@
 // custom_case_previews are both 0). restart the game after the first launch.
 "gold_tradeup_recipes"	"1"
 
+// keeps a career log in csgo_gc/career.txt: cases opened, covert and gold pulls, trade-ups,
+// which skins of each case you have found (finding every one pays a collection reward) and
+// achievements that pay stars. RCON: career, goals [all], achievements. needs the star shop.
+"career_tracking"	"1"
+
 // lets StatTrak, normal and Souvenir skins of the same rarity go into one
 // contract. the chance of a StatTrak result is the share of StatTrak inputs
 // (all StatTrak = always StatTrak, 3 of 10 = 30%). like gold_tradeup_recipes

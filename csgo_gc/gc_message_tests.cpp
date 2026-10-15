@@ -3950,6 +3950,82 @@ static bool StoreListsAddedCustomCases()
 
 // finishes from a mod: the schema knows them, a custom case can use them, and the
 // game file gets entries for them
+static bool CareerTracksGoalsAchievementsAndPersists()
+{
+    constexpr const char *Path = "csgo_gc/career_test.txt";
+    TestFilesystem::RemoveFile(Path);
+
+    Career::CaseInfo info;
+    info.name = "Test Case";
+    info.custom = true;
+    info.goldItems = 1;
+    info.skins = { { 7, 100 }, { 9, 101 } };
+
+    const auto pull = [](uint32_t def, uint32_t kit, uint32_t rarity, bool gold, bool statTrak)
+    {
+        Career::Pull p;
+        p.skin = { def, kit };
+        p.rarity = rarity;
+        p.gold = gold;
+        p.statTrak = statTrak;
+        return p;
+    };
+
+    bool valid = true;
+    {
+        Career career{ Path };
+        career.Load();
+
+        // first opening: a skin of the case and the "first case" achievement, no goal yet
+        auto first = career.RecordCaseOpened(5001, info, pull(7, 100, ItemSchema::RarityMythical, false, false));
+        valid &= first.size() == 1 && first[0].stars == 100;
+
+        // the same skin again finds nothing new
+        valid &= career.RecordCaseOpened(5001, info, pull(7, 100, ItemSchema::RarityMythical, false, false)).empty();
+
+        // the second skin completes the collection goal
+        auto done = career.RecordCaseOpened(5001, info, pull(9, 101, ItemSchema::RarityAncient, false, true));
+        bool goal = false, covert = false, statTrak = false;
+        for (const Career::Unlock &unlock : done)
+        {
+            goal |= unlock.stars == Career::GoalReward;
+            covert |= unlock.title == "Red Alert";
+            statTrak |= unlock.title == "Counting Kills";
+        }
+        valid &= goal && covert && statTrak;
+
+        // a gold counts for achievements but not for the goal, and the goal pays once
+        auto gold = career.RecordCaseOpened(5001, info, pull(500, 0, ItemSchema::RarityUnusual, true, false));
+        valid &= gold.size() == 1 && gold[0].title == "Golden Moment";
+
+        valid &= career.RecordTradeUp(true).size() == 2; // first trade-up and the gold one
+        valid &= career.RecordTradeUp(false).empty();
+        valid &= career.RecordStarsEarned(10000).size() == 1; // Star Saver
+
+        valid &= career.Stat("cases_opened") == 4 && career.Stat("custom_cases_opened") == 4
+            && career.Stat("goals_done") == 1 && career.Stat("gold_pulls") == 1 && career.Stat("tradeups") == 2;
+    }
+
+    // everything comes back from the file, and nothing unlocks twice
+    {
+        Career career{ Path };
+        career.Load();
+        valid &= career.Stat("cases_opened") == 4 && career.Stat("stars_earned") == 10000;
+        valid &= career.RecordCaseOpened(5001, info, pull(9, 101, ItemSchema::RarityMythical, false, false)).empty();
+
+        const std::string goals = career.GoalsText({ { 5001, info } }, false);
+        valid &= goals.find("Test Case: 2/2 skins, gold found") != std::string::npos
+            && goals.find("[COMPLETE]") != std::string::npos;
+        valid &= career.GoalsText({ { 6002, info } }, false).find("no cases opened") != std::string::npos;
+        valid &= career.GoalsText({ { 6002, info } }, true).find("Test Case: 0/2 skins, gold not found")
+            != std::string::npos;
+        valid &= career.AchievementsText().find("[x] First Crack") != std::string::npos;
+    }
+
+    TestFilesystem::RemoveFile(Path);
+    return valid;
+}
+
 static bool LanguageTokensGoLastInTheTokensBlock()
 {
     std::string language =
@@ -4902,6 +4978,7 @@ int main()
         { "RconGiveStarsAddsToTheBalance", RconGiveStarsAddsToTheBalance },
         { "CustomPaintKitsReachTheSchemaAndGameFile", CustomPaintKitsReachTheSchemaAndGameFile },
         { "LanguageTokensGoLastInTheTokensBlock", LanguageTokensGoLastInTheTokensBlock },
+        { "CareerTracksGoalsAchievementsAndPersists", CareerTracksGoalsAchievementsAndPersists },
         { "StoreListsAddedCustomCases", StoreListsAddedCustomCases },
         { "AddedCaseSkinsTradeUp", AddedCaseSkinsTradeUp },
         { "CustomCasePreviewPatchesOnlyTargetLists", CustomCasePreviewPatchesOnlyTargetLists },
@@ -4945,6 +5022,7 @@ int main()
     bool allPassed = true;
     for (const TestCase &test : tests)
     {
+        TestFilesystem::RemoveFile("csgo_gc/career.txt");
         const bool passed = test.run();
         std::printf("%s: %s\n", test.name, passed ? "PASS" : "FAIL");
         allPassed &= passed;

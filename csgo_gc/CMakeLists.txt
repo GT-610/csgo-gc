@@ -44,6 +44,7 @@ add_library(csgo_gc SHARED
     saved_item_shuffles.cpp
     souvenir.cpp
     star_shop.cpp
+    career.cpp
     steam_hook.cpp
     tradeup_hook.cpp
     server_hook.cpp
@@ -150,7 +151,8 @@ if (BUILD_TESTING)
         bot_skins.cpp
         viewmodel_range.cpp
         souvenir.cpp
-        star_shop.cpp)
+        star_shop.cpp
+        career.cpp)
 
     target_precompile_headers(gc_message_tests PRIVATE stdafx.h)
     target_link_libraries(gc_message_tests PRIVATE
@@ -188,7 +190,8 @@ if (BUILD_TESTING)
         networking_client.cpp
         overwatch_tests.cpp
         souvenir.cpp
-        star_shop.cpp)
+        star_shop.cpp
+        career.cpp)
 
     target_precompile_headers(overwatch_tests PRIVATE stdafx.h)
     target_link_libraries(overwatch_tests PRIVATE
@@ -231,7 +234,8 @@ if (BUILD_TESTING)
         graffiti.cpp
         networking_client.cpp
         souvenir.cpp
-        star_shop.cpp)
+        star_shop.cpp
+        career.cpp)
 
     target_precompile_headers(gc_message_non_prime_tests PRIVATE stdafx.h)
     target_link_libraries(gc_message_non_prime_tests PRIVATE
@@ -262,7 +266,8 @@ if (BUILD_TESTING)
         game_schema_patch.cpp
         keyvalue.cpp
         item_utils.cpp
-        star_shop.cpp)
+        star_shop.cpp
+        career.cpp)
 
     target_precompile_headers(item_schema_tests PRIVATE stdafx.h)
     target_link_libraries(item_schema_tests PRIVATE csgo_gc_protobufs)
@@ -284,7 +289,8 @@ if (BUILD_TESTING)
         souvenir.cpp
         souvenir_tests.cpp
         item_utils.cpp
-        star_shop.cpp)
+        star_shop.cpp
+        career.cpp)
 
     target_precompile_headers(souvenir_tests PRIVATE stdafx.h)
     target_link_libraries(souvenir_tests PRIVATE csgo_gc_protobufs)

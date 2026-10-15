@@ -60,6 +60,7 @@ GCConfig::GCConfig()
     }
     m_customCasePreviews = config.GetNumber("custom_case_previews", m_customCasePreviews);
     m_goldTradeUpRecipes = config.GetNumber("gold_tradeup_recipes", m_goldTradeUpRecipes);
+    m_careerTracking = config.GetNumber("career_tracking", m_careerTracking);
     m_caseStoreMenu = config.GetNumber("case_store_menu", m_caseStoreMenu);
     m_panoramaDebug = config.GetNumber("panorama_debug", m_panoramaDebug);
     m_viewmodelRange = std::clamp(config.GetNumber("viewmodel_range", m_viewmodelRange), 1.0f, 100.0f);
