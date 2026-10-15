@@ -416,6 +416,10 @@
 		"[slick_red]slick_gloves"		""
 		"[specialist_orange_white]specialist_gloves"		""
 		"[slick_jaguar_yellow]slick_gloves"		""
+		// concept gloves (need custom_paint_kits.txt)
+		"[sporty_red]sporty_gloves"		""
+		"[sporty_pink]sporty_gloves"		""
+		"[sporty_fade]sporty_gloves"		""
 	}
 }
 
@@ -536,6 +540,10 @@
 		"[motorcycle_carbonfiber_red]motorcycle_gloves"		""
 		"[sporty_jaguar]sporty_gloves"		""
 		"[handwrap_leathery_ducttape]leather_handwraps"		""
+		// concept gloves (need custom_paint_kits.txt)
+		"[mayan_green]sporty_gloves"		""
+		"[specialist_green_red_black]specialist_gloves"		""
+		"[slick_snakeskin_green]slick_gloves"		""
 	}
 }
 
@@ -656,6 +664,10 @@
 		"[bloodhound_guerrilla]studded_bloodhound_gloves"		""
 		"[slick_stitched_black_white]slick_gloves"		""
 		"[bloodhound_hydra_black_green]studded_hydra_gloves"		""
+		// concept gloves (need custom_paint_kits.txt)
+		"[slick_snakeskin]slick_gloves"		""
+		"[slick_chainmail_knight]slick_gloves"		""
+		"[slick_chainmail_gold]slick_gloves"		""
 	}
 }
 
@@ -776,6 +788,10 @@
 		"[operation10_poison_frog_black_yellow]studded_brokenfang_gloves"		""
 		"[specialist_fade]specialist_gloves"		""
 		"[handwrap_leathery_ducttape]leather_handwraps"		""
+		// concept gloves (need custom_paint_kits.txt)
+		"[slick_bamboo]slick_gloves"		""
+		"[motorcycle_green_circuitboard]motorcycle_gloves"		""
+		"[motorcycle_doppler_phase2]motorcycle_gloves"		""
 	}
 }
 
@@ -896,6 +912,10 @@
 		"[sporty_hunter]sporty_gloves"		""
 		"[slick_black]slick_gloves"		""
 		"[handwrap_leathery_fabric_giraffe]leather_handwraps"		""
+		// concept gloves (need custom_paint_kits.txt)
+		"[motorcycle_checker_flag_green]motorcycle_gloves"		""
+		"[handwrap_leathery_fabric_yellow_camo]leather_handwraps"		""
+		"[handwrap_leathery_fabric_red_beige]leather_handwraps"		""
 	}
 }
 
@@ -1016,6 +1036,10 @@
 		"[specialist_fbi]specialist_gloves"		""
 		"[handwrap_leathery_fabric_giraffe]leather_handwraps"		""
 		"[slick_stitched_green_grey]slick_gloves"		""
+		// concept gloves (need custom_paint_kits.txt)
+		"[handwrap_leathery_fabric_nuclear]leather_handwraps"		""
+		"[handwrap_leathery_fabric_beige_camo]leather_handwraps"		""
+		"[handwrap_leathery_catskulls_bw]leather_handwraps"		""
 	}
 }
 
@@ -1136,6 +1160,10 @@
 		"[handwrap_red_slaughter]leather_handwraps"		""
 		"[sporty_poison_frog_blue_white]sporty_gloves"		""
 		"[slick_stitched_black_white]slick_gloves"		""
+		// concept gloves (need custom_paint_kits.txt)
+		"[operation_10_jaguar_purple]studded_brokenfang_gloves"		""
+		"[operation10_jaguar_purple]studded_brokenfang_gloves"		""
+		"[operation10_poison_frog_red_green]studded_brokenfang_gloves"		""
 	}
 }
 
@@ -1256,6 +1284,10 @@
 		"[handwrap_leathery_fabric_blue_skulls]leather_handwraps"		""
 		"[handwrap_fabric_orange_camo]leather_handwraps"		""
 		"[slick_jaguar_white]slick_gloves"		""
+		// concept gloves (need custom_paint_kits.txt)
+		"[dark_metal_leather]studded_bloodhound_gloves"		""
+		"[sporty_red]sporty_gloves"		""
+		"[sporty_pink]sporty_gloves"		""
 	}
 }
 
@@ -1376,6 +1408,10 @@
 		"[sporty_poison_frog_red_green]sporty_gloves"		""
 		"[slick_snakeskin_white]slick_gloves"		""
 		"[motorcycle_checker_flag_blue_green]motorcycle_gloves"		""
+		// concept gloves (need custom_paint_kits.txt)
+		"[sporty_fade]sporty_gloves"		""
+		"[mayan_green]sporty_gloves"		""
+		"[specialist_green_red_black]specialist_gloves"		""
 	}
 }
 
@@ -1496,6 +1532,10 @@
 		"[motorcycle_smoke]motorcycle_gloves"		""
 		"[handwrap_leathery_fabric_blue_skulls]leather_handwraps"		""
 		"[motorcycle_trigrid_blue]motorcycle_gloves"		""
+		// concept gloves (need custom_paint_kits.txt)
+		"[slick_snakeskin_green]slick_gloves"		""
+		"[slick_snakeskin]slick_gloves"		""
+		"[slick_chainmail_knight]slick_gloves"		""
 	}
 }
 
@@ -1616,6 +1656,10 @@
 		"[bloodhound_snakeskin_brass]studded_bloodhound_gloves"		""
 		"[sporty_blue_pink]sporty_gloves"		""
 		"[slick_red]slick_gloves"		""
+		// concept gloves (need custom_paint_kits.txt)
+		"[slick_chainmail_gold]slick_gloves"		""
+		"[slick_bamboo]slick_gloves"		""
+		"[motorcycle_green_circuitboard]motorcycle_gloves"		""
 	}
 }
 
@@ -1736,6 +1780,10 @@
 		"[bloodhound_hydra_black_green]studded_hydra_gloves"		""
 		"[sporty_purple]sporty_gloves"		""
 		"[motorcycle_basic_black]motorcycle_gloves"		""
+		// concept gloves (need custom_paint_kits.txt)
+		"[motorcycle_doppler_phase2]motorcycle_gloves"		""
+		"[motorcycle_checker_flag_green]motorcycle_gloves"		""
+		"[handwrap_leathery_fabric_yellow_camo]leather_handwraps"		""
 	}
 }
 
@@ -1856,6 +1904,10 @@
 		"[sporty_slingshot]sporty_gloves"		""
 		"[slick_stitched_black_orange]slick_gloves"		""
 		"[motorcycle_yellow_camo]motorcycle_gloves"		""
+		// concept gloves (need custom_paint_kits.txt)
+		"[handwrap_leathery_fabric_red_beige]leather_handwraps"		""
+		"[handwrap_leathery_fabric_nuclear]leather_handwraps"		""
+		"[handwrap_leathery_fabric_beige_camo]leather_handwraps"		""
 	}
 }
 
@@ -1976,6 +2028,10 @@
 		"[motorcycle_choco_boom]motorcycle_gloves"		""
 		"[bloodhound_snakeskin_brass]studded_bloodhound_gloves"		""
 		"[handwrap_red_slaughter]leather_handwraps"		""
+		// concept gloves (need custom_paint_kits.txt)
+		"[handwrap_leathery_catskulls_bw]leather_handwraps"		""
+		"[operation_10_jaguar_purple]studded_brokenfang_gloves"		""
+		"[operation10_jaguar_purple]studded_brokenfang_gloves"		""
 	}
 }
 
@@ -2096,6 +2152,10 @@
 		"[motorcycle_smoke]motorcycle_gloves"		""
 		"[slick_jaguar_yellow]slick_gloves"		""
 		"[bloodhound_hydra_snakeskin_brass]studded_hydra_gloves"		""
+		// concept gloves (need custom_paint_kits.txt)
+		"[operation10_poison_frog_red_green]studded_brokenfang_gloves"		""
+		"[dark_metal_leather]studded_bloodhound_gloves"		""
+		"[sporty_red]sporty_gloves"		""
 	}
 }
 // "Black Market Case": gold only, 500 stars. Every knife in every finish: the official ones,
@@ -4559,5 +4619,113 @@
 		"[an_titanium30v]weapon_knife_stiletto"		""
 		"[an_titanium30v]weapon_knife_ursus"		""
 		"[an_titanium30v]weapon_knife_gypsy_jackknife"		""
+	}
+}
+
+// "Gauntlet Case": gold only, 500 stars. Every glove in every official finish, plus the unused
+// concept gloves from custom_paint_kits.txt (skipped when that file isn't installed). Looks like
+// Community Case 3 (def 4017) and uses its key.
+"gauntlet"
+{
+	"based_on"	"4017"
+	"name"	"Gauntlet Case"
+	"price"	"500"
+
+	"golds"
+	{
+		"[bloodhound_metallic]studded_bloodhound_gloves"		""
+		"[bloodhound_black_silver]studded_bloodhound_gloves"		""
+		"[bloodhound_snakeskin_brass]studded_bloodhound_gloves"		""
+		"[bloodhound_guerrilla]studded_bloodhound_gloves"		""
+		"[slick_red]slick_gloves"		""
+		"[slick_black]slick_gloves"		""
+		"[slick_military]slick_gloves"		""
+		"[slick_snakeskin_yellow]slick_gloves"		""
+		"[handwrap_red_slaughter]leather_handwraps"		""
+		"[handwrap_leathery]leather_handwraps"		""
+		"[handwrap_fabric_orange_camo]leather_handwraps"		""
+		"[handwrap_camo_grey]leather_handwraps"		""
+		"[motorcycle_mint_triangle]motorcycle_gloves"		""
+		"[motorcycle_triangle_blue]motorcycle_gloves"		""
+		"[motorcycle_mono_boom]motorcycle_gloves"		""
+		"[motorcycle_basic_black]motorcycle_gloves"		""
+		"[specialist_kimono_diamonds_red]specialist_gloves"		""
+		"[specialist_emerald_web]specialist_gloves"		""
+		"[specialist_orange_white]specialist_gloves"		""
+		"[specialist_ddpat_green_camo]specialist_gloves"		""
+		"[sporty_military]sporty_gloves"		""
+		"[sporty_green]sporty_gloves"		""
+		"[sporty_light_blue]sporty_gloves"		""
+		"[sporty_purple]sporty_gloves"		""
+		"[slick_snakeskin_white]slick_gloves"		""
+		"[slick_plaid_purple]slick_gloves"		""
+		"[slick_stitched_black_orange]slick_gloves"		""
+		"[slick_stitched_green_grey]slick_gloves"		""
+		"[handwrap_leathery_fabric_geometric_blue]leather_handwraps"		""
+		"[handwrap_leathery_fabric_blue_skulls]leather_handwraps"		""
+		"[handwrap_leathery_fabric_green_camo]leather_handwraps"		""
+		"[handwrap_leathery_ducttape]leather_handwraps"		""
+		"[bloodhound_hydra_case_hardened]studded_hydra_gloves"		""
+		"[bloodhound_hydra_black_green]studded_hydra_gloves"		""
+		"[bloodhound_hydra_snakeskin_brass]studded_hydra_gloves"		""
+		"[bloodhound_hydra_green_leather_mesh_brass]studded_hydra_gloves"		""
+		"[motorcycle_trigrid_blue]motorcycle_gloves"		""
+		"[motorcycle_basic_green_orange]motorcycle_gloves"		""
+		"[motorcycle_choco_boom]motorcycle_gloves"		""
+		"[motorcycle_yellow_camo]motorcycle_gloves"		""
+		"[specialist_fade]specialist_gloves"		""
+		"[specialist_winterhex]specialist_gloves"		""
+		"[specialist_webs_red]specialist_gloves"		""
+		"[specialist_forest_brown]specialist_gloves"		""
+		"[sporty_blue_pink]sporty_gloves"		""
+		"[sporty_poison_frog_blue_white]sporty_gloves"		""
+		"[sporty_black_webbing_yellow]sporty_gloves"		""
+		"[sporty_poison_frog_red_green]sporty_gloves"		""
+		"[operation10_metalic_green]studded_brokenfang_gloves"		""
+		"[operation10_poison_frog_black_yellow]studded_brokenfang_gloves"		""
+		"[operation10_snakeskin_black]studded_brokenfang_gloves"		""
+		"[operation10_floral]studded_brokenfang_gloves"		""
+		"[slick_jaguar_white]slick_gloves"		""
+		"[slick_rezan]slick_gloves"		""
+		"[slick_stitched_black_white]slick_gloves"		""
+		"[slick_jaguar_yellow]slick_gloves"		""
+		"[handwrap_leathery_fabric_giraffe]leather_handwraps"		""
+		"[handwrap_leathery_snakeskin_orange]leather_handwraps"		""
+		"[handwrap_fabric_houndstooth_orange]leather_handwraps"		""
+		"[handwrap_leathery_caution]leather_handwraps"		""
+		"[motorcycle_carbonfiber_red]motorcycle_gloves"		""
+		"[motorcycle_smoke]motorcycle_gloves"		""
+		"[motorcycle_checker_flag_blue_green]motorcycle_gloves"		""
+		"[motorcycle_commando_ksk]motorcycle_gloves"		""
+		"[specialist_tiger_orange]specialist_gloves"		""
+		"[specialist_marble_fade]specialist_gloves"		""
+		"[specialist_fbi]specialist_gloves"		""
+		"[specialist_ricksaw_camo]specialist_gloves"		""
+		"[sporty_slingshot]sporty_gloves"		""
+		"[sporty_hunter]sporty_gloves"		""
+		"[sporty_jaguar]sporty_gloves"		""
+		"[sporty_houndstooth_red]sporty_gloves"		""
+		"[sporty_red]sporty_gloves"		""
+		"[sporty_pink]sporty_gloves"		""
+		"[sporty_fade]sporty_gloves"		""
+		"[mayan_green]sporty_gloves"		""
+		"[specialist_green_red_black]specialist_gloves"		""
+		"[slick_snakeskin_green]slick_gloves"		""
+		"[slick_snakeskin]slick_gloves"		""
+		"[slick_chainmail_knight]slick_gloves"		""
+		"[slick_chainmail_gold]slick_gloves"		""
+		"[slick_bamboo]slick_gloves"		""
+		"[motorcycle_green_circuitboard]motorcycle_gloves"		""
+		"[motorcycle_doppler_phase2]motorcycle_gloves"		""
+		"[motorcycle_checker_flag_green]motorcycle_gloves"		""
+		"[handwrap_leathery_fabric_yellow_camo]leather_handwraps"		""
+		"[handwrap_leathery_fabric_red_beige]leather_handwraps"		""
+		"[handwrap_leathery_fabric_nuclear]leather_handwraps"		""
+		"[handwrap_leathery_fabric_beige_camo]leather_handwraps"		""
+		"[handwrap_leathery_catskulls_bw]leather_handwraps"		""
+		"[operation_10_jaguar_purple]studded_brokenfang_gloves"		""
+		"[operation10_jaguar_purple]studded_brokenfang_gloves"		""
+		"[operation10_poison_frog_red_green]studded_brokenfang_gloves"		""
+		"[dark_metal_leather]studded_bloodhound_gloves"		""
 	}
 }

@@ -3948,6 +3948,78 @@ static bool StoreListsAddedCustomCases()
     return valid;
 }
 
+// finishes from a mod: the schema knows them, a custom case can use them, and the
+// game file gets entries for them
+static bool CustomPaintKitsReachTheSchemaAndGameFile()
+{
+    RemoveGoldTradeUpFixtures();
+    KeyValue kits{ "custom_paint_kits" };
+    KeyValue &kit = kits.AddSubkey("mod_glove");
+    kit.AddString("id", "11777");
+    kit.AddString("title", "Mod Glove");
+    kit.AddString("vmt_path", "materials/models/weapons/customization/paints_gloves/mod_glove.vmt");
+    kit.AddSubkey("vmt_overrides").AddString("$phongalbedoboost", "10");
+    KeyValue &plain = kits.AddSubkey("mod_plain");
+    plain.AddString("rarity", "legendary");
+    plain.AddString("style", "5");
+
+    KeyValue customCases{ "custom_cases" };
+    KeyValue &customCase = customCases.AddSubkey("test_case");
+    customCase.AddString("based_on", "4001");
+    customCase.AddSubkey("items").AddString("[mod_plain]weapon_ak47", "mythical");
+    if (!WriteGoldTradeUpFixtures() || !kits.WriteToFile("csgo_gc/custom_paint_kits.txt")
+        || !customCases.WriteToFile("csgo_gc/custom_cases.txt"))
+    {
+        RemoveGoldTradeUpFixtures();
+        TestFilesystem::RemoveFile("csgo_gc/custom_paint_kits.txt");
+        return false;
+    }
+
+    bool valid = true;
+    {
+        ClientGC gc{ 76561197960265729ull };
+        const ItemSchema &schema = gc.GetItemSchema();
+        const PaintKitInfo *glove = schema.FindPaintKitByName("mod_glove");
+        const PaintKitInfo *flat = schema.FindPaintKitByName("mod_plain");
+        valid &= glove && glove->m_defIndex == 11777 && glove->m_rarity == ItemSchema::RarityAncient;
+        valid &= flat && flat->m_rarity == ItemSchema::RarityLegendary && flat->m_defIndex != 11777;
+        valid &= schema.CustomPaintKits().size() == 2;
+        valid &= schema.GetCustomCaseDefIndexes().size() == 1; // the case using a mod finish loaded
+
+        const std::string &text = schema.CustomPaintKits().front().kitText;
+        valid &= text.find("\"11777\"") != std::string::npos
+            && text.find("\"name\"\t\t\"mod_glove\"") != std::string::npos
+            && text.find("\"description_tag\"\t\t\"Mod Glove\"") != std::string::npos
+            && text.find("\"vmt_path\"") != std::string::npos
+            && text.find("\"$phongalbedoboost\"\t\t\"10\"") != std::string::npos
+            && text.find("\"id\"") == std::string::npos;
+
+        GameSchemaPatch::PaintKitsPatch patch;
+        for (const ItemSchema::CustomPaintKit &custom : schema.CustomPaintKits())
+        {
+            patch.kitsText += custom.kitText;
+            patch.raritiesText += custom.rarityText;
+        }
+
+        std::string game =
+            "\"items_game\"\n{\n\t\"paint_kits\"\n\t{\n\t\t\"1\" { \"name\" \"a\" }\n\t}\n"
+            "\t\"paint_kits_rarity\"\n\t{\n\t\t\"a\"\t\t\"rare\"\n\t}\n}\n";
+        valid &= GameSchemaPatch::AddPaintKits(game, patch);
+        const size_t kitAt = game.find("\"11777\"");
+        const size_t rarityAt = game.find("\"mod_glove\"\t\t\"ancient\"");
+        const size_t raritiesBlock = game.find("\"paint_kits_rarity\"");
+        valid &= kitAt != std::string::npos && kitAt < raritiesBlock
+            && rarityAt != std::string::npos && rarityAt > raritiesBlock;
+
+        std::string noSections = "\"items_game\"\n{\n}\n";
+        valid &= !GameSchemaPatch::AddPaintKits(noSections, patch);
+    }
+
+    RemoveGoldTradeUpFixtures();
+    TestFilesystem::RemoveFile("csgo_gc/custom_paint_kits.txt");
+    return valid;
+}
+
 static bool CustomCaseReplacesContents()
 {
     constexpr uint64_t SteamId = 76561197960265729ull;
@@ -4721,6 +4793,7 @@ int main()
         { "MatchEndGivesOneDrop", MatchEndGivesOneDrop },
         { "StoreListsEveryWeaponCaseAndKey", StoreListsEveryWeaponCaseAndKey },
         { "CustomCaseReplacesContents", CustomCaseReplacesContents },
+        { "CustomPaintKitsReachTheSchemaAndGameFile", CustomPaintKitsReachTheSchemaAndGameFile },
         { "StoreListsAddedCustomCases", StoreListsAddedCustomCases },
         { "AddedCaseSkinsTradeUp", AddedCaseSkinsTradeUp },
         { "CustomCasePreviewPatchesOnlyTargetLists", CustomCasePreviewPatchesOnlyTargetLists },

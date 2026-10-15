@@ -74,10 +74,22 @@ namespace GameSchemaPatch
     // how many were added; one whose base case isn't in the file is skipped
     size_t AddCases(std::string &schemaText, const std::vector<AddedCasePatch> &cases);
 
+    // finishes from custom_paint_kits.txt, as items_game.txt text
+    struct PaintKitsPatch
+    {
+        std::string kitsText;     // paint_kits entries
+        std::string raritiesText; // paint_kits_rarity lines
+    };
+
+    // adds the entries last in the first items_game/paint_kits and
+    // items_game/paint_kits_rarity blocks. returns false when a section is missing
+    bool AddPaintKits(std::string &schemaText, const PaintKitsPatch &paintKits);
+
     // writes the patched schema (backing up the original first). returns true
     // when the game file changed and a restart is needed to see it
     bool Apply(const LootListPreviews &previews, const std::string &recipesText, bool mixQualities = false,
-        const StarShopPatch *starShop = nullptr, const std::vector<AddedCasePatch> *addedCases = nullptr);
+        const StarShopPatch *starShop = nullptr, const std::vector<AddedCasePatch> *addedCases = nullptr,
+        const PaintKitsPatch *paintKits = nullptr);
 
     // puts the original file back if it was patched. returns true when restored
     bool Restore();

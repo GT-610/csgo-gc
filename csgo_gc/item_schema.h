@@ -272,6 +272,17 @@ public:
         std::vector<std::string> previewEntries; // "[paint_kit]weapon" of its regular skins
     };
     const std::vector<AddedCase> &AddedCases() const { return m_addedCases; }
+
+    // finishes from custom_paint_kits.txt: new entries for items_game.txt's
+    // paint_kits and paint_kits_rarity, written by the game file patch
+    struct CustomPaintKit
+    {
+        uint32_t defIndex{};
+        std::string name;
+        std::string kitText;    // the paint_kits block
+        std::string rarityText; // the paint_kits_rarity line
+    };
+    const std::vector<CustomPaintKit> &CustomPaintKits() const { return m_customPaintKits; }
     bool IsAddedCase(uint32_t crateDefIndex) const;
 
     // crates whose contents custom_cases.txt replaces (or adds), sorted
@@ -425,6 +436,7 @@ private:
     void ParseStickerKits(const KeyValue *stickerKitsKey);
     void ParsePaintKits(const KeyValue *paintKitsKey);
     void ParsePaintKitRarities(const KeyValue *raritiesKey);
+    void ParseCustomPaintKits(const KeyValue &customKitsKey);
     void ParseMusicDefinitions(const KeyValue *musicDefinitionsKey);
     void ParseItemSets(const KeyValue *itemSetsKey);
     void ParseLootLists(const KeyValue *lootListsKey, bool unusual);
@@ -469,6 +481,7 @@ private:
     std::unordered_map<uint32_t, uint32_t> m_customCasePrices;
     std::map<uint32_t, std::vector<std::string>> m_customCasePreviewEntries;
     std::vector<AddedCase> m_addedCases;
+    std::vector<CustomPaintKit> m_customPaintKits;
 
     friend class ItemSchemaTestFixture;
     friend class SouvenirTestFixture;

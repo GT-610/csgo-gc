@@ -189,6 +189,15 @@ ItemSchema::ItemSchema(bool loadFiles)
         ParsePaintKitRarities(paintKitsRarityKey);
     }
 
+    // optional: finishes from mods, usable in custom_cases.txt like any other
+    {
+        KeyValue customKits{ "custom_paint_kits" };
+        if (customKits.ParseFromFile("csgo_gc/custom_paint_kits.txt"))
+        {
+            ParseCustomPaintKits(customKits);
+        }
+    }
+
     const KeyValue *itemSetsKey = itemsGame->GetSubkey("item_sets");
     if (itemSetsKey)
     {
@@ -309,10 +318,18 @@ ItemSchema::ItemSchema(bool loadFiles)
             addedCases.push_back({ added.defIndex, added.basedOn, added.series, added.name, added.previewEntries });
         }
 
-        if (!previews.empty() || !recipes.empty() || mixStatTrak || patchStarShop || !addedCases.empty())
+        GameSchemaPatch::PaintKitsPatch paintKits;
+        for (const CustomPaintKit &kit : m_customPaintKits)
+        {
+            paintKits.kitsText += kit.kitText;
+            paintKits.raritiesText += kit.rarityText;
+        }
+
+        if (!previews.empty() || !recipes.empty() || mixStatTrak || patchStarShop || !addedCases.empty()
+            || !paintKits.kitsText.empty())
         {
             GameSchemaPatch::Apply(previews, recipes, mixStatTrak, patchStarShop ? &starShop : nullptr,
-                addedCases.empty() ? nullptr : &addedCases);
+                addedCases.empty() ? nullptr : &addedCases, paintKits.kitsText.empty() ? nullptr : &paintKits);
         }
         else
         {
@@ -1529,6 +1546,133 @@ void ItemSchema::ParsePaintKits(const KeyValue *paintKitsKey)
         m_paintKitInfo.emplace(std::piecewise_construct,
             std::forward_as_tuple(name),
             std::forward_as_tuple(paintKitKey, defaultMinFloat, defaultMaxFloat));
+    }
+}
+
+// writes a KeyValue's children as items_game.txt text
+static void WriteKitChildren(std::string &out, const KeyValue &key, int indent)
+{
+    const std::string tabs(indent, '\t');
+    for (const KeyValue &child : key)
+    {
+        if (child.SubkeyCount())
+        {
+            out += tabs + "\"" + std::string{ child.Name() } + "\"\n" + tabs + "{\n";
+            WriteKitChildren(out, child, indent + 1);
+            out += tabs + "}\n";
+        }
+        else
+        {
+            out += tabs + "\"" + std::string{ child.Name() } + "\"\t\t\"" + std::string{ child.String() } + "\"\n";
+        }
+    }
+}
+
+// custom_paint_kits.txt format: one block per finish, named after the finish
+//   "<name>"
+//   {
+//       "id"     "11001"    optional, picked from the name when missing
+//       "title"  "Jaguar Purple"   optional display name
+//       "rarity" "ancient"  optional, ancient when missing
+//       anything else is copied into items_game.txt's paint_kits entry, e.g.
+//       "vmt_path" "materials/models/weapons/customization/paints_gloves/x.vmt"
+//       or "style", "pattern", "color0" ... for a finish painted on weapons
+//   }
+void ItemSchema::ParseCustomPaintKits(const KeyValue &customKitsKey)
+{
+    for (const KeyValue &kitKey : customKitsKey)
+    {
+        const std::string name{ kitKey.Name() };
+        if (name.empty() || name.find('"') != std::string::npos || m_paintKitInfo.contains(name))
+        {
+            Platform::Print("custom_paint_kits: skipping %s (empty, has a quote, or the game already has it)\n",
+                name.c_str());
+            continue;
+        }
+
+        uint32_t defIndex = kitKey.GetNumber<uint32_t>("id", 0);
+        if (!defIndex)
+        {
+            uint32_t hash = 2166136261u;
+            for (char c : name)
+            {
+                hash = (hash ^ static_cast<uint8_t>(c)) * 16777619u;
+            }
+            defIndex = 11000 + hash % 900;
+        }
+
+        const auto taken = [&](uint32_t index)
+        {
+            for (const auto &pair : m_paintKitInfo)
+            {
+                if (pair.second.m_defIndex == index)
+                {
+                    return true;
+                }
+            }
+            return false;
+        };
+        const bool explicitId = kitKey.GetSubkey("id") != nullptr;
+        if (explicitId && taken(defIndex))
+        {
+            Platform::Print("custom_paint_kits: %s wants id %u, which the game already uses\n", name.c_str(), defIndex);
+            continue;
+        }
+        while (taken(defIndex))
+        {
+            defIndex++;
+        }
+
+        std::string title{ kitKey.GetString("title") };
+        if (title.empty())
+        {
+            title = name;
+            for (char &c : title)
+            {
+                if (c == '_')
+                {
+                    c = ' ';
+                }
+            }
+        }
+        if (title.find('"') != std::string::npos)
+        {
+            title.clear();
+            title = name;
+        }
+
+        const std::string rarityName{ kitKey.GetString("rarity", "ancient") };
+
+        // the entry the schema and the game file share
+        KeyValue entry{ std::to_string(defIndex) };
+        entry.AddString("name", name);
+        entry.AddString("description_string", title);
+        entry.AddString("description_tag", title);
+        for (const KeyValue &child : kitKey)
+        {
+            const std::string_view childName = child.Name();
+            if (childName == "id" || childName == "title" || childName == "rarity" || childName == "name"
+                || childName == "description_string" || childName == "description_tag")
+            {
+                continue;
+            }
+            entry.AddSubkey(childName) = child;
+        }
+
+        auto emplaced = m_paintKitInfo.emplace(std::piecewise_construct, std::forward_as_tuple(name),
+            std::forward_as_tuple(entry, 0.0f, 1.0f));
+        emplaced.first->second.m_rarity = ItemRarityFromString(rarityName);
+
+        CustomPaintKit custom;
+        custom.defIndex = defIndex;
+        custom.name = name;
+        custom.kitText = "\t\t\"" + std::to_string(defIndex) + "\"\n\t\t{\n";
+        WriteKitChildren(custom.kitText, entry, 3);
+        custom.kitText += "\t\t}\n";
+        custom.rarityText = "\t\t\"" + name + "\"\t\t\"" + rarityName + "\"\n";
+        m_customPaintKits.push_back(std::move(custom));
+
+        Platform::Print("custom_paint_kits: %s is finish %u (%s)\n", name.c_str(), defIndex, rarityName.c_str());
     }
 }
 

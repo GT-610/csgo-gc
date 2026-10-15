@@ -440,6 +440,30 @@ size_t GameSchemaPatch::AddCases(std::string &text, const std::vector<AddedCaseP
     return added;
 }
 
+bool GameSchemaPatch::AddPaintKits(std::string &text, const PaintKitsPatch &paintKits)
+{
+    struct Piece
+    {
+        const char *section;
+        const std::string *text;
+    };
+
+    // the rarities first: they come after the kits in the file, so the kits' offsets stay valid
+    for (const Piece &piece : { Piece{ "paint_kits_rarity", &paintKits.raritiesText },
+             Piece{ "paint_kits", &paintKits.kitsText } })
+    {
+        BlockRange section;
+        if (!FindBlock(text, { "items_game", piece.section }, section))
+        {
+            Platform::Print("custom_paint_kits: no %s section in items_game.txt, finishes not added\n", piece.section);
+            return false;
+        }
+        text.insert(InsertionPoint(text, section.close), *piece.text);
+    }
+
+    return true;
+}
+
 int GameSchemaPatch::ActivateOperation(std::string &text, int64_t now)
 {
     // the schedule is start + length + slack, twelve weeks in the real file
@@ -830,7 +854,7 @@ static std::string AbsolutePath(const char *path)
 }
 
 bool GameSchemaPatch::Apply(const LootListPreviews &previews, const std::string &recipesText, bool mixQualities,
-    const StarShopPatch *starShop, const std::vector<AddedCasePatch> *addedCases)
+    const StarShopPatch *starShop, const std::vector<AddedCasePatch> *addedCases, const PaintKitsPatch *paintKits)
 {
     const std::string schemaPath = AbsolutePath(SchemaPath);
     Platform::Print("items_game.txt patch: file %s, backup %s\n", schemaPath.c_str(),
@@ -886,6 +910,14 @@ bool GameSchemaPatch::Apply(const LootListPreviews &previews, const std::string 
     {
         const size_t count = AddCases(patched, *addedCases);
         Platform::Print("items_game.txt patch: added %zu of %zu custom case(s) as new items\n", count, addedCases->size());
+    }
+
+    if (paintKits && !paintKits->kitsText.empty())
+    {
+        if (AddPaintKits(patched, *paintKits))
+        {
+            Platform::Print("items_game.txt patch: added custom finishes from custom_paint_kits.txt\n");
+        }
     }
 
     if (starShop && starShop->activateOperation)
