@@ -103,6 +103,11 @@
 		"[am_copper_flecks]weapon_knife_falchion"		""
 		"[am_crystallized_blue]weapon_bayonet"			""
 		"[aa_fade_metallic_revolver]weapon_knife_flip"	""
+
+		// gloves
+		"[specialist_winterhex]specialist_gloves"		""
+		"[sporty_light_blue]sporty_gloves"		""
+		"[bloodhound_metallic]studded_bloodhound_gloves"		""
 	}
 }
 
@@ -151,6 +156,12 @@
 		"[am_scales_bravo]weapon_knife_gut"		""
 		"[an_tiger_orange]weapon_knife_butterfly"		""
 		"[an_tiger_orange]weapon_knife_tactical"		""
+
+		// gloves
+		"[specialist_orange_white]specialist_gloves"		""
+		"[slick_snakeskin_yellow]slick_gloves"		""
+		"[motorcycle_yellow_camo]motorcycle_gloves"		""
+		"[handwrap_leathery_snakeskin_orange]leather_handwraps"		""
 	}
 }
 
@@ -197,6 +208,12 @@
 		"[am_m4a1s_bluesmoke]weapon_knife_flip"		""
 		"[am_crystallized_blue]weapon_bayonet"		""
 		"[am_crystallized_blue]weapon_knife_falchion"		""
+
+		// gloves
+		"[specialist_winterhex]specialist_gloves"		""
+		"[sporty_light_blue]sporty_gloves"		""
+		"[motorcycle_triangle_blue]motorcycle_gloves"		""
+		"[motorcycle_trigrid_blue]motorcycle_gloves"		""
 	}
 }
 
@@ -243,6 +260,13 @@
 		"[am_ossify_red]weapon_knife_gut"		""
 		"[am_crystallized]weapon_knife_karambit"		""
 		"[am_crystallized]weapon_knife_falchion"		""
+
+		// gloves
+		"[specialist_webs_red]specialist_gloves"		""
+		"[specialist_kimono_diamonds_red]specialist_gloves"		""
+		"[slick_red]slick_gloves"		""
+		"[handwrap_red_slaughter]leather_handwraps"		""
+		"[motorcycle_carbonfiber_red]motorcycle_gloves"		""
 	}
 }
 
@@ -289,6 +313,12 @@
 		"[am_crystallized_dark_green]weapon_knife_karambit"		""
 		"[am_crystallized_dark_green]weapon_knife_falchion"		""
 		"[am_crystallized_dark_green]weapon_knife_gut"		""
+
+		// gloves
+		"[specialist_emerald_web]specialist_gloves"		""
+		"[specialist_ddpat_green_camo]specialist_gloves"		""
+		"[sporty_green]sporty_gloves"		""
+		"[slick_stitched_green_grey]slick_gloves"		""
 	}
 }
 
@@ -458,6 +488,11 @@
 		"[an_tiger_orange]weapon_knife_widowmaker"		""
 		"[aa_fade]weapon_knife_widowmaker"		""
 		"[hy_webs]weapon_knife_widowmaker"		""
+
+		// gloves
+		"[specialist_fade]specialist_gloves"		""
+		"[specialist_marble_fade]specialist_gloves"		""
+		"[bloodhound_hydra_case_hardened]studded_hydra_gloves"		""
 	}
 }
 
@@ -513,6 +548,12 @@
 		"[am_blackpearl_marbleized]weapon_knife_canis"		""
 		"[gs_karam_autotronic]weapon_knife_karambit"		""
 		"[gs_butterfly_autotronic]weapon_knife_butterfly"		""
+
+		// gloves
+		"[sporty_blue_pink]sporty_gloves"		""
+		"[motorcycle_trigrid_blue]motorcycle_gloves"		""
+		"[specialist_winterhex]specialist_gloves"		""
+		"[slick_plaid_purple]slick_gloves"		""
 	}
 }
 
@@ -572,6 +613,12 @@
 		"[aa_fade]weapon_knife_css"		""
 		"[cu_karam_lore]weapon_knife_karambit"		""
 		"[cu_flip_lore]weapon_knife_flip"		""
+
+		// gloves
+		"[specialist_tiger_orange]specialist_gloves"		""
+		"[handwrap_fabric_orange_camo]leather_handwraps"		""
+		"[motorcycle_basic_green_orange]motorcycle_gloves"		""
+		"[sporty_slingshot]sporty_gloves"		""
 	}
 }
 
@@ -629,6 +676,12 @@
 		"[aq_blued]weapon_knife_css"		""
 		"[cu_gut_stonewash]weapon_knife_gut"		""
 		"[cu_flip_stonewash]weapon_knife_flip"		""
+
+		// gloves
+		"[specialist_winterhex]specialist_gloves"		""
+		"[sporty_light_blue]sporty_gloves"		""
+		"[motorcycle_smoke]motorcycle_gloves"		""
+		"[slick_snakeskin_white]slick_gloves"		""
 	}
 }
 
@@ -689,6 +742,12 @@
 		"[gs_butterfly_black_laminate]weapon_knife_butterfly"		""
 		"[gs_huntsman_black_laminate]weapon_knife_tactical"		""
 		"[gs_bowie_black_laminate]weapon_knife_survival_bowie"		""
+
+		// gloves
+		"[bloodhound_black_silver]studded_bloodhound_gloves"		""
+		"[slick_black]slick_gloves"		""
+		"[motorcycle_basic_black]motorcycle_gloves"		""
+		"[specialist_fbi]specialist_gloves"		""
 	}
 }
 
@@ -748,6 +807,13 @@
 		"[sp_dapple]weapon_knife_css"		""
 		"[cu_bowie_lore]weapon_knife_survival_bowie"		""
 		"[cu_huntsman_lore]weapon_knife_tactical"		""
+
+		// gloves
+		"[sporty_hunter]sporty_gloves"		""
+		"[specialist_forest_brown]specialist_gloves"		""
+		"[sporty_poison_frog_red_green]sporty_gloves"		""
+		"[slick_jaguar_yellow]slick_gloves"		""
+		"[handwrap_leathery_fabric_green_camo]leather_handwraps"		""
 	}
 }
 
@@ -803,6 +869,12 @@
 		"[am_emerald_marbleized]weapon_knife_flip"		""
 		"[am_emerald_marbleized]weapon_knife_gut"		""
 		"[am_emerald_marbleized]weapon_knife_falchion"		""
+
+		// gloves
+		"[bloodhound_hydra_black_green]studded_hydra_gloves"		""
+		"[specialist_emerald_web]specialist_gloves"		""
+		"[sporty_poison_frog_blue_white]sporty_gloves"		""
+		"[handwrap_leathery_fabric_green_camo]leather_handwraps"		""
 	}
 }
 
@@ -870,6 +942,12 @@
 		"[gs_falchion_black_laminate]weapon_knife_falchion"		""
 		"[gs_butterfly_black_laminate]weapon_knife_butterfly"		""
 		"[gs_bowie_black_laminate]weapon_knife_survival_bowie"		""
+
+		// gloves
+		"[bloodhound_metallic]studded_bloodhound_gloves"		""
+		"[bloodhound_snakeskin_brass]studded_bloodhound_gloves"		""
+		"[bloodhound_hydra_case_hardened]studded_hydra_gloves"		""
+		"[handwrap_leathery]leather_handwraps"		""
 	}
 }
 
@@ -1003,6 +1081,12 @@
 		"[am_turqoise_halftone]weapon_knife_stiletto"		""
 		"[am_turqoise_halftone]weapon_knife_ursus"		""
 		"[am_turqoise_halftone]weapon_knife_gypsy_jackknife"		""
+
+		// gloves
+		"[sporty_light_blue]sporty_gloves"		""
+		"[motorcycle_triangle_blue]motorcycle_gloves"		""
+		"[specialist_winterhex]specialist_gloves"		""
+		"[handwrap_leathery_fabric_geometric_blue]leather_handwraps"		""
 	}
 }
 
@@ -1136,6 +1220,12 @@
 		"[am_zebra_dark]weapon_knife_stiletto"		""
 		"[am_zebra_dark]weapon_knife_ursus"		""
 		"[am_zebra_dark]weapon_knife_gypsy_jackknife"		""
+
+		// gloves
+		"[sporty_purple]sporty_gloves"		""
+		"[slick_plaid_purple]slick_gloves"		""
+		"[sporty_blue_pink]sporty_gloves"		""
+		"[motorcycle_trigrid_blue]motorcycle_gloves"		""
 	}
 }
 
@@ -1269,6 +1359,12 @@
 		"[am_copper_flecks]weapon_knife_stiletto"		""
 		"[am_copper_flecks]weapon_knife_ursus"		""
 		"[am_copper_flecks]weapon_knife_gypsy_jackknife"		""
+
+		// gloves
+		"[specialist_orange_white]specialist_gloves"		""
+		"[specialist_fade]specialist_gloves"		""
+		"[slick_snakeskin_yellow]slick_gloves"		""
+		"[motorcycle_yellow_camo]motorcycle_gloves"		""
 	}
 }
 
@@ -1402,6 +1498,13 @@
 		"[aa_flames]weapon_knife_stiletto"		""
 		"[aa_flames]weapon_knife_ursus"		""
 		"[aa_flames]weapon_knife_gypsy_jackknife"		""
+
+		// gloves
+		"[specialist_webs_red]specialist_gloves"		""
+		"[specialist_kimono_diamonds_red]specialist_gloves"		""
+		"[slick_red]slick_gloves"		""
+		"[handwrap_red_slaughter]leather_handwraps"		""
+		"[motorcycle_carbonfiber_red]motorcycle_gloves"		""
 	}
 }
 
@@ -1535,6 +1638,12 @@
 		"[am_crystallized_dark_green]weapon_knife_stiletto"		""
 		"[am_crystallized_dark_green]weapon_knife_ursus"		""
 		"[am_crystallized_dark_green]weapon_knife_gypsy_jackknife"		""
+
+		// gloves
+		"[specialist_emerald_web]specialist_gloves"		""
+		"[specialist_ddpat_green_camo]specialist_gloves"		""
+		"[sporty_green]sporty_gloves"		""
+		"[slick_stitched_green_grey]slick_gloves"		""
 	}
 }
 
@@ -1668,6 +1777,12 @@
 		"[an_gunmetal_bravo]weapon_knife_stiletto"		""
 		"[an_gunmetal_bravo]weapon_knife_ursus"		""
 		"[an_gunmetal_bravo]weapon_knife_gypsy_jackknife"		""
+
+		// gloves
+		"[bloodhound_black_silver]studded_bloodhound_gloves"		""
+		"[slick_black]slick_gloves"		""
+		"[motorcycle_basic_black]motorcycle_gloves"		""
+		"[specialist_fbi]specialist_gloves"		""
 	}
 }
 
@@ -1820,6 +1935,12 @@
 		"[aa_fade_metallic_revolver]weapon_knife_stiletto"		""
 		"[aa_fade_metallic_revolver]weapon_knife_ursus"		""
 		"[aa_fade_metallic_revolver]weapon_knife_gypsy_jackknife"		""
+
+		// gloves
+		"[specialist_fade]specialist_gloves"		""
+		"[specialist_marble_fade]specialist_gloves"		""
+		"[sporty_blue_pink]sporty_gloves"		""
+		"[motorcycle_smoke]motorcycle_gloves"		""
 	}
 }
 
@@ -1953,6 +2074,13 @@
 		"[hy_zombie]weapon_knife_stiletto"		""
 		"[hy_zombie]weapon_knife_ursus"		""
 		"[hy_zombie]weapon_knife_gypsy_jackknife"		""
+
+		// gloves
+		"[specialist_tiger_orange]specialist_gloves"		""
+		"[sporty_jaguar]sporty_gloves"		""
+		"[slick_jaguar_white]slick_gloves"		""
+		"[sporty_poison_frog_red_green]sporty_gloves"		""
+		"[handwrap_leathery_fabric_giraffe]leather_handwraps"		""
 	}
 }
 
@@ -2086,6 +2214,12 @@
 		"[hy_kimono_diamonds_red]weapon_knife_stiletto"		""
 		"[hy_kimono_diamonds_red]weapon_knife_ursus"		""
 		"[hy_kimono_diamonds_red]weapon_knife_gypsy_jackknife"		""
+
+		// gloves
+		"[handwrap_leathery_fabric_geometric_blue]leather_handwraps"		""
+		"[motorcycle_mint_triangle]motorcycle_gloves"		""
+		"[motorcycle_triangle_blue]motorcycle_gloves"		""
+		"[specialist_kimono_diamonds_red]specialist_gloves"		""
 	}
 }
 
@@ -2219,6 +2353,12 @@
 		"[aq_handcannon]weapon_knife_stiletto"		""
 		"[aq_handcannon]weapon_knife_ursus"		""
 		"[aq_handcannon]weapon_knife_gypsy_jackknife"		""
+
+		// gloves
+		"[bloodhound_metallic]studded_bloodhound_gloves"		""
+		"[bloodhound_snakeskin_brass]studded_bloodhound_gloves"		""
+		"[bloodhound_hydra_snakeskin_brass]studded_hydra_gloves"		""
+		"[bloodhound_hydra_green_leather_mesh_brass]studded_hydra_gloves"		""
 	}
 }
 
@@ -2352,6 +2492,12 @@
 		"[sp_mesh_glacier]weapon_knife_stiletto"		""
 		"[sp_mesh_glacier]weapon_knife_ursus"		""
 		"[sp_mesh_glacier]weapon_knife_gypsy_jackknife"		""
+
+		// gloves
+		"[motorcycle_checker_flag_blue_green]motorcycle_gloves"		""
+		"[slick_stitched_black_orange]slick_gloves"		""
+		"[sporty_slingshot]sporty_gloves"		""
+		"[handwrap_leathery_caution]leather_handwraps"		""
 	}
 }
 
@@ -2485,5 +2631,11 @@
 		"[so_purple]weapon_knife_stiletto"		""
 		"[so_purple]weapon_knife_ursus"		""
 		"[so_purple]weapon_knife_gypsy_jackknife"		""
+
+		// gloves
+		"[sporty_purple]sporty_gloves"		""
+		"[slick_red]slick_gloves"		""
+		"[sporty_green]sporty_gloves"		""
+		"[specialist_fade]specialist_gloves"		""
 	}
 }
