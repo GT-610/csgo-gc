@@ -176,6 +176,7 @@ GCConfig::GCConfig()
     if (botSkins)
     {
         m_botSkins.enabled = botSkins->GetNumber("enabled", m_botSkins.enabled);
+        m_botSkins.knives = botSkins->GetNumber("knives", m_botSkins.knives);
     }
 
     m_vacBanned = config.GetNumber("vac_banned", m_vacBanned);

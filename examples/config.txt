@@ -163,6 +163,9 @@
 "bot_skins"
 {
 	"enabled"	"0"
+	// also swap the bot's knife for a themed one (a Karambit, Butterfly, ...).
+	// 0 = weapon skins only, the bots keep their normal knife
+	"knives"	"1"
 }
 
 // for debugging the menus: saves the game's UI scripts to csgo_gc/panorama_dump/ and

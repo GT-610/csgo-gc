@@ -76,7 +76,7 @@ void *__fastcall Hk_GiveNamedItem(void *player, void *edx, const char *name, int
     const uint64_t botKey = reinterpret_cast<uintptr_t>(player);
 
     // a bot's plain knife is swapped for a themed one
-    if (isBot)
+    if (isBot && GetConfig().BotSkins().knives)
     {
         if (const char *knife = BotSkins::KnifeFor(name, botKey))
         {

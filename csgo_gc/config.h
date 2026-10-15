@@ -76,6 +76,7 @@ struct StarShopConfig
 struct BotSkinsConfig
 {
     bool enabled{ false };
+    bool knives{ true }; // also give bots a themed knife (off: weapon skins only)
 };
 
 // for Platform::Print calls
