@@ -43,6 +43,7 @@ add_library(csgo_gc SHARED
     rcon_server.cpp
     saved_item_shuffles.cpp
     souvenir.cpp
+    star_shop.cpp
     steam_hook.cpp
     tradeup_hook.cpp
     panorama_hook.cpp)
@@ -143,7 +144,8 @@ if (BUILD_TESTING)
         networking_client.cpp
         networking_server.cpp
         panorama_hook.cpp
-        souvenir.cpp)
+        souvenir.cpp
+        star_shop.cpp)
 
     target_precompile_headers(gc_message_tests PRIVATE stdafx.h)
     target_link_libraries(gc_message_tests PRIVATE
@@ -180,7 +182,8 @@ if (BUILD_TESTING)
         keyvalue.cpp
         networking_client.cpp
         overwatch_tests.cpp
-        souvenir.cpp)
+        souvenir.cpp
+        star_shop.cpp)
 
     target_precompile_headers(overwatch_tests PRIVATE stdafx.h)
     target_link_libraries(overwatch_tests PRIVATE
@@ -222,7 +225,8 @@ if (BUILD_TESTING)
         keyvalue.cpp
         graffiti.cpp
         networking_client.cpp
-        souvenir.cpp)
+        souvenir.cpp
+        star_shop.cpp)
 
     target_precompile_headers(gc_message_non_prime_tests PRIVATE stdafx.h)
     target_link_libraries(gc_message_non_prime_tests PRIVATE

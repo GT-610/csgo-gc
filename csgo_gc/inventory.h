@@ -231,6 +231,14 @@ public:
     // on failure returns 0 and does nothing
     uint64_t PurchaseItem(uint32_t defIndex, std::vector<CMsgSOSingleObject> &update);
 
+    // stars earned from playing, spent in the star shop
+    uint32_t Stars() const { return m_stars; }
+    void AddStars(uint32_t amount);
+    bool SpendStars(uint32_t amount);
+    // a random agent for the star shop, nothing is charged here.
+    // returns the item id and adds the item to the update, or 0 if there are no agents
+    uint64_t CreateRandomAgent(std::vector<CMsgSOSingleObject> &update, uint32_t *defIndex = nullptr);
+
     // Creates an item granted through RCON with the traded acquisition reason.
     // Returns the item id on success, or 0 and an error string on failure.
     uint64_t CreateRconItem(uint32_t defIndex,
@@ -256,6 +264,7 @@ public:
 
 private:
     uint32_t AccountId() const;
+    uint32_t m_stars{};
 
     // allocates an empty item, sets id and account_id fields
     // pass zero as highItemId to generate a new one

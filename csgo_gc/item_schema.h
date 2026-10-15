@@ -232,6 +232,9 @@ public:
     // every container (weapon cases, souvenir packages, sticker/patch/pin capsules...)
     std::vector<uint32_t> GetContainerDefIndexes() const;
 
+    // player agents (item_type "customplayer"), sorted by def index
+    std::vector<uint32_t> GetAgentDefIndexes() const;
+
     enum class ContainerKind
     {
         WeaponCase,

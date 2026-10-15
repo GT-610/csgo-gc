@@ -44,6 +44,23 @@ struct MatchDropConfig
     };
 };
 
+// stars earned from playing, spent in the Case Store. a case (or other
+// container) costs casePrice stars with its key included
+struct StarShopConfig
+{
+    bool enabled{ true };
+    uint32_t casePrice{ 10 };
+    uint32_t capsulePrice{ 5 };
+    uint32_t souvenirPrice{ 25 };
+    uint32_t agentPrice{ 50 }; // a random agent
+    uint32_t perKill{ 1 };
+    uint32_t perHeadshot{ 1 }; // on top of the kill
+    uint32_t perMvp{ 3 };
+    uint32_t perPlant{ 2 };
+    uint32_t perDefuse{ 3 };
+    uint32_t perMatch{ 5 }; // finishing a match
+};
+
 // for Platform::Print calls
 enum LogOutput
 {
@@ -104,6 +121,8 @@ public:
 
     const CasePityConfig &CasePity() const { return m_casePity; }
     const MatchDropConfig &MatchDrops() const { return m_matchDrops; }
+    const StarShopConfig &StarShop() const { return m_starShop; }
+    bool ItemDeleteMenu() const { return m_itemDeleteMenu; }
 
 private:
     LogOutput m_logOutput{ LogOutputConsole };
@@ -136,6 +155,7 @@ private:
     bool m_goldTradeUpRecipes{ true };
     bool m_caseStoreMenu{ true };
     bool m_tradeUpMixStatTrak{ true };
+    bool m_itemDeleteMenu{ true };
 
     // Music kit StatTrak follows competitive rules by default, matching the only
     // scope the official backend ever supported.
@@ -164,6 +184,7 @@ private:
 
     CasePityConfig m_casePity;
     MatchDropConfig m_matchDrops;
+    StarShopConfig m_starShop;
 };
 
 const GCConfig &GetConfig();

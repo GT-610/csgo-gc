@@ -472,6 +472,7 @@ void Inventory::ReadFromFile()
     if (playerState)
     {
         m_goldlessCases = playerState->GetNumber<uint32_t>("cases_since_gold", 0);
+        m_stars = playerState->GetNumber<uint32_t>("stars", 0);
     }
 
     const KeyValue *itemsKey = inventoryKey.GetSubkey("items");
@@ -733,6 +734,7 @@ bool Inventory::WriteToFile() const
         playerState.AddNumber("level", m_playerLevel);
         playerState.AddNumber("xp", m_playerXp);
         playerState.AddNumber("cases_since_gold", m_goldlessCases);
+        playerState.AddNumber("stars", m_stars);
     }
 
     {
@@ -2991,6 +2993,49 @@ uint64_t Inventory::PurchaseItem(uint32_t defIndex, std::vector<CMsgSOSingleObje
     }
 
     return item.id();
+}
+
+void Inventory::AddStars(uint32_t amount)
+{
+    if (!amount)
+    {
+        return;
+    }
+
+    m_stars = (std::numeric_limits<uint32_t>::max() - m_stars < amount)
+        ? std::numeric_limits<uint32_t>::max()
+        : m_stars + amount;
+    WriteToFile();
+}
+
+bool Inventory::SpendStars(uint32_t amount)
+{
+    if (amount > m_stars)
+    {
+        return false;
+    }
+
+    m_stars -= amount;
+    WriteToFile();
+    return true;
+}
+
+uint64_t Inventory::CreateRandomAgent(std::vector<CMsgSOSingleObject> &update, uint32_t *defIndex)
+{
+    const std::vector<uint32_t> agents = m_itemSchema.GetAgentDefIndexes();
+    if (agents.empty())
+    {
+        Platform::Print("CreateRandomAgent: the schema has no agents\n");
+        return 0;
+    }
+
+    const uint32_t agent = agents[m_random.Integer<size_t>(0, agents.size() - 1)];
+    uint64_t itemId = PurchaseItem(agent, update);
+    if (itemId && defIndex)
+    {
+        *defIndex = agent;
+    }
+    return itemId;
 }
 
 uint64_t Inventory::CreateRconItem(uint32_t defIndex,

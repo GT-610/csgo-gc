@@ -399,6 +399,7 @@ void *s_mainMenuPanel;
 std::string s_caseStoreData;
 bool s_caseStoreDataSent;
 bool s_loggedContextPatch;
+std::atomic<int64_t> s_stars{ -1 };
 
 struct Section
 {
@@ -603,6 +604,11 @@ void PanoramaHook::TryInstall()
     Platform::Print("Panorama: UI hook installed\n");
 }
 
+void PanoramaHook::SetStars(int64_t stars)
+{
+    s_stars = stars; // not shown in the UI yet
+}
+
 void PanoramaHook::SetCaseStoreData(std::string data)
 {
     s_caseStoreData = std::move(data);
@@ -630,6 +636,10 @@ void PanoramaHook::Tick()
 #else
 
 void PanoramaHook::TryInstall()
+{
+}
+
+void PanoramaHook::SetStars(int64_t)
 {
 }
 

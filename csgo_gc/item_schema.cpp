@@ -2388,6 +2388,41 @@ const std::vector<uint32_t> &ItemSchema::GetDropCrateDefIndexes() const
     return m_dropCrateDefIndexes;
 }
 
+std::vector<uint32_t> ItemSchema::GetAgentDefIndexes() const
+{
+    // the default T/CT models are customplayer items too, only the tradable
+    // agents (prefab customplayertradable) belong in the shop
+    std::vector<uint32_t> agents;
+    std::vector<uint32_t> fallback;
+    for (const auto &pair : m_itemInfo)
+    {
+        const ItemInfo &info = pair.second;
+        if (info.m_isCoupon || info.m_name.empty() || !EqualsInsensitive(info.m_itemType, "customplayer"))
+        {
+            continue;
+        }
+
+        const bool tradable = std::any_of(info.m_prefabs.begin(), info.m_prefabs.end(),
+            [](const std::string &prefab) { return ContainsInsensitive(prefab, "tradable"); });
+        if (tradable)
+        {
+            agents.push_back(info.m_defIndex);
+        }
+        else if (info.m_defIndex >= 4600)
+        {
+            fallback.push_back(info.m_defIndex);
+        }
+    }
+
+    if (agents.empty())
+    {
+        agents = std::move(fallback);
+    }
+
+    std::sort(agents.begin(), agents.end());
+    return agents;
+}
+
 std::vector<uint32_t> ItemSchema::GetContainerDefIndexes() const
 {
     std::vector<uint32_t> containers;

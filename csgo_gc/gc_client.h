@@ -3,6 +3,7 @@
 #include "config.h"
 #include "gc_shared.h"
 #include "inventory.h"
+#include "star_shop.h"
 
 class ClientGC final : public SharedGC
 {
@@ -90,8 +91,13 @@ private:
     void LocalPlayerRoundMVP();
     // Roll an end-of-match item drop.
     void LocalPlayerMatchEnd();
+    // award stars for something the local player did
+    void LocalPlayerStars(StarShop::Reason reason);
+    void PublishStars();
+    void SendStarsMessage(const std::string &text);
     void ApplySticker(GCMessageRead &messageRead);
     void RequestPrestigeCoin(GCMessageRead &messageRead);
+    uint64_t StarCost(const std::vector<PendingStoreLineItem> &lineItems) const;
     void StoreGetUserData(GCMessageRead &messageRead);
     void StorePurchaseInit(GCMessageRead &messageRead);
     void StorePurchaseFinalize(GCMessageRead &messageRead);
@@ -142,6 +148,7 @@ private:
 
     // guards against the match end event firing more than once per match
     std::chrono::steady_clock::time_point m_lastMatchDropTime{};
+    uint32_t m_matchStars{}; // stars earned since the last match end message
 
     // microtransactions, we only have one going at a time
     uint64_t m_transactionId{};

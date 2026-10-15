@@ -146,6 +146,24 @@ GCConfig::GCConfig()
         }
     }
 
+    m_itemDeleteMenu = config.GetNumber("item_delete_menu", m_itemDeleteMenu);
+
+    const KeyValue *starShop = config.GetSubkey("star_shop");
+    if (starShop)
+    {
+        m_starShop.enabled = starShop->GetNumber("enabled", m_starShop.enabled);
+        m_starShop.casePrice = starShop->GetNumber("case_price", m_starShop.casePrice);
+        m_starShop.capsulePrice = starShop->GetNumber("capsule_price", m_starShop.capsulePrice);
+        m_starShop.souvenirPrice = starShop->GetNumber("souvenir_price", m_starShop.souvenirPrice);
+        m_starShop.agentPrice = starShop->GetNumber("agent_price", m_starShop.agentPrice);
+        m_starShop.perKill = starShop->GetNumber("kill", m_starShop.perKill);
+        m_starShop.perHeadshot = starShop->GetNumber("headshot", m_starShop.perHeadshot);
+        m_starShop.perMvp = starShop->GetNumber("mvp", m_starShop.perMvp);
+        m_starShop.perPlant = starShop->GetNumber("plant", m_starShop.perPlant);
+        m_starShop.perDefuse = starShop->GetNumber("defuse", m_starShop.perDefuse);
+        m_starShop.perMatch = starShop->GetNumber("match_complete", m_starShop.perMatch);
+    }
+
     m_vacBanned = config.GetNumber("vac_banned", m_vacBanned);
     m_commendedFriendly = config.GetNumber("cmd_friendly", m_commendedFriendly);
     m_commendedTeaching = config.GetNumber("cmd_teaching", m_commendedTeaching);

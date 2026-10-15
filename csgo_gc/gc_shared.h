@@ -19,6 +19,7 @@ enum class GCEvent
     ClientSOCacheUnsubscribe, // sent to server gc when a client disconnects, id contains the steam id
     RconCommand, // sent to client gc, buffer contains an owned RconCommand holder pointer
     LocalPlayerMatchEnd, // sent to client gc when the match the local player is in ends
+    LocalPlayerStars, // sent to client gc, buffer contains a StarShop::Reason (uint32_t)
 };
 
 struct EventData
