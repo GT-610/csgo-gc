@@ -161,6 +161,17 @@ GCConfig::GCConfig()
         m_starShop.customCasePrice = starShop->GetNumber("custom_case_price", m_starShop.customCasePrice);
         m_starShop.agentPrice = starShop->GetNumber("agent_price", m_starShop.agentPrice);
         m_starShop.operationActive = starShop->GetNumber("operation_active", m_starShop.operationActive);
+        if (const KeyValue *sell = starShop->GetSubkey("sell"))
+        {
+            m_starShop.sellEnabled = sell->GetNumber("enabled", m_starShop.sellEnabled);
+            m_starShop.sellConsumer = sell->GetNumber("consumer", m_starShop.sellConsumer);
+            m_starShop.sellIndustrial = sell->GetNumber("industrial", m_starShop.sellIndustrial);
+            m_starShop.sellMilSpec = sell->GetNumber("mil_spec", m_starShop.sellMilSpec);
+            m_starShop.sellRestricted = sell->GetNumber("restricted", m_starShop.sellRestricted);
+            m_starShop.sellClassified = sell->GetNumber("classified", m_starShop.sellClassified);
+            m_starShop.sellCovert = sell->GetNumber("covert", m_starShop.sellCovert);
+            m_starShop.sellKnifeOrGlove = sell->GetNumber("knife_glove", m_starShop.sellKnifeOrGlove);
+        }
         m_starShop.maxCases = starShop->GetNumber("max_cases", m_starShop.maxCases);
         m_starShop.maxCapsules = starShop->GetNumber("max_capsules", m_starShop.maxCapsules);
         m_starShop.maxSouvenirPackages = starShop->GetNumber("max_souvenir_packages", m_starShop.maxSouvenirPackages);

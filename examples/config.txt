@@ -145,6 +145,19 @@
 	"max_capsules"				"10"
 	"max_souvenir_packages"		"0"
 
+	// what deleting a skin pays (0 = nothing). only skins, knives and gloves
+	"sell"
+	{
+		"enabled"		"1"
+		"consumer"		"1"
+		"industrial"	"2"
+		"mil_spec"		"5"
+		"restricted"	"10"
+		"classified"	"25"
+		"covert"		"50"
+		"knife_glove"	"150"
+	}
+
 	// stars earned
 	"kill"				"1"
 	"headshot"			"1"	// on top of the kill

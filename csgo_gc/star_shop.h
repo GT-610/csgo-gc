@@ -6,6 +6,7 @@
 #include <vector>
 
 class ItemSchema;
+class CSOEconItem;
 
 // Stars are earned from playing and spent in the Case Store: weapon cases,
 // souvenir packages, capsules (each with its key) and random agents.
@@ -29,6 +30,10 @@ namespace StarShop
     uint32_t Price(const ItemSchema &itemSchema, const StarShopConfig &config, uint32_t defIndex);
 
     bool IsAgent(const ItemSchema &itemSchema, uint32_t defIndex);
+
+    // what an item pays when it is sold (deleted): a skin by its rarity, a knife or
+    // glove a fixed amount. 0 for anything else (cases, stickers, default items...)
+    uint32_t SellValue(const ItemSchema &itemSchema, const StarShopConfig &config, const CSOEconItem &item);
     // cases, souvenir packages, capsules and other crate_* containers (not keys)
     bool IsContainer(const ItemSchema &itemSchema, uint32_t defIndex);
 

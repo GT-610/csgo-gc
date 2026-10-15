@@ -551,6 +551,7 @@ const ClientGC::RconCommandDef *ClientGC::RconCommands(size_t &count)
         { "item_info", "item_info <itemid>", &ClientGC::RconItemInfo },
         { "give_item", "give_item <defindex> [count] [key=value...]", &ClientGC::RconGiveItem },
         { "remove_item", "remove_item <itemid>", &ClientGC::RconRemoveItem },
+        { "sell_item", "sell_item <itemid>", &ClientGC::RconSellItem },
         { "refresh_inventory", "refresh_inventory", &ClientGC::RconRefreshInventory },
         { "save_inventory", "save_inventory", &ClientGC::RconSaveInventory },
     };
@@ -1008,6 +1009,63 @@ std::string ClientGC::RconRemoveItem(const RconRequest &request)
 
     PublishItemRemoval(destroyed, recurringSubscriptionDestroy);
     return "OK removed";
+}
+
+std::string ClientGC::RconSellItem(const RconRequest &request)
+{
+    uint64_t itemId;
+    if (request.args.size() != 1 || !TryParseNumber(request.args[0], itemId))
+    {
+        return Usage("sell_item <itemid>");
+    }
+
+    const uint32_t value = SaleValue(itemId);
+    if (!value)
+    {
+        return "ERR that item isn't worth any stars (or the star shop is off)";
+    }
+
+    CMsgSOSingleObject destroyed;
+    CMsgSOSingleObject recurringSubscriptionDestroy;
+    if (!m_inventory.RemoveItem(itemId, destroyed, &recurringSubscriptionDestroy))
+    {
+        return "ERR item not found";
+    }
+
+    PublishItemRemoval(destroyed, recurringSubscriptionDestroy);
+    PaySale(value, itemId);
+    return "OK sold for " + std::to_string(value) + " stars";
+}
+
+uint32_t ClientGC::SaleValue(uint64_t itemId) const
+{
+    const CSOEconItem *item = m_inventory.GetItem(itemId);
+    if (!item || !StarSeason())
+    {
+        return 0;
+    }
+
+    return StarShop::SellValue(m_inventory.GetItemSchema(), GetConfig().StarShop(), *item);
+}
+
+void ClientGC::PaySale(uint32_t stars, uint64_t itemId)
+{
+    const std::optional<uint32_t> season = StarSeason();
+    if (!season || !stars)
+    {
+        return;
+    }
+
+    Inventory::StarChange change;
+    if (!m_inventory.AddStars(*season, stars, change))
+    {
+        return;
+    }
+
+    PublishStarChange(change);
+    Platform::Print("Stars: +%u for selling item %llu, balance %u\n", stars, itemId, m_inventory.Stars(*season));
+    SendStarsMessage("Sold for " + std::to_string(stars) + " stars (" + std::to_string(m_inventory.Stars(*season))
+        + " total)");
 }
 
 void ClientGC::PublishItemRemoval(const CMsgSOSingleObject &itemDestroy,
@@ -2926,11 +2984,15 @@ void ClientGC::DeleteItem(GCMessageRead &messageRead)
         return;
     }
 
+    // deleting a skin sells it: work out what it pays before it's gone
+    const uint32_t saleValue = SaleValue(itemId);
+
     CMsgSOSingleObject destroyed;
     CMsgSOSingleObject recurringSubscriptionDestroy;
-    if (m_inventory.RemoveItem(itemId, destroyed, &recurringSubscriptionDestroy))
+    if (m_inventory.GetItem(itemId) && m_inventory.RemoveItem(itemId, destroyed, &recurringSubscriptionDestroy))
     {
         PublishItemRemoval(destroyed, recurringSubscriptionDestroy);
+        PaySale(saleValue, itemId);
     }
     else
     {

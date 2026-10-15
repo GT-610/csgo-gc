@@ -4365,6 +4365,58 @@ static bool CaseStoreListsCustomCasesFirstAndAgents()
     return valid;
 }
 
+static bool StarShopSellsSkinsByRarity()
+{
+    constexpr uint64_t SteamId = 76561197960265729ull;
+    RemoveGoldTradeUpFixtures();
+    if (!WriteGoldTradeUpFixtures())
+    {
+        RemoveGoldTradeUpFixtures();
+        return false;
+    }
+
+    bool valid = true;
+    {
+        ClientGC gc{ SteamId };
+        const ItemSchema &schema = gc.GetItemSchema();
+        StarShopConfig config;
+
+        // a covert AK-47 skin from the fixture's loot lists
+        std::vector<const LootListItem *> covert;
+        valid &= schema.GetDropSkinCandidates(ItemSchema::RarityAncient, covert) && !covert.empty();
+        Random random;
+        CSOEconItem skin;
+        valid &= valid && schema.CreateItemFromLootListItem(random, *covert.front(), false, ItemOriginDrop,
+            UnacknowledgedDropped, skin);
+        valid &= StarShop::SellValue(schema, config, skin) == 50;
+
+        // other rarities pay their own price, a switched-off sell pays nothing
+        CSOEconItem lower = skin;
+        lower.set_rarity(ItemSchema::RarityRare);
+        valid &= StarShop::SellValue(schema, config, lower) == 5;
+        config.sellEnabled = false;
+        valid &= StarShop::SellValue(schema, config, skin) == 0;
+        config.sellEnabled = true;
+
+        // a case and an item with no paint kit pay nothing
+        CSOEconItem crate;
+        crate.set_def_index(4001);
+        CSOEconItem plain;
+        plain.set_def_index(7); // weapon_ak47 with no skin
+        plain.set_rarity(ItemSchema::RarityAncient);
+        valid &= StarShop::SellValue(schema, config, crate) == 0 && StarShop::SellValue(schema, config, plain) == 0;
+
+        // a knife is the unusual quality and pays the knife price
+        CSOEconItem knife;
+        knife.set_def_index(507);
+        knife.set_quality(ItemSchema::QualityUnusual);
+        valid &= StarShop::SellValue(schema, config, knife) == 150;
+    }
+
+    RemoveGoldTradeUpFixtures();
+    return valid;
+}
+
 static bool StarShopMovesTheOperationScheduleToNow()
 {
     const std::string text =
@@ -4566,6 +4618,7 @@ int main()
         { "StarShopPatchReplacesOnlyTheNewestOperationsGoods",
             StarShopPatchReplacesOnlyTheNewestOperationsGoods },
         { "StarShopMovesTheOperationScheduleToNow", StarShopMovesTheOperationScheduleToNow },
+        { "StarShopSellsSkinsByRarity", StarShopSellsSkinsByRarity },
         { "ViewmodelRangeIsScaledOnlyForConVarLikeMemory", ViewmodelRangeIsScaledOnlyForConVarLikeMemory },
         { "CaseStoreListsCustomCasesFirstAndAgents", CaseStoreListsCustomCasesFirstAndAgents },
         { "BotSkinsPickThemedStableSkins", BotSkinsPickThemedStableSkins },

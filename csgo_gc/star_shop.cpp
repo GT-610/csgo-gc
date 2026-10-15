@@ -1,6 +1,7 @@
 #include "stdafx.h"
 #include "star_shop.h"
 #include "item_schema.h"
+#include "item_utils.h"
 #include "config.h"
 
 uint32_t StarShop::Reward(const StarShopConfig &config, Reason reason)
@@ -227,4 +228,50 @@ std::string StarShop::BuildRedeemablesText(const std::vector<Redeemable> &goods)
         text += "\t\t\t}\n";
     }
     return text;
+}
+
+uint32_t StarShop::SellValue(const ItemSchema &itemSchema, const StarShopConfig &config, const CSOEconItem &item)
+{
+    if (!config.enabled || !config.sellEnabled)
+    {
+        return 0;
+    }
+
+    const ItemInfo *info = itemSchema.ItemInfoByDefIndex(item.def_index());
+    if (!info || info->m_isCoupon)
+    {
+        return 0;
+    }
+
+    // only weapons (and knives) and gloves are bought back
+    const bool weapon = info->m_name.compare(0, 7, "weapon_") == 0;
+    const bool gloves = info->m_itemType == "gloves" || info->m_name.find("glove") != std::string::npos;
+    if (!weapon && !gloves)
+    {
+        return 0;
+    }
+
+    // knives and gloves are the unusual quality
+    if (item.quality() == ItemSchema::QualityUnusual)
+    {
+        return config.sellKnifeOrGlove;
+    }
+
+    // a default weapon has no paint kit and isn't worth anything
+    uint32_t paintKit = 0;
+    if (!GetItemPaintKitDefIndex(item, itemSchema, paintKit) || !paintKit)
+    {
+        return 0;
+    }
+
+    switch (item.rarity())
+    {
+    case ItemSchema::RarityCommon: return config.sellConsumer;
+    case ItemSchema::RarityUncommon: return config.sellIndustrial;
+    case ItemSchema::RarityRare: return config.sellMilSpec;
+    case ItemSchema::RarityMythical: return config.sellRestricted;
+    case ItemSchema::RarityLegendary: return config.sellClassified;
+    case ItemSchema::RarityAncient: return config.sellCovert;
+    default: return 0;
+    }
 }

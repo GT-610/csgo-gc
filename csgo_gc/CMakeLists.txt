@@ -261,6 +261,7 @@ if (BUILD_TESTING)
         item_schema.cpp
         game_schema_patch.cpp
         keyvalue.cpp
+        item_utils.cpp
         star_shop.cpp)
 
     target_precompile_headers(item_schema_tests PRIVATE stdafx.h)
@@ -282,6 +283,7 @@ if (BUILD_TESTING)
         keyvalue.cpp
         souvenir.cpp
         souvenir_tests.cpp
+        item_utils.cpp
         star_shop.cpp)
 
     target_precompile_headers(souvenir_tests PRIVATE stdafx.h)

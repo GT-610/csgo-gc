@@ -64,6 +64,7 @@ private:
     std::string RconItemInfo(const RconRequest &request);
     std::string RconGiveItem(const RconRequest &request);
     std::string RconRemoveItem(const RconRequest &request);
+    std::string RconSellItem(const RconRequest &request);
     std::string RconRefreshInventory(const RconRequest &request);
     std::string RconSaveInventory(const RconRequest &request);
     void PublishItemRemoval(const CMsgSOSingleObject &itemDestroy,
@@ -97,6 +98,10 @@ private:
     std::optional<uint32_t> StarSeason() const;
     uint32_t StarBalance() const;
     void PublishStarChange(const Inventory::StarChange &change);
+    // what selling this item pays right now (0 = not worth anything or no star shop)
+    uint32_t SaleValue(uint64_t itemId) const;
+    // credits stars for a sale and tells the player
+    void PaySale(uint32_t stars, uint64_t itemId);
     // tells the Case Store screen the current balance
     void PublishStarBalance();
     void ClientRedeemMissionReward(GCMessageRead &messageRead);

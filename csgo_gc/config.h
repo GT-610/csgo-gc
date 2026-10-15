@@ -63,6 +63,17 @@ struct StarShopConfig
     // make the game think the operation is running so its page shows
     // (moves quest_schedule's start in items_game.txt)
     bool operationActive{ true };
+
+    // what deleting a skin pays, by rarity (0 = pays nothing). only skins, knives and
+    // gloves are bought back; cases, stickers, agents and the like pay nothing
+    bool sellEnabled{ true };
+    uint32_t sellConsumer{ 1 };
+    uint32_t sellIndustrial{ 2 };
+    uint32_t sellMilSpec{ 5 };
+    uint32_t sellRestricted{ 10 };
+    uint32_t sellClassified{ 25 };
+    uint32_t sellCovert{ 50 };
+    uint32_t sellKnifeOrGlove{ 150 };
     uint32_t perKill{ 1 };
     uint32_t perHeadshot{ 1 }; // on top of the kill
     uint32_t perMvp{ 3 };
