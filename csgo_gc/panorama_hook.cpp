@@ -139,6 +139,11 @@ var CsgoGcCaseStore = ( function()
 	var m_stars = -1;
 	var m_tiles = [];
 	var m_sections = [];
+	var m_bar = null;
+	var m_barName = null;
+	var m_barPrice = null;
+	var m_barButtons = [];
+	var m_current = null;
 
 	function _Style( panel, styles )
 	{
@@ -202,8 +207,72 @@ var CsgoGcCaseStore = ( function()
 		m_status.text = 'Buying ' + amount + ' x ' + name + ( keyId ? ( amount > 1 ? ' with keys' : ' with key' ) : '' ) + '...';
 	}
 
-	function _ShowContents( id )
+	// the game's own popup can come up without its buy and close buttons, so a bar
+	// of ours sits above it with both
+	function _CloseContents()
 	{
+		try
+		{
+			UiToolkitAPI.CloseAllVisiblePopups();
+		}
+		catch ( e )
+		{
+			$.Msg( '[csgo_gc] shop: closing popups failed: ' + e );
+		}
+
+		if ( m_bar )
+		{
+			m_bar.visible = false;
+		}
+		m_current = null;
+	}
+
+	function _ShowBar( id, keyId, price, name )
+	{
+		var context = $.GetContextPanel();
+		if ( !m_bar )
+		{
+			m_bar = _Panel( context, {
+				width: '700px', height: '56px', horizontalAlign: 'center', verticalAlign: 'bottom', marginBottom: '48px',
+				flowChildren: 'right', padding: '10px 14px', backgroundColor: '#14100ff2', border: '1px solid #6b5a2e'
+			} );
+			m_barName = _Label( m_bar, '', { fontSize: '16px', color: '#ffffff', verticalAlign: 'center', width: '300px' } );
+			m_barPrice = _Label( m_bar, '', { fontSize: '16px', color: GOLD, fontWeight: 'bold', verticalAlign: 'center', width: '90px' } );
+			BUY_AMOUNTS.forEach( function( amount )
+			{
+				var button = _Button( m_bar, amount === 1 ? 'BUY' : 'x' + amount, {
+					width: amount === 1 ? '70px' : '50px', height: '34px', margin: '0px 3px', verticalAlign: 'center',
+					backgroundColor: amount === 1 ? '#3d8a2c' : '#2d5d85'
+				}, function()
+				{
+					if ( m_current )
+					{
+						_Buy( m_current.id, m_current.keyId, amount, m_current.name );
+					}
+				}, { fontSize: '15px' } );
+				m_barButtons.push( { button: button, amount: amount } );
+			} );
+			_Button( m_bar, 'CLOSE', { width: '80px', height: '34px', margin: '0px 0px 0px 14px', verticalAlign: 'center', backgroundColor: '#ffffff22' },
+				_CloseContents, { fontSize: '15px' } );
+		}
+
+		// above the popup
+		var popups = context.FindChild( 'PopupManager' );
+		if ( popups )
+		{
+			context.MoveChildAfter( m_bar, popups );
+		}
+
+		m_current = { id: id, keyId: keyId, price: price, name: name };
+		m_barName.text = name;
+		m_barPrice.text = price > 0 ? ( price + ' \u2605' ) : '';
+		m_bar.visible = true;
+		_ShowAffordability();
+	}
+
+	function _ShowContents( id, keyId, price, name )
+	{
+		_ShowBar( id, keyId, price, name );
 		UiToolkitAPI.ShowCustomLayoutPopupParameters(
 			'popup-inspect-' + id,
 			'file://{resources}/layout/popups/popup_capability_decodable.xml',
@@ -218,6 +287,15 @@ var CsgoGcCaseStore = ( function()
 	// dims the buy buttons that cost more than the balance
 	function _ShowAffordability()
 	{
+		if ( m_current )
+		{
+			m_barButtons.forEach( function( entry )
+			{
+				var affordable = m_stars < 0 || m_current.price * entry.amount <= m_stars;
+				entry.button.style.opacity = affordable ? '1.0' : '0.35';
+			} );
+		}
+
 		m_tiles.forEach( function( tile )
 		{
 			tile.buttons.forEach( function( entry )
@@ -249,7 +327,7 @@ var CsgoGcCaseStore = ( function()
 		image.hittest = false;
 		if ( !isAgent )
 		{
-			imageButton.SetPanelEvent( 'onactivate', function() { _ShowContents( id ); } );
+			imageButton.SetPanelEvent( 'onactivate', function() { _ShowContents( id, keyId, price, name ); } );
 		}
 
 		// the colour bar under the picture: an agent's rarity, otherwise the section's colour
@@ -411,13 +489,39 @@ static const char CaseStoreScriptPart2[] = R"js(
 
 		m_overlay.visible = true;
 		m_search.SetFocus();
+		try
+		{
+			$.RegisterKeyBind( m_overlay, 'key_escape', _Escape );
+		}
+		catch ( e )
+		{
+			$.Msg( '[csgo_gc] shop: escape binding failed: ' + e );
+		}
 	}
 
 	function _Close()
 	{
+		if ( m_bar && m_bar.visible )
+		{
+			_CloseContents();
+		}
+
 		if ( m_overlay )
 		{
 			m_overlay.visible = false;
+		}
+	}
+
+	// escape closes the popup first, then the shop
+	function _Escape()
+	{
+		if ( m_bar && m_bar.visible )
+		{
+			_CloseContents();
+		}
+		else if ( m_overlay && m_overlay.visible )
+		{
+			_Close();
 		}
 	}
 
