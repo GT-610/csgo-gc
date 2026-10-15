@@ -4,6 +4,7 @@
 #include "item_schema.h"
 #include "platform.h"
 #include "star_shop.h"
+#include "career.h"
 
 #include <regex>
 #include <unordered_set>
@@ -384,6 +385,227 @@ var CsgoGcCaseStore = ( function()
 	}
 )js";
 
+static const char CaseStoreScriptCareer[] = R"js(
+	// ---- the Collections, Achievements and Stats tabs ----
+	var TABS = [ [ 'shop', 'SHOP' ], [ 'collections', 'COLLECTIONS' ], [ 'achievements', 'ACHIEVEMENTS' ], [ 'stats', 'STATS' ] ];
+	var GREEN = '#6fd36f';
+	var m_career = null;
+	var m_tab = 'shop';
+	var m_tabButtons = {};
+	var m_tabPanels = {};
+	var m_showAllCases = false;
+	var m_collectionFilter = 'opened';
+
+	function _Clear( panel )
+	{
+		try
+		{
+			panel.RemoveAndDeleteChildren();
+		}
+		catch ( e )
+		{
+			$.Msg( '[csgo_gc] shop: clearing a tab failed: ' + e );
+		}
+	}
+
+	function _ProgressBar( parent, fraction, color, width )
+	{
+		var track = _Panel( parent, { width: width, height: '8px', backgroundColor: '#ffffff1c' } );
+		_Panel( track, { width: Math.round( Math.max( 0, Math.min( 1, fraction ) ) * 100 ) + '%', height: '100%', backgroundColor: color } );
+		return track;
+	}
+
+	function _Message( parent, text )
+	{
+		_Label( parent, text, { fontSize: '16px', color: '#e2e8f0', margin: '24px 4px' } );
+	}
+
+	function _RenderCollections()
+	{
+		var panel = m_tabPanels.collections;
+		_Clear( panel );
+		var cases = m_career ? m_career.cases : [];
+		var done = cases.filter( function( c ) { return c[ 6 ]; } ).length;
+		var opened = cases.filter( function( c ) { return c[ 7 ] > 0; } ).length;
+
+		var top = _Panel( panel, { width: '100%', flowChildren: 'right', margin: '0px 0px 10px 0px' } );
+		_Label( top, done + ' of ' + cases.length + ' collections complete   |   ' + opened + ' cases opened', { fontSize: '16px', color: GOLD, fontWeight: 'bold', verticalAlign: 'center', marginRight: '24px' } );
+		[ [ 'opened', 'OPENED' ], [ 'all', 'ALL CASES' ], [ 'complete', 'COMPLETE' ] ].forEach( function( filter )
+		{
+			var active = m_collectionFilter === filter[ 0 ];
+			_Button( top, filter[ 1 ], { width: '110px', height: '28px', margin: '0px 4px', verticalAlign: 'center',
+				backgroundColor: active ? '#ffffff26' : '#ffffff0d', border: active ? '1px solid #ffffff66' : '1px solid #ffffff1a' },
+				function() { m_collectionFilter = filter[ 0 ]; _RenderCollections(); }, { fontSize: '12px', letterSpacing: '1px', color: active ? '#ffffff' : '#aab4c0' } );
+		} );
+		_Label( panel, 'Open a case to find its skins. Find every skin of a case to complete its collection and win ' + ( m_career ? m_career.goalReward : 0 ) + ' stars.', { fontSize: '13px', color: '#cdd6e0', margin: '0px 0px 8px 0px' } );
+
+		var shown = cases.filter( function( c )
+		{
+			if ( m_collectionFilter === 'all' ) { return true; }
+			if ( m_collectionFilter === 'complete' ) { return c[ 6 ]; }
+			return c[ 7 ] > 0;
+		} );
+		if ( !shown.length )
+		{
+			_Message( panel, m_collectionFilter === 'complete' ? 'No collection is complete yet.' : 'No cases opened yet. Buy one in the SHOP tab, or press ALL CASES.' );
+			return;
+		}
+
+		shown.sort( function( a, b ) { return ( b[ 2 ] / b[ 3 ] ) - ( a[ 2 ] / a[ 3 ] ); } );
+		var grid = _Panel( panel, { width: '100%', height: 'fit-children', flowChildren: 'right-wrap' } );
+		shown.forEach( function( c )
+		{
+			var complete = c[ 6 ];
+			var tile = _Panel( grid, { width: '170px', height: '206px', margin: '0px 8px 8px 0px', flowChildren: 'down',
+				backgroundColor: complete ? 'gradient( linear, 0% 0%, 0% 100%, from( #1f3a22f2 ), to( #14241af2 ) )'
+					: 'gradient( linear, 0% 0%, 0% 100%, from( #2b3748f2 ), to( #1b2431f2 ) )' } );
+			var image = _Panel( tile, { width: '100%', height: '90px' }, 'ItemImage', '', { scaling: 'stretch-to-fit-preserve-aspect' } );
+			image.itemid = _FauxId( c[ 0 ] );
+			image.hittest = false;
+			_Panel( tile, { width: '100%', height: '3px', backgroundColor: complete ? GREEN : ( c[ 7 ] > 0 ? '#5b9bff' : '#ffffff30' ) } );
+			_Label( tile, c[ 1 ], { fontSize: '13px', color: '#ffffff', fontWeight: 'bold', margin: '6px 8px 0px 8px', height: '34px' } );
+			_Label( tile, c[ 2 ] + ' / ' + c[ 3 ] + ' skins', { fontSize: '13px', color: complete ? GREEN : '#e2e8f0', margin: '0px 8px 3px 8px' } );
+			var bar = _Panel( tile, { margin: '0px 8px 4px 8px' } );
+			_ProgressBar( bar, c[ 2 ] / c[ 3 ], complete ? GREEN : '#5b9bff', '100%' );
+			if ( c[ 4 ] )
+			{
+				_Label( tile, c[ 5 ] ? '\u2605 gold found' : '\u2605 gold not found', { fontSize: '12px', color: c[ 5 ] ? GOLD : '#9aa5b1', margin: '0px 8px 0px 8px' } );
+			}
+			_Label( tile, complete ? 'COMPLETE' : ( c[ 7 ] + ' opened' ), { fontSize: '12px', color: complete ? GREEN : '#9aa5b1', fontWeight: complete ? 'bold' : 'normal', margin: '0px 8px 0px 8px' } );
+		} );
+	}
+
+	function _RenderAchievements()
+	{
+		var panel = m_tabPanels.achievements;
+		_Clear( panel );
+		var list = m_career ? m_career.achievements : [];
+		var done = list.filter( function( a ) { return a[ 7 ]; } ).length;
+		_Label( panel, done + ' of ' + list.length + ' achievements unlocked', { fontSize: '16px', color: GOLD, fontWeight: 'bold', margin: '0px 0px 10px 0px' } );
+		if ( !list.length )
+		{
+			_Message( panel, 'No achievement data yet.' );
+			return;
+		}
+
+		list.forEach( function( a )
+		{
+			var finished = a[ 7 ];
+			var row = _Panel( panel, { width: '100%', height: '58px', margin: '0px 0px 6px 0px', padding: '8px 14px 8px 12px', flowChildren: 'right',
+				backgroundColor: finished ? 'gradient( linear, 0% 0%, 100% 0%, from( #1d3a24f0 ), to( #14201ff0 ) )' : 'gradient( linear, 0% 0%, 100% 0%, from( #232e3df0 ), to( #161d28f0 ) )',
+				borderLeft: finished ? '4px solid #6fd36f' : '4px solid #ffffff2a' } );
+			_Label( row, finished ? '\u2713' : '\u25cb', { fontSize: '24px', color: finished ? GREEN : '#5c6773', verticalAlign: 'center', width: '40px', marginLeft: '6px' } );
+			var text = _Panel( row, { flowChildren: 'down', verticalAlign: 'center', width: '520px' } );
+			_Label( text, a[ 1 ], { fontSize: '16px', color: finished ? '#ffffff' : '#e2e8f0', fontWeight: 'bold' } );
+			_Label( text, a[ 2 ], { fontSize: '13px', color: '#cdd6e0' } );
+			var progress = _Panel( row, { flowChildren: 'down', verticalAlign: 'center', width: '240px' } );
+			_Label( progress, finished ? 'Unlocked' : ( a[ 5 ] + ' / ' + a[ 4 ] ), { fontSize: '13px', color: finished ? GREEN : '#e2e8f0' } );
+			_ProgressBar( progress, finished ? 1 : a[ 5 ] / a[ 4 ], finished ? GREEN : '#5b9bff', '220px' );
+			_Label( row, '+' + a[ 3 ] + ' \u2605', { fontSize: '17px', color: finished ? '#9aa5b1' : GOLD, fontWeight: 'bold', verticalAlign: 'center', horizontalAlign: 'right' } );
+		} );
+	}
+
+	function _RenderStats()
+	{
+		var panel = m_tabPanels.stats;
+		_Clear( panel );
+		_Label( panel, 'Your career', { fontSize: '16px', color: GOLD, fontWeight: 'bold', margin: '0px 0px 10px 0px' } );
+		var stats = m_career ? m_career.stats : [];
+		if ( !stats.length )
+		{
+			_Message( panel, 'No career data yet.' );
+			return;
+		}
+
+		stats.forEach( function( stat )
+		{
+			var row = _Panel( panel, { width: '560px', height: '38px', margin: '0px 0px 4px 0px', padding: '0px 14px', flowChildren: 'right',
+				backgroundColor: 'gradient( linear, 0% 0%, 100% 0%, from( #232e3df0 ), to( #161d28f0 ) )', borderLeft: '4px solid #ffffff2a' } );
+			_Label( row, stat[ 0 ], { fontSize: '15px', color: '#e2e8f0', verticalAlign: 'center', width: 'fill-parent-flow( 1.0 )' } );
+			_Label( row, String( stat[ 1 ] ), { fontSize: '17px', color: '#ffffff', fontWeight: 'bold', verticalAlign: 'center', horizontalAlign: 'right' } );
+		} );
+	}
+
+	function _RenderTab()
+	{
+		try
+		{
+			if ( m_tab === 'collections' ) { _RenderCollections(); }
+			else if ( m_tab === 'achievements' ) { _RenderAchievements(); }
+			else if ( m_tab === 'stats' ) { _RenderStats(); }
+		}
+		catch ( e )
+		{
+			$.Msg( '[csgo_gc] shop: drawing the ' + m_tab + ' tab failed: ' + e );
+		}
+	}
+
+	function _StyleTab( name, active )
+	{
+		var button = m_tabButtons[ name ];
+		if ( !button )
+		{
+			return;
+		}
+
+		button.style.borderBottom = active ? '3px solid #ffffff' : '3px solid #00000000';
+		button.style.backgroundColor = active ? '#ffffff12' : '#00000000';
+		var label = button.GetChild( 0 );
+		if ( label )
+		{
+			label.style.color = active ? '#ffffff' : '#8d99a8';
+		}
+	}
+
+	function _SelectTab( name )
+	{
+		m_tab = name;
+		TABS.forEach( function( tab )
+		{
+			var active = tab[ 0 ] === name;
+			if ( m_tabPanels[ tab[ 0 ] ] ) { m_tabPanels[ tab[ 0 ] ].visible = active; }
+			_StyleTab( tab[ 0 ], active );
+		} );
+
+		if ( name !== 'shop' && m_bar && m_bar.visible )
+		{
+			_CloseContents();
+		}
+		if ( name === 'shop' && m_search )
+		{
+			m_search.SetFocus();
+		}
+		_RenderTab();
+	}
+
+	function _BuildTabs( header )
+	{
+		var row = _Panel( m_overlay, { width: '100%', height: '42px', flowChildren: 'right', padding: '0px 56px 0px 56px', borderBottom: '1px solid #ffffff22', backgroundColor: '#0000004d' } );
+		TABS.forEach( function( tab )
+		{
+			m_tabButtons[ tab[ 0 ] ] = _Button( row, tab[ 1 ], { width: '170px', height: '100%', margin: '0px 2px 0px 0px', backgroundColor: '#00000000', borderBottom: '3px solid #00000000' },
+				function() { _SelectTab( tab[ 0 ] ); }, { fontSize: '14px', letterSpacing: '2px', fontWeight: 'bold', color: '#8d99a8' } );
+		} );
+	}
+
+	function _BuildTabPanel( name )
+	{
+		var panel = _Panel( m_overlay, { width: '100%', height: 'fill-parent-flow( 1.0 )', flowChildren: 'down', overflow: 'squish scroll', padding: '8px 56px 0px 56px' } );
+		panel.visible = false;
+		m_tabPanels[ name ] = panel;
+		return panel;
+	}
+
+	function _SetCareer( data )
+	{
+		m_career = data;
+		if ( m_overlay && m_overlay.visible )
+		{
+			_RenderTab();
+		}
+	}
+)js";
+
 static const char CaseStoreScriptPart2[] = R"js(
 	function _ApplyFilter()
 	{
@@ -454,8 +676,12 @@ static const char CaseStoreScriptPart2[] = R"js(
 		m_balanceBox.visible = false;
 		m_balance = _Label( m_balanceBox, '', { fontSize: '16px', color: GOLD, fontWeight: 'bold', verticalAlign: 'center' } );
 
+		_BuildTabs( header );
+		var shopPanel = _Panel( m_overlay, { width: '100%', height: 'fill-parent-flow( 1.0 )', flowChildren: 'down' } );
+		m_tabPanels.shop = shopPanel;
+
 		// search and messages
-		var bar = _Panel( m_overlay, { width: '100%', flowChildren: 'right', padding: '8px 56px 6px 56px' } );
+		var bar = _Panel( shopPanel, { width: '100%', flowChildren: 'right', padding: '8px 56px 6px 56px' } );
 		m_search = _Panel( bar, {
 			width: '300px', height: '30px', verticalAlign: 'center', fontSize: '15px', color: '#ffffff',
 			backgroundColor: '#ffffff14', border: '1px solid #ffffff30', padding: '4px 10px 0px 10px', marginRight: '18px'
@@ -465,7 +691,7 @@ static const char CaseStoreScriptPart2[] = R"js(
 		m_status = _Label( bar, 'Click a case to see what\'s inside. A case comes with its key.', { fontSize: '14px', color: '#e2e8f0', verticalAlign: 'center' } );
 
 		// the sections
-		m_scroll = _Panel( m_overlay, { width: '100%', height: 'fill-parent-flow( 1.0 )', flowChildren: 'down', overflow: 'squish scroll', padding: '2px 56px 0px 56px' } );
+		m_scroll = _Panel( shopPanel, { width: '100%', height: 'fill-parent-flow( 1.0 )', flowChildren: 'down', overflow: 'squish scroll', padding: '2px 56px 0px 56px' } );
 		SECTIONS.forEach( function( definition )
 		{
 			var entries = m_data.filter( function( entry ) { return entry[ 2 ] === definition[ 0 ]; } );
@@ -482,6 +708,11 @@ static const char CaseStoreScriptPart2[] = R"js(
 			entries.forEach( function( entry ) { section.tiles.push( _MakeTile( grid, entry ) ); } );
 			m_sections.push( section );
 		} );
+
+		_BuildTabPanel( 'collections' );
+		_BuildTabPanel( 'achievements' );
+		_BuildTabPanel( 'stats' );
+		_SelectTab( 'shop' );
 
 		// back button along the bottom
 		var footer = _Panel( m_overlay, { width: '100%', height: '44px', borderTop: '1px solid #ffffff30' } );
@@ -603,6 +834,7 @@ static const char CaseStoreScriptPart2[] = R"js(
 	return {
 		SetData: _SetData,
 		SetStars: _SetStars,
+		SetCareer: _SetCareer,
 		Open: _Open,
 		Close: _Close
 	};
@@ -611,7 +843,7 @@ static const char CaseStoreScriptPart2[] = R"js(
 
 const std::string &PanoramaHook::CaseStoreScript()
 {
-    static const std::string script = std::string{ CaseStoreScriptPart1 } + CaseStoreScriptPart2;
+    static const std::string script = std::string{ CaseStoreScriptPart1 } + CaseStoreScriptCareer + CaseStoreScriptPart2;
     return script;
 }
 
@@ -910,6 +1142,7 @@ bool PanoramaHook::HasCaseStoreData()
     return !s_caseStoreData.empty();
 }
 
+
 // logs what the game thinks about the operation, to the console
 static const char DiagnosticScript[] = R"js(
 ( function()
@@ -980,9 +1213,21 @@ void PanoramaHook::Tick()
     {
         s_caseStoreDataSent = true;
         s_starsSent = -2;
+        Career::RepublishLast(); // a reloaded main menu has lost the career tabs' data too
         std::string script = "if ( typeof CsgoGcCaseStore !== 'undefined' ) CsgoGcCaseStore.SetData( "
             + s_caseStoreData + " );";
         s_originalRunScript(s_uiEngine, nullptr, s_mainMenuPanel, script.c_str(), CaseStoreDataPath, 0, 0, 0, 0);
+    }
+
+    if (s_caseStoreDataSent)
+    {
+        std::string career;
+        if (Career::TakePublished(career))
+        {
+            std::string script = "if ( typeof CsgoGcCaseStore !== 'undefined' ) CsgoGcCaseStore.SetCareer( "
+                + career + " );";
+            s_originalRunScript(s_uiEngine, nullptr, s_mainMenuPanel, script.c_str(), CaseStoreDataPath, 0, 0, 0, 0);
+        }
     }
 
     const int64_t stars = StarShop::DisplayBalance();

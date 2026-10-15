@@ -332,6 +332,7 @@ ClientGC::ClientGC(uint64_t steamId)
     Graffiti::Initialize();
 
     m_career.Load();
+    PublishCareer();
 
     // The inventory exists before the worker thread starts, so seed the
     // round_mvp event cache here and keep later refreshes on the worker thread.
@@ -1058,6 +1059,11 @@ std::string ClientGC::RconGoals(const RconRequest &request)
         return Usage("goals [all]");
     }
 
+    return m_career.GoalsText(CareerCases(), !request.args.empty());
+}
+
+std::vector<std::pair<uint32_t, Career::CaseInfo>> ClientGC::CareerCases() const
+{
     const ItemSchema &schema = m_inventory.GetItemSchema();
     std::vector<std::pair<uint32_t, Career::CaseInfo>> cases;
     for (uint32_t crate : schema.GetContainerDefIndexes())
@@ -1068,8 +1074,15 @@ std::string ClientGC::RconGoals(const RconRequest &request)
             cases.emplace_back(crate, std::move(info));
         }
     }
+    return cases;
+}
 
-    return m_career.GoalsText(cases, !request.args.empty());
+void ClientGC::PublishCareer()
+{
+    if (GetConfig().CareerTracking())
+    {
+        Career::Publish(m_career.UiData(CareerCases()));
+    }
 }
 
 std::string ClientGC::RconAchievements(const RconRequest &request)
@@ -1103,6 +1116,7 @@ void ClientGC::RecordCaseOpened(uint32_t crateDefIndex, const CMsgSOSingleObject
     }
 
     GrantCareerRewards(m_career.RecordCaseOpened(crateDefIndex, info, pull));
+    PublishCareer();
 }
 
 void ClientGC::GrantCareerRewards(const std::vector<Career::Unlock> &unlocks)
@@ -2576,7 +2590,12 @@ void ClientGC::LocalPlayerStars(StarShop::Reason reason)
 
     if (GetConfig().CareerTracking())
     {
-        GrantCareerRewards(m_career.RecordStarsEarned(amount));
+        const std::vector<Career::Unlock> unlocks = m_career.RecordStarsEarned(amount);
+        GrantCareerRewards(unlocks);
+        if (!unlocks.empty())
+        {
+            PublishCareer();
+        }
     }
 }
 
@@ -3407,6 +3426,7 @@ void ClientGC::Craft(GCMessageRead &messageRead)
         if (craftedItem && GetConfig().CareerTracking())
         {
             GrantCareerRewards(m_career.RecordTradeUp(craftedItem->quality() == ItemSchema::QualityUnusual));
+            PublishCareer();
         }
 
         Platform::Print("Trade-up completed successfully!\n");

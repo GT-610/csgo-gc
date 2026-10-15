@@ -69,6 +69,14 @@ public:
     // opened cases (or all of them) with how much of each is collected
     std::string GoalsText(const std::vector<std::pair<uint32_t, CaseInfo>> &cases, bool showAll) const;
     std::string AchievementsText() const;
+    // the same data as a JS object, for the SkinStop tabs
+    std::string UiData(const std::vector<std::pair<uint32_t, CaseInfo>> &cases) const;
+
+    // the UI data handed from the GC's thread to the main thread that talks to Panorama
+    static void Publish(std::string uiData);
+    // true (and the data) once per Publish, or again after RepublishLast
+    static bool TakePublished(std::string &uiData);
+    static void RepublishLast();
 
     // schema side: the case's name, regular skins and gold count
     static bool BuildCaseInfo(const ItemSchema &schema, uint32_t crate, CaseInfo &info);

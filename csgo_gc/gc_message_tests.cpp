@@ -4020,6 +4020,13 @@ static bool CareerTracksGoalsAchievementsAndPersists()
         valid &= career.GoalsText({ { 6002, info } }, true).find("Test Case: 0/2 skins, gold not found")
             != std::string::npos;
         valid &= career.AchievementsText().find("[x] First Crack") != std::string::npos;
+
+        // the SkinStop tabs' data: the case's 2/2 skins and gold, a finished achievement, a stat
+        const std::string ui = career.UiData({ { 5001, info } });
+        valid &= ui.find("cases: [[5001,'Test Case',2,2,1,1,1,5]]") != std::string::npos
+            && ui.find("['first_case','First Crack','Open your first case.',100,1,1,1]") != std::string::npos
+            && ui.find("['Cases opened','5']") != std::string::npos
+            && ui.find("goalReward: 1500") != std::string::npos;
     }
 
     TestFilesystem::RemoveFile(Path);

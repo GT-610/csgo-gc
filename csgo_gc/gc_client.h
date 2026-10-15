@@ -162,6 +162,8 @@ private:
 
     Career m_career{ "csgo_gc/career.txt" };
     void RecordCaseOpened(uint32_t crateDefIndex, const CMsgSOSingleObject &newItem);
+    std::vector<std::pair<uint32_t, Career::CaseInfo>> CareerCases() const;
+    void PublishCareer();
     void GrantCareerRewards(const std::vector<Career::Unlock> &unlocks);
     std::atomic<int32_t> m_localUserId{};
     std::atomic<int32_t> m_cachedMusicKitMVPs{ -1 };

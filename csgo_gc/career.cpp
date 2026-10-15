@@ -3,6 +3,7 @@
 #include "item_schema.h"
 #include "item_utils.h"
 #include <fstream>
+#include <mutex>
 #include <sstream>
 #include <unordered_set>
 
@@ -13,6 +14,7 @@ struct AchievementDef
 {
     const char *id;
     const char *title;
+    const char *desc;
     const char *stat;     // the counter it watches
     uint64_t threshold;
     uint32_t stars;
@@ -21,28 +23,28 @@ struct AchievementDef
 // one table: a counter reaching a number. "gold_cases" and "goals_done" are
 // kept up to date by the career itself
 constexpr AchievementDef Achievements[] = {
-    { "first_case", "First Crack", "cases_opened", 1, 100 },
-    { "cases_10", "Warming Up", "cases_opened", 10, 250 },
-    { "cases_100", "Case Hardened", "cases_opened", 100, 1000 },
-    { "cases_500", "Unboxing Addict", "cases_opened", 500, 3000 },
-    { "cases_1000", "Thousand Keys", "cases_opened", 1000, 6000 },
-    { "custom_10", "House Brand", "custom_cases_opened", 10, 500 },
-    { "custom_100", "Loyal Customer", "custom_cases_opened", 100, 2500 },
-    { "covert_first", "Red Alert", "pulls_covert", 1, 300 },
-    { "covert_25", "Seeing Red", "pulls_covert", 25, 1500 },
-    { "gold_first", "Golden Moment", "gold_pulls", 1, 1000 },
-    { "gold_5", "Gold Rush", "gold_pulls", 5, 2500 },
-    { "gold_25", "Midas Touch", "gold_pulls", 25, 8000 },
-    { "gold_cases_5", "Gold Everywhere", "gold_cases", 5, 3000 },
-    { "stattrak_first", "Counting Kills", "stattrak_pulls", 1, 200 },
-    { "tradeup_first", "Contract Killer", "tradeups", 1, 150 },
-    { "tradeup_25", "Contract Veteran", "tradeups", 25, 1500 },
-    { "tradeup_gold", "Gold Contract", "tradeup_golds", 1, 1500 },
-    { "goal_first", "Completionist", "goals_done", 1, 1000 },
-    { "goals_5", "Collector", "goals_done", 5, 4000 },
-    { "goals_15", "Curator", "goals_done", 15, 10000 },
-    { "stars_10k", "Star Saver", "stars_earned", 10000, 500 },
-    { "stars_100k", "Starstruck", "stars_earned", 100000, 3000 },
+    { "first_case", "First Crack", "Open your first case.", "cases_opened", 1, 100 },
+    { "cases_10", "Warming Up", "Open 10 cases.", "cases_opened", 10, 250 },
+    { "cases_100", "Case Hardened", "Open 100 cases.", "cases_opened", 100, 1000 },
+    { "cases_500", "Unboxing Addict", "Open 500 cases.", "cases_opened", 500, 3000 },
+    { "cases_1000", "Thousand Keys", "Open 1,000 cases.", "cases_opened", 1000, 6000 },
+    { "custom_10", "House Brand", "Open 10 custom cases.", "custom_cases_opened", 10, 500 },
+    { "custom_100", "Loyal Customer", "Open 100 custom cases.", "custom_cases_opened", 100, 2500 },
+    { "covert_first", "Red Alert", "Pull a Covert skin from a case.", "pulls_covert", 1, 300 },
+    { "covert_25", "Seeing Red", "Pull 25 Covert skins from cases.", "pulls_covert", 25, 1500 },
+    { "gold_first", "Golden Moment", "Pull a knife or gloves from a case.", "gold_pulls", 1, 1000 },
+    { "gold_5", "Gold Rush", "Pull 5 knives or gloves from cases.", "gold_pulls", 5, 2500 },
+    { "gold_25", "Midas Touch", "Pull 25 knives or gloves from cases.", "gold_pulls", 25, 8000 },
+    { "gold_cases_5", "Gold Everywhere", "Pull a gold from 5 different cases.", "gold_cases", 5, 3000 },
+    { "stattrak_first", "Counting Kills", "Pull a StatTrak skin from a case.", "stattrak_pulls", 1, 200 },
+    { "tradeup_first", "Contract Killer", "Complete a trade-up contract.", "tradeups", 1, 150 },
+    { "tradeup_25", "Contract Veteran", "Complete 25 trade-up contracts.", "tradeups", 25, 1500 },
+    { "tradeup_gold", "Gold Contract", "Trade up into a knife or gloves.", "tradeup_golds", 1, 1500 },
+    { "goal_first", "Completionist", "Find every skin of one case.", "goals_done", 1, 1000 },
+    { "goals_5", "Collector", "Complete 5 collections.", "goals_done", 5, 4000 },
+    { "goals_15", "Curator", "Complete 15 collections.", "goals_done", 15, 10000 },
+    { "stars_10k", "Star Saver", "Earn 10,000 stars in matches.", "stars_earned", 10000, 500 },
+    { "stars_100k", "Starstruck", "Earn 100,000 stars in matches.", "stars_earned", 100000, 3000 },
 };
 
 std::string FormatCaseName(const ItemSchema &schema, uint32_t crate)
@@ -105,7 +107,37 @@ void FlattenLootList(const LootList &list, bool gold, Career::CaseInfo &info,
     }
 }
 
+std::mutex s_publishMutex;
+std::string s_publishedData;
+bool s_publishedDirty;
+
 } // namespace
+
+void Career::Publish(std::string uiData)
+{
+    std::lock_guard lock{ s_publishMutex };
+    s_publishedData = std::move(uiData);
+    s_publishedDirty = true;
+}
+
+bool Career::TakePublished(std::string &uiData)
+{
+    std::lock_guard lock{ s_publishMutex };
+    if (!s_publishedDirty)
+    {
+        return false;
+    }
+
+    s_publishedDirty = false;
+    uiData = s_publishedData;
+    return !uiData.empty();
+}
+
+void Career::RepublishLast()
+{
+    std::lock_guard lock{ s_publishMutex };
+    s_publishedDirty = !s_publishedData.empty();
+}
 
 Career::Career(std::string path)
     : m_path{ std::move(path) }
@@ -379,14 +411,101 @@ std::string Career::GoalsText(const std::vector<std::pair<uint32_t, CaseInfo>> &
     return text;
 }
 
+static std::string JsString(const std::string &text)
+{
+    std::string out = "'";
+    for (char c : text)
+    {
+        if (c == '\\' || c == '\'')
+        {
+            out += '\\';
+        }
+
+        if (static_cast<unsigned char>(c) < 0x20)
+        {
+            out += ' ';
+        }
+        else
+        {
+            out += c;
+        }
+    }
+    return out + "'";
+}
+
+// a JS object for the SkinStop tabs:
+//   stats [label, value], achievements [id, title, desc, stars, threshold, progress, done],
+//   cases [crate, name, found, total, golds, goldFound, complete, opened]
+std::string Career::UiData(const std::vector<std::pair<uint32_t, CaseInfo>> &cases) const
+{
+    std::ostringstream out;
+    out << "{ goalReward: " << GoalReward << ", stats: [";
+    const std::pair<const char *, std::string> stats[] = {
+        { "Cases opened", std::to_string(Stat("cases_opened")) },
+        { "Custom cases opened", std::to_string(Stat("custom_cases_opened")) },
+        { "Covert skins pulled", std::to_string(Stat("pulls_covert")) },
+        { "Knives and gloves pulled", std::to_string(Stat("gold_pulls")) },
+        { "Cases that gave a gold", std::to_string(Stat("gold_cases")) },
+        { "StatTrak skins pulled", std::to_string(Stat("stattrak_pulls")) },
+        { "Trade-up contracts", std::to_string(Stat("tradeups")) },
+        { "Gold trade-ups", std::to_string(Stat("tradeup_golds")) },
+        { "Collections complete", std::to_string(Stat("goals_done")) },
+        { "Stars earned in matches", std::to_string(Stat("stars_earned")) },
+    };
+    bool first = true;
+    for (const auto &stat : stats)
+    {
+        out << (first ? "" : ",") << "[" << JsString(stat.first) << "," << JsString(stat.second) << "]";
+        first = false;
+    }
+
+    out << "], achievements: [";
+    first = true;
+    for (const AchievementDef &def : Achievements)
+    {
+        out << (first ? "" : ",") << "[" << JsString(def.id) << "," << JsString(def.title) << "," << JsString(def.desc)
+            << "," << def.stars << "," << def.threshold << "," << std::min(Stat(def.stat), def.threshold) << ","
+            << (m_achievements.contains(def.id) ? 1 : 0) << "]";
+        first = false;
+    }
+
+    out << "], cases: [";
+    first = true;
+    for (const auto &[crate, info] : cases)
+    {
+        if (info.skins.empty())
+        {
+            continue;
+        }
+
+        auto it = m_cases.find(crate);
+        size_t found = 0;
+        if (it != m_cases.end())
+        {
+            for (const Skin &skin : info.skins)
+            {
+                found += it->second.found.contains(skin) ? 1 : 0;
+            }
+        }
+
+        out << (first ? "" : ",") << "[" << crate << "," << JsString(info.name) << "," << found << ","
+            << info.skins.size() << "," << info.goldItems << ","
+            << (it != m_cases.end() && it->second.golds ? 1 : 0) << ","
+            << (it != m_cases.end() && it->second.complete ? 1 : 0) << ","
+            << (it != m_cases.end() ? it->second.opened : 0) << "]";
+        first = false;
+    }
+    out << "] }";
+    return out.str();
+}
+
 std::string Career::AchievementsText() const
 {
     std::ostringstream out;
     for (const AchievementDef &def : Achievements)
     {
         const bool done = m_achievements.contains(def.id);
-        out << (done ? "[x] " : "[ ] ") << def.title << " - " << def.stat << " " << def.threshold
-            << " (+" << def.stars << " stars)";
+        out << (done ? "[x] " : "[ ] ") << def.title << " - " << def.desc << " (+" << def.stars << " stars)";
         if (!done)
         {
             out << "  " << std::min(Stat(def.stat), def.threshold) << "/" << def.threshold;
