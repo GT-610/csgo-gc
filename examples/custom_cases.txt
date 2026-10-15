@@ -420,6 +420,7 @@
 		"[sporty_red]sporty_gloves"		""
 		"[sporty_pink]sporty_gloves"		""
 		"[sporty_fade]sporty_gloves"		""
+		"[operation_10_snakeskin_black]studded_brokenfang_gloves"		""
 	}
 }
 
@@ -792,6 +793,7 @@
 		"[slick_bamboo]slick_gloves"		""
 		"[motorcycle_green_circuitboard]motorcycle_gloves"		""
 		"[motorcycle_doppler_phase2]motorcycle_gloves"		""
+		"[operation_10_metalic_green]studded_brokenfang_gloves"		""
 	}
 }
 
