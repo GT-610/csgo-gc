@@ -116,10 +116,14 @@ var CsgoGcCaseStore = ( function()
 {
 	// [ kind, title ] in the order the sections are shown
 	var SECTIONS = [
-		[ 5, 'CUSTOM CASES' ], [ 4, 'AGENTS' ], [ 0, 'WEAPON CASES' ],
+		[ 5, 'SPECIAL OFFERS' ], [ 4, 'AGENTS' ], [ 0, 'WEAPON CASES' ],
 		[ 1, 'SOUVENIR PACKAGES' ], [ 2, 'CAPSULES' ], [ 3, 'OTHER' ]
 	];
 	var KIND_NAMES = [ 'Weapon Case', 'Souvenir Package', 'Capsule', 'Other', 'Agent', 'Custom Case' ];
+	// section backdrops, like the operation page's coloured panels
+	var SECTION_BACKDROP = { 5: '#2c4f7f80', 4: '#4a2a7a80', 0: '#ffffff12', 1: '#6b4a1e66', 2: '#1e5a6b66', 3: '#ffffff12' };
+	var KIND_COLORS = { 5: '#5b9bff', 4: '#a070ff', 0: '#ffffff30', 1: '#e0a040', 2: '#40b8d0', 3: '#ffffff30' };
+	var BACKGROUND = 'url("file://{images}/map_icons/screenshots/1080p/de_nuke.png")';
 	var RARITY_COLORS = { 1: '#b0c3d9', 2: '#5e98d9', 3: '#4b69ff', 4: '#8847ff', 5: '#d32ce6', 6: '#eb4b4b', 7: '#e4ae39' };
 	var BUY_AMOUNTS = [ 1, 5, 10 ];
 	var GOLD = '#f5c542';
@@ -235,11 +239,11 @@ var CsgoGcCaseStore = ( function()
 		var isAgent = kind === 4;
 
 		var tile = _Panel( grid, {
-			width: '218px', height: '286px', margin: '0px 10px 12px 0px', flowChildren: 'down',
-			backgroundColor: '#ffffff12'
+			width: '152px', height: '188px', margin: '0px 8px 8px 0px', flowChildren: 'down',
+			backgroundColor: 'gradient( linear, 0% 0%, 0% 100%, from( #ffffff1c ), to( #ffffff0c ) )'
 		} );
 
-		var imageButton = _Panel( tile, { width: '100%', height: '150px' }, 'Button' );
+		var imageButton = _Panel( tile, { width: '100%', height: '96px' }, 'Button' );
 		var image = _Panel( imageButton, { width: '100%', height: '100%' }, 'ItemImage', '', { scaling: 'stretch-to-fit-preserve-aspect' } );
 		image.itemid = id;
 		image.hittest = false;
@@ -248,23 +252,23 @@ var CsgoGcCaseStore = ( function()
 			imageButton.SetPanelEvent( 'onactivate', function() { _ShowContents( id ); } );
 		}
 
-		// the rarity colour under the picture
-		_Panel( tile, { width: '100%', height: '5px', backgroundColor: isAgent ? ( RARITY_COLORS[ rarity ] || '#b0c3d9' ) : '#ffffff22' } );
+		// the colour bar under the picture: an agent's rarity, otherwise the section's colour
+		_Panel( tile, { width: '100%', height: '3px', backgroundColor: isAgent ? ( RARITY_COLORS[ rarity ] || '#b0c3d9' ) : ( KIND_COLORS[ kind ] || '#ffffff30' ) } );
 
-		_Label( tile, name, { fontSize: '16px', color: '#ffffff', margin: '8px 10px 0px 10px', height: '40px' } );
+		_Label( tile, name, { fontSize: '12px', color: '#ffffff', margin: '5px 7px 0px 7px', height: '32px' } );
 
-		var info = _Panel( tile, { width: '100%', flowChildren: 'right', margin: '0px 10px 0px 10px' } );
-		_Label( info, ( KIND_NAMES[ kind ] || '' ) + ( keyId ? ' + key' : '' ), { fontSize: '12px', color: '#9aa4b1', verticalAlign: 'center' } );
-		_Label( info, price > 0 ? ( price + ' stars' ) : 'free', { fontSize: '17px', color: GOLD, fontWeight: 'bold', horizontalAlign: 'right', marginRight: '20px' } );
+		var info = _Panel( tile, { width: '100%', flowChildren: 'right', margin: '0px 7px 0px 7px' } );
+		_Label( info, ( KIND_NAMES[ kind ] || '' ) + ( keyId ? ' + key' : '' ), { fontSize: '10px', color: '#9aa4b1', verticalAlign: 'center' } );
+		_Label( info, price > 0 ? ( price + ' \u2605' ) : 'free', { fontSize: '14px', color: GOLD, fontWeight: 'bold', horizontalAlign: 'right', marginRight: '14px' } );
 
-		var buttonRow = _Panel( tile, { flowChildren: 'right', horizontalAlign: 'center', marginTop: '10px' } );
+		var buttonRow = _Panel( tile, { flowChildren: 'right', horizontalAlign: 'center', marginTop: '6px' } );
 		var buttons = [];
 		BUY_AMOUNTS.forEach( function( amount )
 		{
 			var button = _Button( buttonRow, amount === 1 ? 'BUY' : 'x' + amount, {
-				width: amount === 1 ? '80px' : '54px', height: '32px', margin: '0px 3px',
+				width: amount === 1 ? '56px' : '38px', height: '24px', margin: '0px 2px',
 				backgroundColor: amount === 1 ? '#3d8a2c' : '#2d5d85'
-			}, function() { _Buy( id, keyId, amount, name ); }, { fontSize: '16px' } );
+			}, function() { _Buy( id, keyId, amount, name ); }, { fontSize: '12px' } );
 			buttons.push( { button: button, amount: amount } );
 		} );
 
@@ -322,8 +326,11 @@ static const char CaseStoreScriptPart2[] = R"js(
 		var context = $.GetContextPanel();
 		m_overlay = _Panel( context, {
 			width: '100%', height: '100%', flowChildren: 'down',
-			padding: '0px 0px 0px 0px', backgroundColor: '#120d0cf6'
+			padding: '0px 0px 0px 0px', backgroundColor: '#0d0a09'
 		}, 'Panel', 'CsgoGcCaseStore' );
+		// the operation page's backdrop: a map screenshot, darkened
+		_Style( m_overlay, { backgroundImage: BACKGROUND, backgroundSize: 'cover', backgroundPosition: 'center',
+			backgroundRepeat: 'no-repeat', washColor: '#0d0a09dd' } );
 
 		var popups = context.FindChild( 'PopupManager' );
 		if ( popups )
@@ -332,27 +339,27 @@ static const char CaseStoreScriptPart2[] = R"js(
 		}
 
 		// title, subtitle and balance
-		var header = _Panel( m_overlay, { width: '100%', height: '92px', flowChildren: 'right', padding: '30px 120px 0px 120px', borderBottom: '1px solid #ffffff30' } );
+		var header = _Panel( m_overlay, { width: '100%', height: '66px', flowChildren: 'right', padding: '14px 56px 0px 56px', borderBottom: '1px solid #ffffff30' } );
 		var titles = _Panel( header, { flowChildren: 'down', width: 'fill-parent-flow( 1.0 )' } );
-		_Label( titles, 'SkinStop', { fontSize: '34px', color: '#ffffff', fontWeight: 'bold' } );
-		_Label( titles, 'Use your Stars to get Rewards of your choosing.', { fontSize: '16px', color: '#c9d1d9' } );
+		_Label( titles, 'SkinStop', { fontSize: '26px', color: '#ffffff', fontWeight: 'bold', letterSpacing: '1px' } );
+		_Label( titles, 'Use your Stars to get Rewards of your choosing.', { fontSize: '13px', color: '#c9d1d9' } );
 
-		m_balanceBox = _Panel( header, { height: '40px', verticalAlign: 'center', padding: '0px 18px', backgroundColor: '#3a2f1a', border: '1px solid #6b5a2e' } );
+		m_balanceBox = _Panel( header, { height: '32px', verticalAlign: 'center', padding: '0px 14px', backgroundColor: '#3a2f1ad0', border: '1px solid #6b5a2e' } );
 		m_balanceBox.visible = false;
-		m_balance = _Label( m_balanceBox, '', { fontSize: '20px', color: GOLD, fontWeight: 'bold', verticalAlign: 'center' } );
+		m_balance = _Label( m_balanceBox, '', { fontSize: '16px', color: GOLD, fontWeight: 'bold', verticalAlign: 'center' } );
 
 		// search and messages
-		var bar = _Panel( m_overlay, { width: '100%', flowChildren: 'right', padding: '14px 120px 8px 120px' } );
+		var bar = _Panel( m_overlay, { width: '100%', flowChildren: 'right', padding: '8px 56px 6px 56px' } );
 		m_search = _Panel( bar, {
-			width: '420px', height: '40px', verticalAlign: 'center', fontSize: '19px', color: '#ffffff',
-			backgroundColor: '#ffffff14', border: '1px solid #ffffff30', padding: '6px 12px 0px 12px', marginRight: '24px'
+			width: '300px', height: '30px', verticalAlign: 'center', fontSize: '15px', color: '#ffffff',
+			backgroundColor: '#ffffff14', border: '1px solid #ffffff30', padding: '4px 10px 0px 10px', marginRight: '18px'
 		}, 'TextEntry', 'CsgoGcCaseStoreSearch', { placeholder: 'Search...' } );
 		m_search.SetPanelEvent( 'ontextentrychange', _ApplyFilter );
-		m_count = _Label( bar, '', { fontSize: '15px', color: '#9aa4b1', verticalAlign: 'center', marginRight: '24px' } );
-		m_status = _Label( bar, 'Click a case to see what\'s inside. A case comes with its key.', { fontSize: '15px', color: '#c9d1d9', verticalAlign: 'center' } );
+		m_count = _Label( bar, '', { fontSize: '13px', color: '#9aa4b1', verticalAlign: 'center', marginRight: '18px' } );
+		m_status = _Label( bar, 'Click a case to see what\'s inside. A case comes with its key.', { fontSize: '13px', color: '#c9d1d9', verticalAlign: 'center' } );
 
 		// the sections
-		m_scroll = _Panel( m_overlay, { width: '100%', height: 'fill-parent-flow( 1.0 )', flowChildren: 'down', overflow: 'squish scroll', padding: '4px 120px 0px 120px' } );
+		m_scroll = _Panel( m_overlay, { width: '100%', height: 'fill-parent-flow( 1.0 )', flowChildren: 'down', overflow: 'squish scroll', padding: '2px 56px 0px 56px' } );
 		SECTIONS.forEach( function( definition )
 		{
 			var entries = m_data.filter( function( entry ) { return entry[ 2 ] === definition[ 0 ]; } );
@@ -361,8 +368,8 @@ static const char CaseStoreScriptPart2[] = R"js(
 				return;
 			}
 
-			var panel = _Panel( m_scroll, { width: '100%', height: 'fit-children', flowChildren: 'down', padding: '16px 16px 4px 16px', margin: '0px 0px 18px 0px', backgroundColor: '#ffffff0c' } );
-			var title = _Label( panel, '', { fontSize: '17px', color: '#c9d1d9', letterSpacing: '3px', marginBottom: '12px' } );
+			var panel = _Panel( m_scroll, { width: '100%', height: 'fit-children', flowChildren: 'down', padding: '10px 12px 2px 12px', margin: '0px 0px 10px 0px', backgroundColor: SECTION_BACKDROP[ definition[ 0 ] ] || '#ffffff12' } );
+			var title = _Label( panel, '', { fontSize: '13px', color: '#d8dee6', letterSpacing: '3px', marginBottom: '8px' } );
 			var grid = _Panel( panel, { width: '100%', height: 'fit-children', flowChildren: 'right-wrap' } );
 
 			var section = { panel: panel, title: title, name: definition[ 1 ], tiles: [] };
@@ -371,8 +378,8 @@ static const char CaseStoreScriptPart2[] = R"js(
 		} );
 
 		// back button along the bottom
-		var footer = _Panel( m_overlay, { width: '100%', height: '60px', borderTop: '1px solid #ffffff30' } );
-		_Button( footer, 'BACK', { horizontalAlign: 'right', verticalAlign: 'center', marginRight: '120px', width: '130px', height: '40px', backgroundColor: '#ffffff18' }, _Close, { fontSize: '19px' } );
+		var footer = _Panel( m_overlay, { width: '100%', height: '44px', borderTop: '1px solid #ffffff30' } );
+		_Button( footer, 'BACK', { horizontalAlign: 'right', verticalAlign: 'center', marginRight: '56px', width: '100px', height: '30px', backgroundColor: '#ffffff18' }, _Close, { fontSize: '15px', letterSpacing: '2px' } );
 
 		_ShowStars();
 		_ApplyFilter();
@@ -391,8 +398,8 @@ static const char CaseStoreScriptPart2[] = R"js(
 				$.Msg( '[csgo_gc] shop: building the screen failed: ' + e );
 				if ( m_overlay )
 				{
-					_Label( m_overlay, 'The shop could not be built: ' + e, { fontSize: '18px', color: '#ff8080', margin: '40px 120px' } );
-					_Button( m_overlay, 'CLOSE', { margin: '0px 120px', width: '130px', height: '40px', backgroundColor: '#ffffff18' }, _Close );
+					_Label( m_overlay, 'The shop could not be built: ' + e, { fontSize: '16px', color: '#ff8080', margin: '40px 56px' } );
+					_Button( m_overlay, 'CLOSE', { margin: '0px 56px', width: '110px', height: '32px', backgroundColor: '#ffffff18' }, _Close );
 				}
 			}
 		}
