@@ -270,12 +270,12 @@
 	}
 }
 
-// "Prisma Knife Case": the newer knives (Survival, Paracord, Nomad, Skeleton, Classic,
+// "Phantom Blade Case": the newer knives (Survival, Paracord, Nomad, Skeleton, Classic,
 // Bowie, Ursus, Navaja, Stiletto, Talon) in Doppler, Marble Fade, Tiger Tooth, Fade and
 // Crimson Web, which they never shipped with. Replaces Community Case 2 (def 4011).
 "4011"
 {
-	"name"	"Prisma Knife Case"
+	"name"	"Phantom Blade Case"
 
 	"items"
 	{
