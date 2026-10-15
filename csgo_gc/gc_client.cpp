@@ -1834,7 +1834,10 @@ static void AdaptStorePriceSheet(KeyValue &priceSheet, const ItemSchema &itemSch
         for (uint32_t crateDefIndex : crates)
         {
             const ItemInfo *crate = itemSchema.ItemInfoByDefIndex(crateDefIndex);
-            if (!crate || !kindEnabled(itemSchema.GetContainerKind(crateDefIndex))
+            // custom cases are always sold: they aren't a kind of their own, and
+            // without a store entry the client refuses to start the purchase
+            if (!crate
+                || (!itemSchema.IsCustomCase(crateDefIndex) && !kindEnabled(itemSchema.GetContainerKind(crateDefIndex)))
                 || !IsStoreCrate(*crate) || !itemSchema.CanCreateItem(crateDefIndex)
                 || !EnsureStoreEntry(*entries, *crate, &*priceTemplate))
             {

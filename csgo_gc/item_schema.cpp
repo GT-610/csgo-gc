@@ -518,6 +518,11 @@ void ItemSchema::ParseCustomCases(const KeyValue &customCasesKey)
             m_customCaseNames[crateDefIndex] = std::string{ customName };
         }
 
+        if (const uint32_t price = caseKey.GetNumber<uint32_t>("price", 0))
+        {
+            m_customCasePrices[crateDefIndex] = price;
+        }
+
         // the case is its own collection for trade-ups. "zz_" sorts it after
         // the real collections, which win when they know the same skin
         {
@@ -1104,6 +1109,12 @@ bool ItemSchema::IsAddedCase(uint32_t crateDefIndex) const
 bool ItemSchema::IsCustomCase(uint32_t crateDefIndex) const
 {
     return m_customCaseLootLists.contains(crateDefIndex);
+}
+
+uint32_t ItemSchema::CustomCasePrice(uint32_t crateDefIndex) const
+{
+    auto it = m_customCasePrices.find(crateDefIndex);
+    return it != m_customCasePrices.end() ? it->second : 0;
 }
 
 const std::string *ItemSchema::CustomCaseName(uint32_t crateDefIndex) const

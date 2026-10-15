@@ -74,7 +74,8 @@ uint32_t StarShop::Price(const ItemSchema &itemSchema, const StarShopConfig &con
 
     if (itemSchema.IsCustomCase(defIndex))
     {
-        return config.customCasePrice;
+        const uint32_t own = itemSchema.CustomCasePrice(defIndex);
+        return own ? own : config.customCasePrice;
     }
 
     switch (itemSchema.GetContainerKind(defIndex))

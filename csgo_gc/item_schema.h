@@ -259,6 +259,8 @@ public:
     bool IsSingleItemCoupon(uint32_t defIndex) const;
     // custom_cases.txt display name for a crate, or null
     const std::string *CustomCaseName(uint32_t crateDefIndex) const;
+    // star price from the case's own "price" in custom_cases.txt, 0 for the default
+    uint32_t CustomCasePrice(uint32_t crateDefIndex) const;
     // cases custom_cases.txt adds as new items (a name instead of a def index,
     // with "based_on" naming the case to copy the look and key from)
     struct AddedCase
@@ -464,6 +466,7 @@ private:
     // custom_cases.txt: crate def index -> replacement contents
     std::unordered_map<uint32_t, const LootList *> m_customCaseLootLists;
     std::unordered_map<uint32_t, std::string> m_customCaseNames;
+    std::unordered_map<uint32_t, uint32_t> m_customCasePrices;
     std::map<uint32_t, std::vector<std::string>> m_customCasePreviewEntries;
     std::vector<AddedCase> m_addedCases;
 

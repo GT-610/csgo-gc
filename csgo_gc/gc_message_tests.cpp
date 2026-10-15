@@ -3909,6 +3909,45 @@ static bool StoreListsEveryWeaponCaseAndKey()
 }
 
 
+// the client only starts a purchase for items with a store entry, so an added case needs one
+static bool StoreListsAddedCustomCases()
+{
+    RemoveGoldTradeUpFixtures();
+    KeyValue customCases{ "custom_cases" };
+    KeyValue &customCase = customCases.AddSubkey("test_case");
+    customCase.AddString("based_on", "4001");
+    customCase.AddSubkey("items").AddString("[custom_a]weapon_ak47", "rare");
+    if (!WriteGoldTradeUpFixtures() || !customCases.WriteToFile("csgo_gc/custom_cases.txt"))
+    {
+        RemoveGoldTradeUpFixtures();
+        return false;
+    }
+
+    bool valid = true;
+    {
+        ClientGC gc{ 76561197960265729ull };
+
+        CMsgStoreGetUserData storeData;
+        storeData.set_price_sheet_version(0);
+        SendGCProtobuf(gc, k_EMsgGCStoreGetUserData, storeData);
+
+        EventData event;
+        CMsgStoreGetUserDataResponse response;
+        constexpr std::string_view Entry{
+            "\0" "crate_csgogc_test_case\0" "\1" "item_link\0" "crate_csgogc_test_case\0",
+            sizeof("\0" "crate_csgogc_test_case\0" "\1" "item_link\0" "crate_csgogc_test_case\0") - 1
+        };
+
+        valid &= WaitForHostMessage(gc, k_EMsgGCStoreGetUserDataResponse, event)
+            && ParseHostProtobuf(event, response)
+            && response.result() == 1
+            && response.price_sheet().find(Entry) != std::string::npos;
+    }
+
+    RemoveGoldTradeUpFixtures();
+    return valid;
+}
+
 static bool CustomCaseReplacesContents()
 {
     constexpr uint64_t SteamId = 76561197960265729ull;
@@ -4682,6 +4721,7 @@ int main()
         { "MatchEndGivesOneDrop", MatchEndGivesOneDrop },
         { "StoreListsEveryWeaponCaseAndKey", StoreListsEveryWeaponCaseAndKey },
         { "CustomCaseReplacesContents", CustomCaseReplacesContents },
+        { "StoreListsAddedCustomCases", StoreListsAddedCustomCases },
         { "AddedCaseSkinsTradeUp", AddedCaseSkinsTradeUp },
         { "CustomCasePreviewPatchesOnlyTargetLists", CustomCasePreviewPatchesOnlyTargetLists },
         { "CustomCasePreviewBacksUpAndRestores", CustomCasePreviewBacksUpAndRestores },
