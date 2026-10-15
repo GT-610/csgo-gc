@@ -119,6 +119,7 @@ public:
     bool CustomCasePreviews() const { return m_customCasePreviews; }
     bool GoldTradeUpRecipes() const { return m_goldTradeUpRecipes; }
     bool CaseStoreMenu() const { return m_caseStoreMenu; }
+    bool PanoramaDebug() const { return m_panoramaDebug; }
     bool TradeUpMixStatTrak() const { return m_tradeUpMixStatTrak; }
 
     MusicKit::StatTrakGate MusicKitStatTrakGate() const { return m_musicKitStatTrakGate; }
@@ -171,6 +172,7 @@ private:
     bool m_customCasePreviews{ false };
     bool m_goldTradeUpRecipes{ true };
     bool m_caseStoreMenu{ true };
+    bool m_panoramaDebug{ false };
     bool m_tradeUpMixStatTrak{ true };
     bool m_itemDeleteMenu{ true };
 

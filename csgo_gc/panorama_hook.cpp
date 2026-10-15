@@ -6,6 +6,7 @@
 #include "star_shop.h"
 
 #include <regex>
+#include <unordered_set>
 
 // ============================================================================
 // text processing (all platforms)
@@ -385,6 +386,41 @@ constexpr uint8_t RunScriptPrologue[] = { 0x55, 0x8b, 0xec, 0x83, 0xe4, 0xf8, 0x
 constexpr char CaseStoreScriptPath[] = "file://{resources}/scripts/csgo_gc_case_store.js";
 constexpr char CaseStoreDataPath[] = "file://{resources}/scripts/csgo_gc_case_store_data.js";
 
+// panorama_debug: the UI scripts are saved to csgo_gc/panorama_dump/ and a few
+// questions about the operation are asked and logged, so it's clear why the
+// operation page does or doesn't show
+std::unordered_set<std::string> s_dumpedScripts;
+std::chrono::steady_clock::time_point s_mainMenuLoadedAt;
+int s_diagnosticRuns;
+bool s_diagnosticsPending;
+
+void DumpScript(const char *path, const char *source)
+{
+    if (!s_dumpedScripts.insert(path).second)
+    {
+        return;
+    }
+
+    std::string name;
+    for (const char *c = path; *c; ++c)
+    {
+        name += (isalnum(static_cast<unsigned char>(*c)) || *c == '.' || *c == '-') ? *c : '_';
+    }
+    if (name.size() > 150)
+    {
+        name = name.substr(name.size() - 150);
+    }
+
+    CreateDirectoryA("csgo_gc", nullptr);
+    CreateDirectoryA("csgo_gc/panorama_dump", nullptr);
+    std::string file = "csgo_gc/panorama_dump/" + name;
+    if (FILE *f = fopen(file.c_str(), "wb"))
+    {
+        fwrite(source, 1, strlen(source), f);
+        fclose(f);
+    }
+}
+
 RunScriptFn s_originalRunScript;
 bool s_installDone;
 
@@ -508,6 +544,11 @@ void __fastcall Hk_RunScript(void *engine, void *edx, void *panel, const char *s
         return;
     }
 
+    if (GetConfig().PanoramaDebug())
+    {
+        DumpScript(path, source);
+    }
+
     if (GetConfig().GoldTradeUpRecipes() && PathIsFile(path, "item_context_entries.js"))
     {
         std::string patched = source;
@@ -537,6 +578,9 @@ void __fastcall Hk_RunScript(void *engine, void *edx, void *panel, const char *s
         s_starsSent = -2;
         s_originalRunScript(engine, edx, panel, PanoramaHook::CaseStoreScript().c_str(), CaseStoreScriptPath, 0, 0, 0, 0);
         Platform::Print("Panorama: Case Store added to the main menu\n");
+        s_mainMenuLoadedAt = std::chrono::steady_clock::now();
+        s_diagnosticRuns = 0;
+        s_diagnosticsPending = GetConfig().PanoramaDebug();
         PanoramaHook::Tick();
     }
 }
@@ -550,7 +594,7 @@ void PanoramaHook::TryInstall()
         return;
     }
 
-    if (!GetConfig().CaseStoreMenu() && !GetConfig().GoldTradeUpRecipes())
+    if (!GetConfig().CaseStoreMenu() && !GetConfig().GoldTradeUpRecipes() && !GetConfig().PanoramaDebug())
     {
         s_installDone = true;
         return;
@@ -610,11 +654,70 @@ bool PanoramaHook::HasCaseStoreData()
     return !s_caseStoreData.empty();
 }
 
+// logs what the game thinks about the operation, to the console
+static const char DiagnosticScript[] = R"js(
+( function()
+{
+	function log( text ) { $.Msg( '[csgo_gc] ' + text ); }
+	function ask( name, fn )
+	{
+		try { log( name + ' = ' + fn() ); }
+		catch ( e ) { log( name + ' failed: ' + e ); }
+	}
+
+	ask( 'MyPersonaAPI.GetActiveSeasonIndex', function() { return MyPersonaAPI.GetActiveSeasonIndex(); } );
+	ask( 'MyPersonaAPI.GetActiveSeasonAccess', function() { return MyPersonaAPI.GetActiveSeasonAccess(); } );
+	ask( 'MyPersonaAPI.GetActiveSeasonCoinRank', function() { return MyPersonaAPI.GetActiveSeasonCoinRank(); } );
+	ask( 'MyPersonaAPI.GetActiveSeasonPassTime', function() { return MyPersonaAPI.GetActiveSeasonPassTime(); } );
+	ask( 'MyPersonaAPI.GetActiveSeasonRedeemableBalance', function() { return MyPersonaAPI.GetActiveSeasonRedeemableBalance(); } );
+	ask( 'GameTypesAPI.GetActiveSeasonIndex', function() { return GameTypesAPI.GetActiveSeasonIndex(); } );
+	ask( 'typeof OperationUtil', function() { return typeof OperationUtil; } );
+	ask( 'typeof MissionsAPI', function() { return typeof MissionsAPI; } );
+
+	var nav = $.GetContextPanel().FindChildTraverse( 'JsMainMenuNavBar' );
+	if ( !nav )
+	{
+		log( 'no JsMainMenuNavBar' );
+		return;
+	}
+
+	for ( var i = 0; i < nav.GetChildCount(); i++ )
+	{
+		var child = nav.GetChild( i );
+		log( 'navbar child ' + i + ': id=' + child.id + ' visible=' + child.visible );
+	}
+
+	[ 'MainMenuNavBarOperation', 'JsOperation', 'id-op-mainmenu-top', 'id-op-mainmenu-rewards', 'id-op-mainmenu-missions' ].forEach( function( id )
+	{
+		var panel = $.GetContextPanel().FindChildTraverse( id );
+		log( 'panel ' + id + ': ' + ( panel ? ( 'found, visible=' + panel.visible ) : 'not found' ) );
+	} );
+} )();
+)js";
+
 void PanoramaHook::Tick()
 {
     if (!s_originalRunScript || !s_mainMenuPanel)
     {
         return;
+    }
+
+    // the answers change once the game has its account data, so ask a few times
+    if (s_diagnosticsPending)
+    {
+        const auto sinceLoad = std::chrono::steady_clock::now() - s_mainMenuLoadedAt;
+        const int dueRuns = sinceLoad > std::chrono::seconds{ 45 } ? 3 : sinceLoad > std::chrono::seconds{ 20 } ? 2
+            : sinceLoad > std::chrono::seconds{ 5 } ? 1 : 0;
+        if (s_diagnosticRuns < dueRuns)
+        {
+            s_diagnosticRuns = dueRuns;
+            s_originalRunScript(s_uiEngine, nullptr, s_mainMenuPanel, DiagnosticScript,
+                "file://{resources}/scripts/csgo_gc_diagnostics.js", 0, 0, 0, 0);
+            if (s_diagnosticRuns >= 3)
+            {
+                s_diagnosticsPending = false;
+            }
+        }
     }
 
     if (!s_caseStoreDataSent && !s_caseStoreData.empty())

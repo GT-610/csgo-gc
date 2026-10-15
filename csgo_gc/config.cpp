@@ -61,6 +61,7 @@ GCConfig::GCConfig()
     m_customCasePreviews = config.GetNumber("custom_case_previews", m_customCasePreviews);
     m_goldTradeUpRecipes = config.GetNumber("gold_tradeup_recipes", m_goldTradeUpRecipes);
     m_caseStoreMenu = config.GetNumber("case_store_menu", m_caseStoreMenu);
+    m_panoramaDebug = config.GetNumber("panorama_debug", m_panoramaDebug);
     m_tradeUpMixStatTrak = config.GetNumber("tradeup_mix_stattrak", m_tradeUpMixStatTrak);
     m_primeStatus = config.GetNumber("prime_status", m_primeStatus);
 

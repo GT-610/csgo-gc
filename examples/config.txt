@@ -164,6 +164,11 @@
 	"enabled"	"0"
 }
 
+// for debugging the menus: saves the game's UI scripts to csgo_gc/panorama_dump/ and
+// logs what the game thinks about the operation (lines starting with [csgo_gc]).
+// turn it on, start the game, and send the files and log lines
+"panorama_debug"	"0"
+
 // remove keys, cases, stickers, etc. after they've been used
 "destroy_used_items"	"1"
 
