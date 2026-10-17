@@ -58,6 +58,8 @@ GCConfig::GCConfig()
         m_dangerZoneWins = ranks->GetNumber("dangerzone_wins", m_dangerZoneWins);
     }
 
+    m_itemSchemaPath = config.GetString("item_schema_path", m_itemSchemaPath);
+
     m_destroyUsedItems = config.GetNumber("destroy_used_items", m_destroyUsedItems);
     m_primeStatus = config.GetNumber("prime_status", m_primeStatus);
 

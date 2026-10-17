@@ -61,3 +61,7 @@
 // 1 = log to in-game console
 // 2 = log to in-game console and file (gc_log.txt)
 "log_output"	"1"
+
+// optionally load the item schema from another location
+// normally this should always be the path the game loads it from
+"item_schema_path"	"csgo/scripts/items/items_game.txt"

@@ -43,7 +43,7 @@ static bool NonPrimeStatusFreezesReportedElevatedState()
     // This process is launched with a dedicated working directory whose
     // csgo_gc/config.txt disables prime_status, since GetConfig() latches
     // on first use and cannot switch configurations within one process.
-    bool valid = GetConfig().PrimeStatus() == false;
+    bool valid = GetConfig().m_primeStatus == false;
     {
         Inventory inventory{ SteamId };
         CMsgSOCacheSubscribed subscription;

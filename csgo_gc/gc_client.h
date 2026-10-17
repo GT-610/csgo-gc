@@ -101,7 +101,7 @@ private:
     void StorePurchaseFinalize(GCMessageRead &messageRead);
     void IgnoreMatchmakingStart(GCMessageRead &messageRead);
     void IgnoreMatchmakingStop(GCMessageRead &messageRead);
-    void IgnorePartyRegister(GCMessageRead &messageRead);
+    void HandlePartyRegister(GCMessageRead &messageRead);
     void IgnorePartyUnregister(GCMessageRead &messageRead);
     void HandlePartySearch(GCMessageRead &messageRead);
     void HandleAccountRequestCoPlays(GCMessageRead &messageRead);

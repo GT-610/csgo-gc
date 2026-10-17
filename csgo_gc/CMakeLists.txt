@@ -259,6 +259,7 @@ if (BUILD_TESTING)
 
     add_executable(item_schema_tests
         item_schema_tests.cpp
+        config.cpp
         item_schema.cpp
         keyvalue.cpp)
 

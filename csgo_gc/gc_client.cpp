@@ -7,6 +7,7 @@
 #include "keyvalue.h"
 #include "music_kit.h"
 #include "networking_shared.h"
+#include "random.h"
 
 #include <cerrno>
 #include <cmath>
@@ -358,7 +359,7 @@ ClientGC::~ClientGC()
 
 bool ClientGC::MusicKitStatTrakActive() const
 {
-    return MusicKit::ShouldTrackStatTrak(GetConfig().MusicKitStatTrakGate());
+    return MusicKit::ShouldTrackStatTrak(GetConfig().m_musicKitStatTrakGate);
 }
 
 uint32_t ClientGC::LocalPlayerMusicKitMVPsForRoundMVPEvent() const
@@ -1156,7 +1157,7 @@ void ClientGC::HandleMessage(uint32_t type, const void *data, uint32_t size)
             break;
 
         case k_EMsgGCCStrike15_v2_Party_Register:
-            IgnorePartyRegister(messageRead);
+            HandlePartyRegister(messageRead);
             break;
 
         case k_EMsgGCCStrike15_v2_Party_Unregister:
@@ -1244,10 +1245,34 @@ void ClientGC::IgnoreMatchmakingStop(GCMessageRead &messageRead)
     (void)messageRead.ReadProtobuf(request);
 }
 
-void ClientGC::IgnorePartyRegister(GCMessageRead &messageRead)
+void ClientGC::HandlePartyRegister(GCMessageRead &messageRead)
 {
     CMsgGCCStrike15_v2_Party_Register request;
-    (void)messageRead.ReadProtobuf(request);
+    if (!messageRead.ReadProtobuf(request))
+    {
+        Platform::Print("Parsing CMsgGCCStrike15_v2_Party_Register failed, ignoring\n");
+        return;
+    }
+
+    // The client registers its own party metadata and waits for the party id
+    // the GC assigned. Without an answer the party browser never settles, so
+    // echo the record back with a stable slot and rating layout.
+    uint32_t partyId = request.id();
+    if (!partyId)
+    {
+        partyId = Random{}.Integer<uint32_t>(1, UINT32_MAX);
+    }
+
+    CMsgGCCStrike15_v2_Party_Register response;
+    response.set_id(partyId);
+    response.set_ver(request.ver());
+    response.set_apr(1);
+    response.set_ark(static_cast<uint32_t>(GetConfig().m_competitiveRank) * 10);
+    response.set_grp(3);
+    response.set_slots(5);
+    response.set_launcher(request.launcher());
+    response.set_game_type(request.game_type());
+    SendMessageToGame(false, k_EMsgGCCStrike15_v2_Party_Register, response);
 }
 
 void ClientGC::IgnorePartyUnregister(GCMessageRead &messageRead)
@@ -1778,10 +1803,10 @@ void ClientGC::BuildMatchmakingHello(CMsgGCCStrike15_v2_MatchmakingGC2ClientHell
     message.mutable_global_stats()->set_active_tournament_eventid(20);
     message.mutable_global_stats()->set_active_survey_id(0);
 
-    message.set_vac_banned(GetConfig().AccountStatus());
-    message.mutable_commendation()->set_cmd_friendly(GetConfig().CommendedFriendly());
-    message.mutable_commendation()->set_cmd_teaching(GetConfig().CommendedTeaching());
-    message.mutable_commendation()->set_cmd_leader(GetConfig().CommendedLeader());
+    message.set_vac_banned(GetConfig().m_vacBanned);
+    message.mutable_commendation()->set_cmd_friendly(GetConfig().m_commendedFriendly);
+    message.mutable_commendation()->set_cmd_teaching(GetConfig().m_commendedTeaching);
+    message.mutable_commendation()->set_cmd_leader(GetConfig().m_commendedLeader);
     message.set_player_level(m_inventory.PlayerLevel());
     message.set_player_cur_xp(m_inventory.PlayerXp());
 }
@@ -1828,7 +1853,7 @@ void ClientGC::BuildClientWelcome(CMsgClientWelcome &message, const CMsgClientHe
 
 void ClientGC::SendOverwatchCaseAssignment()
 {
-    if (!GetConfig().OverwatchEnabled())
+    if (!GetConfig().m_overwatchEnabled)
     {
         return;
     }
@@ -1902,20 +1927,20 @@ void ClientGC::SendRankUpdate()
 
     PlayerRankingInfo *rank = message.add_rankings();
     rank->set_account_id(AccountId());
-    rank->set_rank_id(GetConfig().CompetitiveRank());
-    rank->set_wins(GetConfig().CompetitiveWins());
+    rank->set_rank_id(GetConfig().m_competitiveRank);
+    rank->set_wins(GetConfig().m_competitiveWins);
     rank->set_rank_type_id(RankTypeCompetitive);
 
     rank = message.add_rankings();
     rank->set_account_id(AccountId());
-    rank->set_rank_id(GetConfig().WingmanRank());
-    rank->set_wins(GetConfig().WingmanWins());
+    rank->set_rank_id(GetConfig().m_wingmanRank);
+    rank->set_wins(GetConfig().m_wingmanWins);
     rank->set_rank_type_id(RankTypeWingman);
 
     rank = message.add_rankings();
     rank->set_account_id(AccountId());
-    rank->set_rank_id(GetConfig().DangerZoneRank());
-    rank->set_wins(GetConfig().DangerZoneWins());
+    rank->set_rank_id(GetConfig().m_dangerZoneRank);
+    rank->set_wins(GetConfig().m_dangerZoneWins);
     rank->set_rank_type_id(RankTypeDangerZone);
 
     SendMessageToGame(false, k_EMsgGCCStrike15_v2_ClientGCRankUpdate, message);
@@ -2026,7 +2051,7 @@ void ClientGC::PlayerOverwatchCaseUpdate(GCMessageRead &messageRead)
         return;
     }
 
-    if (GetConfig().OverwatchEnabled() && !request.has_caseid())
+    if (GetConfig().m_overwatchEnabled && !request.has_caseid())
     {
         SendOverwatchCaseAssignment();
     }

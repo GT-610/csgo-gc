@@ -2839,8 +2839,8 @@ static bool WritePrestigeFixtures(std::string_view versionDate)
     KeyValue inventory{ "inventory" };
     inventory.AddNumber("format_version", 1);
     KeyValue &playerState = inventory.AddSubkey("player_state");
-    playerState.AddNumber("configured_level", GetConfig().Level());
-    playerState.AddNumber("configured_xp", GetConfig().Xp());
+    playerState.AddNumber("configured_level", GetConfig().m_level);
+    playerState.AddNumber("configured_xp", GetConfig().m_xp);
     playerState.AddNumber("level", CSGOMaxPlayerLevel);
     playerState.AddNumber("xp", 4999);
     inventory.AddSubkey("items");
@@ -4066,7 +4066,24 @@ static bool OfflineGCRequestsReceiveMinimalResponses()
     SendGCProtobuf(gc, k_EMsgGCCStrike15_v2_MatchmakingStop, matchmakingStop);
 
     CMsgGCCStrike15_v2_Party_Register partyRegister;
+    partyRegister.set_ver(2);
+    partyRegister.set_launcher(1);
+    partyRegister.set_game_type(6);
     SendGCProtobuf(gc, k_EMsgGCCStrike15_v2_Party_Register, partyRegister);
+
+    EventData partyRegisterEvent;
+    CMsgGCCStrike15_v2_Party_Register partyRegisterResponse;
+    valid &= WaitForHostMessage(gc, k_EMsgGCCStrike15_v2_Party_Register, partyRegisterEvent)
+        && ParseHostProtobuf(partyRegisterEvent, partyRegisterResponse)
+        && partyRegisterResponse.id() != 0
+        && partyRegisterResponse.ver() == 2
+        && partyRegisterResponse.apr() == 1
+        && partyRegisterResponse.ark()
+            == static_cast<uint32_t>(GetConfig().m_competitiveRank) * 10
+        && partyRegisterResponse.grp() == 3
+        && partyRegisterResponse.slots() == 5
+        && partyRegisterResponse.launcher() == 1
+        && partyRegisterResponse.game_type() == 6;
 
     CMsgGCCStrike15_v2_MatchListRequestCurrentLiveGames emptyRequest;
     SendGCProtobuf(gc, k_EMsgGCCStrike15_v2_Party_Unregister, emptyRequest);
@@ -4267,13 +4284,13 @@ static bool SouvenirOpeningPublishesOnlyValidObjects()
                     && notification.item_id_size() == 1 && notification.item_id(0) == createdId;
             }
         }
-        valid &= created == 1 && destroyed == (GetConfig().DestroyUsedItems() ? 1u : 0u);
+        valid &= created == 1 && destroyed == (GetConfig().m_destroyUsedItems ? 1u : 0u);
         valid &= HostMessageOrNetMessageNotReceived(gc, k_ESOMsg_Destroy,
             std::chrono::milliseconds{ 100 });
     }
     {
         Inventory persisted{ SteamId };
-        valid &= bool(persisted.GetItem(PackageId)) == !GetConfig().DestroyUsedItems();
+        valid &= bool(persisted.GetItem(PackageId)) == !GetConfig().m_destroyUsedItems;
     }
     RemoveCustomizationFixtures();
     return valid;

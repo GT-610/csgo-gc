@@ -17,11 +17,11 @@ void Print(const char *, ...)
     // Match the production logger's dependency, including recursive GetConfig().
     const GCConfig &config = GetConfig();
     printCalls.fetch_add(1, std::memory_order_relaxed);
-    if (config.GetLogOutput() > LogOutputNone)
+    if (config.m_logOutput > LogOutputNone)
     {
         emittedWarnings.fetch_add(1, std::memory_order_relaxed);
     }
-    if (expectCustomValues && (config.AppIdOverride() != 12345 || config.Xp() != 987))
+    if (expectCustomValues && (config.m_appIdOverride != 12345 || config.m_xp != 987))
     {
         fullyInitialized.store(false, std::memory_order_relaxed);
     }
@@ -43,11 +43,11 @@ int main(int argc, char **argv)
     }
     const GCConfig &config = GetConfig();
     const unsigned expectedCalls = invalidMusicKit ? 1 : 0;
-    const unsigned expectedEmitted = invalidMusicKit && config.GetLogOutput() > LogOutputNone ? 1 : 0;
+    const unsigned expectedEmitted = invalidMusicKit && config.m_logOutput > LogOutputNone ? 1 : 0;
     const bool valid = printCalls.load() == expectedCalls
         && emittedWarnings.load() == expectedEmitted
         && fullyInitialized.load()
-        && config.MusicKitStatTrakGate() == MusicKit::StatTrakGate::CompetitiveRuleset;
+        && config.m_musicKitStatTrakGate == MusicKit::StatTrakGate::CompetitiveRuleset;
     std::printf("Config initialization: %s (calls=%u, emitted=%u)\n",
         valid ? "PASS" : "FAIL", printCalls.load(), emittedWarnings.load());
     return valid ? 0 : 1;

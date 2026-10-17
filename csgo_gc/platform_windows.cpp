@@ -23,19 +23,21 @@ void Initialize()
 
 void Print(const char *format, ...)
 {
-    LogOutput logOutput = GetConfig().GetLogOutput();
-    if (logOutput <= LogOutputNone)
-    {
-        // no logging
-        return;
-    }
-
     va_list ap;
     char buffer[4096];
 
     va_start(ap, format);
     vsnprintf(buffer, sizeof(buffer), format, ap);
     va_end(ap);
+
+    // Buffer first, then consult the config. Messages logged while the config
+    // is still under construction would otherwise be dropped entirely.
+    LogOutput logOutput = GetConfig().m_logOutput;
+    if (logOutput <= LogOutputNone)
+    {
+        // no logging
+        return;
+    }
 
     if (s_ConColorMsg)
     {

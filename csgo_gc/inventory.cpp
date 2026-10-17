@@ -140,8 +140,8 @@ static bool IsUncustomizedBaseItemClone(const CSOEconItem &item)
 
 Inventory::Inventory(uint64_t steamId)
     : m_steamId{ steamId }
-    , m_configuredPlayerLevel{ GetConfig().Level() }
-    , m_configuredPlayerXp{ GetConfig().Xp() }
+    , m_configuredPlayerLevel{ GetConfig().m_level }
+    , m_configuredPlayerXp{ GetConfig().m_xp }
     , m_playerLevel{ m_configuredPlayerLevel }
     , m_playerXp{ m_configuredPlayerXp }
     , m_version{ InitialInventoryVersion() }
@@ -341,7 +341,7 @@ bool Inventory::ClaimPrestigeMedal(uint32_t year, uint32_t expectedDefIndex,
 
     CSOPersonaDataPublic personaData;
     personaData.set_player_level(m_playerLevel);
-    personaData.set_elevated_state(GetConfig().PrimeStatus());
+    personaData.set_elevated_state(GetConfig().m_primeStatus);
     ToSingleObject(claim.personaData, SOTypePersonaDataPublic, personaData);
 
     if (!WriteToFile())
@@ -887,7 +887,7 @@ void Inventory::BuildCacheSubscription(CMsgSOCacheSubscribed &message, bool serv
     {
         CSOPersonaDataPublic personaData;
         personaData.set_player_level(m_playerLevel);
-        personaData.set_elevated_state(GetConfig().PrimeStatus());
+        personaData.set_elevated_state(GetConfig().m_primeStatus);
 
         CMsgSOCacheSubscribed_SubscribedType *object = message.add_objects();
         object->set_type_id(SOTypePersonaDataPublic);
@@ -922,7 +922,7 @@ void Inventory::BuildCacheSubscription(CMsgSOCacheSubscribed &message, bool serv
         accountClient.set_additional_backpack_slots(0);
         accountClient.set_bonus_xp_timestamp_refresh(static_cast<uint32_t>(time(nullptr)));
         accountClient.set_bonus_xp_usedflags(16); // caught cheater lobbies, overwatch bonus etc
-        accountClient.set_elevated_state(GetConfig().PrimeStatus() ? ElevatedStatePrime : ElevatedStateNo);
+        accountClient.set_elevated_state(GetConfig().m_primeStatus ? ElevatedStatePrime : ElevatedStateNo);
 
         CMsgSOCacheSubscribed_SubscribedType *object = message.add_objects();
         object->set_type_id(SOTypeGameAccountClient);
@@ -1432,7 +1432,7 @@ bool Inventory::UnlockCrate(uint64_t crateId,
     notification.set_request(k_EGCItemCustomizationNotification_UnlockCrate);
 
     // remove the crate
-    if (GetConfig().DestroyUsedItems())
+    if (GetConfig().m_destroyUsedItems)
     {
         DestroyItem(m_items.find(crateId), destroyCrate);
 
@@ -1557,7 +1557,7 @@ bool Inventory::OpenMegaBundle(uint64_t bundleId,
     }
     notification.set_request(k_EGCItemCustomizationNotification_UnlockCrate);
 
-    if (GetConfig().DestroyUsedItems())
+    if (GetConfig().m_destroyUsedItems)
     {
         bundle = m_items.find(bundleId);
         if (bundle != m_items.end())
@@ -1602,7 +1602,7 @@ bool Inventory::OpenStatTrakSwapToolBundle(uint64_t bundleId,
     }
     notification.set_request(k_EGCItemCustomizationNotification_UnlockCrate);
 
-    if (GetConfig().DestroyUsedItems())
+    if (GetConfig().m_destroyUsedItems)
     {
         bundle = m_items.find(bundleId);
         if (bundle != m_items.end())
@@ -1644,7 +1644,7 @@ bool Inventory::OpenSouvenirPackage(uint64_t packageId,
     notification.set_request(k_EGCItemCustomizationNotification_GenerateSouvenir);
 
     // remove the package
-    if (GetConfig().DestroyUsedItems())
+    if (GetConfig().m_destroyUsedItems)
     {
         DestroyItem(m_items.find(packageId), destroyPackage);
     }
@@ -1831,6 +1831,10 @@ void Inventory::ItemToPreviewDataBlock(const CSOEconItem &item, CEconItemPreview
         case ItemSchema::AttributeStickerRotation5:
             stickers[5].set_rotation(m_itemSchema.AttributeFloat(&attribute));
             break;
+
+        default:
+            // does not affect the preview block
+            break;
         }
     }
 
@@ -1991,7 +1995,7 @@ bool Inventory::ApplySticker(const CMsgApplySticker &message,
     ToSingleObject(update, *item);
 
     // remove the sticker
-    if (GetConfig().DestroyUsedItems())
+    if (GetConfig().m_destroyUsedItems)
     {
         DestroyItem(sticker, destroy);
     }
@@ -2368,7 +2372,7 @@ bool Inventory::NameItem(uint64_t nameTagId,
 
     ToSingleObject(update, item);
 
-    if (GetConfig().DestroyUsedItems() && tag != m_items.end())
+    if (GetConfig().m_destroyUsedItems && tag != m_items.end())
     {
         DestroyItem(tag, destroy);
     }
@@ -2415,7 +2419,7 @@ bool Inventory::NameBaseItem(uint64_t nameTagId,
 
     ToSingleObject(create, item);
 
-    if (GetConfig().DestroyUsedItems())
+    if (GetConfig().m_destroyUsedItems)
     {
         DestroyItem(m_items.find(nameTagId), destroy);
     }
@@ -2888,7 +2892,7 @@ Inventory::StorageTransaction Inventory::WithdrawItemFromStorage(uint64_t storag
 
 void Inventory::ConsumeToolItem(uint64_t toolId, CMsgSOSingleObject &removalMsg)
 {
-    if (!GetConfig().DestroyUsedItems())
+    if (!GetConfig().m_destroyUsedItems)
         return;
         
     auto it = m_items.find(toolId);

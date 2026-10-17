@@ -23,46 +23,9 @@ class GCConfig
 public:
     GCConfig();
 
-    // options used by platform layer (bruh)
-    LogOutput GetLogOutput() const { return m_logOutput; }
-
-    // options used by steam hook
-    uint32_t AppIdOverride() const { return m_appIdOverride; }
-    bool ShowCsgoGCServersOnly() const { return m_showCsgoGCServersOnly; }
-    bool OverwatchEnabled() const { return m_overwatchEnabled; }
-    bool RconEnabled() const { return m_rconEnabled; }
-    const std::string &RconBindAddress() const { return m_rconBindAddress; }
-    uint16_t RconPort() const { return m_rconPort; }
-    const std::string &RconPassword() const { return m_rconPassword; }
-
-    RankId CompetitiveRank() const { return m_competitiveRank; }
-    int CompetitiveWins() const { return m_competitiveWins; }
-    RankId WingmanRank() const { return m_wingmanRank; }
-    int WingmanWins() const { return m_wingmanWins; }
-    DangerZoneRankId DangerZoneRank() const { return m_dangerZoneRank; }
-    int DangerZoneWins() const { return m_dangerZoneWins; }
-
-    bool DestroyUsedItems() const { return m_destroyUsedItems; }
-
-    MusicKit::StatTrakGate MusicKitStatTrakGate() const { return m_musicKitStatTrakGate; }
-
-    // prime status shown to the game client, frozen at the configured value
-    bool PrimeStatus() const { return m_primeStatus; }
-
-    bool AccountStatus() const { return m_vacBanned; }
-    int CommendedFriendly() const { return m_commendedFriendly; }
-    int CommendedTeaching() const { return m_commendedTeaching; }
-    int CommendedLeader() const { return m_commendedLeader; }
-    int Level() const { return m_level; }
-    int Xp() const { return m_xp; }
-
     float GetRarityWeight(uint32_t rarity) const;
 
-private:
-    friend const GCConfig &GetConfig();
-    void PrintDiagnostics() const;
-    std::string m_unknownMusicKitStatTrak;
-
+    // Log level for Platform::Print.
     LogOutput m_logOutput{ LogOutputConsole };
 
     // actually default to 4465480 instead of 730, people are going to use old configs
@@ -74,6 +37,10 @@ private:
     std::string m_rconBindAddress{ "127.0.0.1" };
     uint16_t m_rconPort{ 37016 };
     std::string m_rconPassword;
+
+    // Path the item schema is loaded from. Keep this in sync with the path the
+    // game itself reads so item definitions match the running client.
+    std::string m_itemSchemaPath{ "csgo/scripts/items/items_game.txt" };
 
     RankId m_competitiveRank{ RankNone };
     int m_competitiveWins{ 0 };
@@ -97,6 +64,11 @@ private:
     int m_commendedLeader{ 0 };
     int m_level{ 0 };
     int m_xp{ 0 };
+
+private:
+    friend const GCConfig &GetConfig();
+    void PrintDiagnostics() const;
+    std::string m_unknownMusicKitStatTrak;
 
     // default to valve weights
     std::vector<RarityWeight> m_rarityWeights{

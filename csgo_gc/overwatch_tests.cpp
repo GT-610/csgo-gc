@@ -78,7 +78,7 @@ static bool OverwatchAssignmentIsSentOnHelloAndPoll()
 {
     constexpr uint64_t SteamId = 76561197960265729ull;
 
-    if (!GetConfig().OverwatchEnabled())
+    if (!GetConfig().m_overwatchEnabled)
     {
         return false;
     }

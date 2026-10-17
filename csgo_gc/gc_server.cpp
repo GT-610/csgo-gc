@@ -32,7 +32,7 @@ bool ServerGC::RoundMVPMusicKitCountForUserId(int userId, int &musickitmvps) con
 {
     // Evaluate the gate at publish time. A server can change its game mode between
     // rounds, so a value cached at connect time would go stale.
-    if (!MusicKit::ShouldTrackStatTrak(GetConfig().MusicKitStatTrakGate()))
+    if (!MusicKit::ShouldTrackStatTrak(GetConfig().m_musicKitStatTrakGate))
     {
         return false;
     }

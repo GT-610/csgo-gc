@@ -194,18 +194,18 @@ void RconServer::Start()
     const GCConfig &config = GetConfig();
 
     Platform::Print("RCON: config enabled=%d bind_address=%s port=%u protocol=source password=%s\n",
-        config.RconEnabled() ? 1 : 0,
-        config.RconBindAddress().c_str(),
-        config.RconPort(),
-        config.RconPassword().empty() ? "empty" : "set");
+        config.m_rconEnabled ? 1 : 0,
+        config.m_rconBindAddress.c_str(),
+        config.m_rconPort,
+        config.m_rconPassword.empty() ? "empty" : "set");
 
-    if (!config.RconEnabled())
+    if (!config.m_rconEnabled)
     {
         Platform::Print("RCON: disabled\n");
         return;
     }
 
-    if (config.RconPassword().empty())
+    if (config.m_rconPassword.empty())
     {
         Platform::Print("WARNING: RCON is enabled with an empty password; any Source RCON password will authenticate. Keep bind_address local or set rcon.password.\n");
     }
@@ -310,13 +310,13 @@ void RconServer::ThreadMain()
     hints.ai_flags = AI_PASSIVE;
 
     addrinfo *result = nullptr;
-    std::string port = std::to_string(GetConfig().RconPort());
-    int gai = getaddrinfo(GetConfig().RconBindAddress().c_str(), port.c_str(), &hints, &result);
+    std::string port = std::to_string(GetConfig().m_rconPort);
+    int gai = getaddrinfo(GetConfig().m_rconBindAddress.c_str(), port.c_str(), &hints, &result);
     if (gai != 0)
     {
         MarkListenerFailed();
         Platform::Print("RCON: getaddrinfo failed for %s:%s (error %d); disabled for this process\n",
-            GetConfig().RconBindAddress().c_str(),
+            GetConfig().m_rconBindAddress.c_str(),
             port.c_str(),
             gai);
         return;
@@ -365,7 +365,7 @@ void RconServer::ThreadMain()
         MarkListenerFailed();
         Platform::Print("RCON: %s failed on %s:%s (socket error %d); disabled for this process\n",
             failedOperation,
-            GetConfig().RconBindAddress().c_str(),
+            GetConfig().m_rconBindAddress.c_str(),
             port.c_str(),
             socketError);
         return;
@@ -388,7 +388,7 @@ void RconServer::ThreadMain()
         m_listenSocket = ToHandle(listenSocket);
     }
 
-    Platform::Print("RCON: listening on %s:%s\n", GetConfig().RconBindAddress().c_str(), port.c_str());
+    Platform::Print("RCON: listening on %s:%s\n", GetConfig().m_rconBindAddress.c_str(), port.c_str());
 
     while (m_running.load())
     {
@@ -575,7 +575,7 @@ bool RconServer::HandlePacket(uintptr_t socketHandle, int32_t requestId, int32_t
 
 bool RconServer::IsSourceRconPassword(std::string_view password) const
 {
-    const std::string &configuredPassword = GetConfig().RconPassword();
+    const std::string &configuredPassword = GetConfig().m_rconPassword;
     return configuredPassword.empty() || password == configuredPassword;
 }
 

@@ -1255,7 +1255,7 @@ public:
             buffer.assign(pchFilters, pchFilters + nFilters);
         }
 
-        if (GetConfig().ShowCsgoGCServersOnly())
+        if (GetConfig().m_showCsgoGCServersOnly)
         {
             buffer.push_back({ "gametagsand", "csgo_gc" });
         }
@@ -2186,7 +2186,7 @@ void SteamHookInstall(bool dedicated)
     }
 
     // see if we should write funchook logs to file
-    if (GetConfig().GetLogOutput() == LogOutputFile)
+    if (GetConfig().m_logOutput == LogOutputFile)
     {
         // same file as gc logs... both will open, append, and close so it's fine
         funchook_set_debug_file("gc_log.txt");
