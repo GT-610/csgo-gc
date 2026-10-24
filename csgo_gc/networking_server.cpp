@@ -20,7 +20,7 @@ bool NetworkingServer::ReceiveMessage(SteamNetworkingMessage_t *&message)
     uint64_t steamId = message->m_identityPeer.GetSteamID64();
 
     // see if we have a session
-    if (!m_clients.Has(steamId))
+    if (!m_clients.contains(steamId))
     {
         Platform::Print("NetworkingServer: ignored message from %llu (no session)\n", steamId);
         message->Release();
@@ -64,28 +64,49 @@ static void SendMessageToUser(ISteamNetworkingMessages *networkingMessages, uint
     }
 }
 
-void NetworkingServer::ClientConnected(uint64_t steamId, const void *ticket, uint32_t ticketSize)
+void NetworkingServer::SendConnectMessage(uint64_t steamId, const ClientSession &session)
 {
-    if (!m_clients.Add(steamId))
-    {
-        Platform::Print("got ClientConnected for %llu but they're already on the list! ignoring\n", steamId);
-        return;
-    }
-
     // send a message, if the client has csgo_gc installed they will
     // reply with their so cache and we'll add them to our list
     GCMessageWrite messageWrite{ k_EMsgNetworkConnect };
-    messageWrite.WriteUint32(ticketSize);
-    messageWrite.WriteData(ticket, ticketSize);
+    messageWrite.WriteUint32(static_cast<uint32_t>(session.ticket.size()));
+    if (!session.ticket.empty())
+    {
+        messageWrite.WriteData(session.ticket.data(), static_cast<uint32_t>(session.ticket.size()));
+    }
 
-    // NOTE: this gets sent when the client is connecting to the server, it's not uncommon for
-    // the connection to time out, in which case the player's socache never gets to the server
     SendMessageToUser(m_networkingMessages, steamId, messageWrite.Data(), messageWrite.Size());
+}
+
+void NetworkingServer::ClientConnected(uint64_t steamId, const void *ticket, uint32_t ticketSize)
+{
+    auto [it, inserted] = m_clients.try_emplace(steamId);
+    ClientSession &session = it->second;
+
+    if (ticketSize && ticket)
+    {
+        const auto *ticketBytes = static_cast<const uint8_t *>(ticket);
+        session.ticket.assign(ticketBytes, ticketBytes + ticketSize);
+    }
+    else
+    {
+        session.ticket.clear();
+    }
+
+    if (!inserted)
+    {
+        // The game can begin a new auth session for a player without telling us that
+        // the previous one ended. The connect message carries this ticket and the
+        // client validates it, so re-send the handshake with the current ticket.
+        Platform::Print("got ClientConnected for %llu but they're already on the list, refreshing the session\n", steamId);
+    }
+
+    SendConnectMessage(steamId, session);
 }
 
 void NetworkingServer::ClientDisconnected(uint64_t steamId)
 {
-    if (!m_clients.Remove(steamId))
+    if (m_clients.erase(steamId) == 0)
     {
         Platform::Print("got ClientDisconnected for %llu but they're not on the list! ignoring\n", steamId);
         return;
@@ -98,7 +119,7 @@ void NetworkingServer::ClientDisconnected(uint64_t steamId)
 
 void NetworkingServer::SendMessage(uint64_t steamId, const void *data, uint32_t size)
 {
-    if (!m_clients.Has(steamId))
+    if (!m_clients.contains(steamId))
     {
         Platform::Print("No csgo_gc session with %llu, not sending message!!!\n", steamId);
         return;
@@ -117,7 +138,7 @@ void NetworkingServer::OnSessionRequest(SteamNetworkingMessagesSessionRequest_t 
 {
     uint64_t steamId = param->m_identityRemote.GetSteamID64();
 
-    if (!m_clients.Has(steamId))
+    if (!m_clients.contains(steamId))
     {
         Platform::Print("%llu sent a session request, we don't have a csgo_gc session, ignoring...\n", steamId);
         return;

@@ -309,6 +309,40 @@ static bool NetworkingServerPreservesHostEventSteamId()
         && messages.sentPayloads.back() == event.buffer;
 }
 
+static bool NetworkingServerRefreshesTicketOnDuplicateConnect()
+{
+    TestSteamNetworkingMessages messages;
+    NetworkingServer networking{ &messages };
+
+    constexpr uint64_t SteamId = 76561198083722517ull;
+    const uint8_t firstTicket[]{ 1, 2, 3 };
+    const uint8_t secondTicket[]{ 4, 5 };
+
+    networking.ClientConnected(SteamId, firstTicket, sizeof(firstTicket));
+    networking.ClientConnected(SteamId, secondTicket, sizeof(secondTicket));
+
+    // The basic GC message header is 18 bytes, followed by the ticket size and the
+    // ticket itself.
+    constexpr size_t TicketSizeOffset = 4 + 4 + 8 + 2;
+    if (messages.sentPayloads.size() != 2)
+    {
+        return false;
+    }
+
+    const std::vector<uint8_t> &payload = messages.sentPayloads.back();
+    if (payload.size() != TicketSizeOffset + sizeof(uint32_t) + sizeof(secondTicket))
+    {
+        return false;
+    }
+
+    uint32_t ticketSize{};
+    std::memcpy(&ticketSize, payload.data() + TicketSizeOffset, sizeof(ticketSize));
+
+    return ticketSize == sizeof(secondTicket)
+        && std::equal(std::begin(secondTicket), std::end(secondTicket),
+            payload.end() - sizeof(secondTicket));
+}
+
 static bool WaitForHostMessage(ClientGC &gc, uint32_t type, EventData &result,
     uint64_t *microTransactionId = nullptr)
 {
@@ -4322,6 +4356,8 @@ int main(int argc, char **argv)
             NetworkingClientRefreshesInterfacesAndSkipsIdlePolling },
         { "NetworkingServerPreservesHostEventSteamId",
             NetworkingServerPreservesHostEventSteamId },
+        { "NetworkingServerRefreshesTicketOnDuplicateConnect",
+            NetworkingServerRefreshesTicketOnDuplicateConnect },
         { "PlayerProfileRequestsReturnMinimalProfiles",
             PlayerProfileRequestsReturnMinimalProfiles },
         { "InventoryPersistenceProtectsFiles", InventoryPersistenceProtectsFiles },

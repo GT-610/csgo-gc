@@ -5,30 +5,6 @@
 class GCMessageWrite;
 struct EventData;
 
-// this wrapper type is useless now, but i can't be bothered to inline it
-class ClientSet
-{
-public:
-    bool Add(uint64_t id)
-    {
-        auto [it, inserted] = m_set.insert(id);
-        return inserted;
-    }
-
-    bool Remove(uint64_t id)
-    {
-        return (m_set.erase(id) == 1);
-    }
-
-    bool Has(uint64_t id)
-    {
-        return (m_set.find(id) != m_set.end());
-    }
-
-private:
-    std::unordered_set<uint64_t> m_set;
-};
-
 class NetworkingServer
 {
 public:
@@ -44,8 +20,18 @@ public:
     void SendHostEvent(const EventData &event);
 
 private:
+    struct ClientSession
+    {
+        // The auth ticket the client validates the handshake against. It has to be
+        // kept around because the game may hand us the same player again without a
+        // disconnect in between, and because the connect message may be re-sent.
+        std::vector<uint8_t> ticket;
+    };
+
+    void SendConnectMessage(uint64_t steamId, const ClientSession &session);
+
     ISteamNetworkingMessages *const m_networkingMessages;
-    ClientSet m_clients;
+    std::unordered_map<uint64_t, ClientSession> m_clients;
 
     STEAM_GAMESERVER_CALLBACK(NetworkingServer,
         OnSessionRequest,
