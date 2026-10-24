@@ -2028,6 +2028,10 @@ static void Hk_SteamGameServer_RunCallbacks()
             s_serverGC->m_gc.PostToGC(GCEvent::NetMessage, message->m_identityPeer.GetSteamID64(), message->GetData(), message->GetSize());
             message->Release();
         }
+
+        // The connect handshake is sent while players join, which is often before the
+        // P2P session is up. Keep re-sending it until the client's socache arrives.
+        s_serverGC->m_networking.Update();
     }
 }
 

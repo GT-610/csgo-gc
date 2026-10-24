@@ -118,14 +118,25 @@ void NetworkingClient::SendMessage(const void *data, uint32_t size)
     SteamNetworkingIdentity identity;
     identity.SetSteamID64(m_serverSteamId);
 
-    [[maybe_unused]] EResult result = m_networkingMessages->SendMessageToUser(
+    // The auto-restart flag keeps the client able to talk after the session broke,
+    // which also lets the next send re-establish it without an explicit accept cycle.
+    EResult result = m_networkingMessages->SendMessageToUser(
         identity,
         data,
         size,
-        NetMessageSendFlags,
+        NetMessageHandshakeSendFlags,
         NetMessageChannel);
 
-    assert(result == k_EResultOK);
+    if (result != k_EResultOK)
+    {
+        Platform::Print("NetworkingClient: send to %llu failed: %d\n",
+            m_serverSteamId, static_cast<int>(result));
+
+        if (result == k_EResultNoConnection)
+        {
+            m_networkingMessages->CloseSessionWithUser(identity);
+        }
+    }
 }
 
 void NetworkingClient::SetAuthTicket(uint32_t handle, const void *data, uint32_t size)

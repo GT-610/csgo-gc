@@ -229,12 +229,13 @@ class TestSteamNetworkingMessages final : public ISteamNetworkingMessages
 {
 public:
     EResult SendMessageToUser(const SteamNetworkingIdentity &identity, const void *data, uint32 size,
-        int, int) override
+        int flags, int) override
     {
         sentSteamIds.push_back(identity.GetSteamID64());
         const auto *bytes = static_cast<const uint8_t *>(data);
         sentPayloads.emplace_back(bytes, bytes + size);
-        return k_EResultOK;
+        sentFlags.push_back(flags);
+        return sendResult;
     }
 
     int ReceiveMessagesOnChannel(int, SteamNetworkingMessage_t **, int) override
@@ -243,13 +244,15 @@ public:
         return 0;
     }
 
-    bool AcceptSessionWithUser(const SteamNetworkingIdentity &) override
+    bool AcceptSessionWithUser(const SteamNetworkingIdentity &identity) override
     {
+        acceptedSteamIds.push_back(identity.GetSteamID64());
         return true;
     }
 
-    bool CloseSessionWithUser(const SteamNetworkingIdentity &) override
+    bool CloseSessionWithUser(const SteamNetworkingIdentity &identity) override
     {
+        closedSteamIds.push_back(identity.GetSteamID64());
         return true;
     }
 
@@ -265,9 +268,13 @@ public:
         return k_ESteamNetworkingConnectionState_None;
     }
 
+    EResult sendResult{ k_EResultOK };
     int receiveCalls{};
     std::vector<uint64_t> sentSteamIds;
     std::vector<std::vector<uint8_t>> sentPayloads;
+    std::vector<int> sentFlags;
+    std::vector<uint64_t> acceptedSteamIds;
+    std::vector<uint64_t> closedSteamIds;
 };
 
 static bool NetworkingClientRefreshesInterfacesAndSkipsIdlePolling()
@@ -341,6 +348,137 @@ static bool NetworkingServerRefreshesTicketOnDuplicateConnect()
     return ticketSize == sizeof(secondTicket)
         && std::equal(std::begin(secondTicket), std::end(secondTicket),
             payload.end() - sizeof(secondTicket));
+}
+
+static std::vector<uint8_t> BuildServerSocacheMessage(uint64_t steamId)
+{
+    CMsgSOCacheSubscribed subscribed;
+    subscribed.mutable_owner_soid()->set_type(SoIdTypeSteamId);
+    subscribed.mutable_owner_soid()->set_id(steamId);
+
+    GCMessageWrite write{ k_ESOMsg_CacheSubscribed, subscribed };
+    const auto *data = static_cast<const uint8_t *>(write.Data());
+    return { data, data + write.Size() };
+}
+
+static bool NetworkingServerRetriesConnectUntilSocacheArrives()
+{
+    TestSteamNetworkingMessages messages;
+    NetworkingServer networking{ &messages };
+
+    constexpr uint64_t SteamId = 76561198083722517ull;
+    constexpr uint8_t Ticket = 1;
+    networking.ClientConnected(SteamId, &Ticket, sizeof(Ticket));
+    const auto connected = std::chrono::steady_clock::now();
+
+    bool valid = messages.sentPayloads.size() == 1
+        && messages.sentFlags.back() == NetMessageHandshakeSendFlags;
+
+    // Nothing is due yet.
+    networking.Update(connected);
+    valid &= messages.sentPayloads.size() == 1;
+
+    // The first retry is the base delay after the initial send.
+    networking.Update(connected + std::chrono::seconds{ 3 });
+    valid &= messages.sentPayloads.size() == 2;
+
+    // The socache answers the handshake, so the retries stop for good.
+    const std::vector<uint8_t> socache = BuildServerSocacheMessage(SteamId);
+    networking.HandleIncomingMessage(SteamId, socache.data(), static_cast<uint32_t>(socache.size()));
+
+    networking.Update(connected + std::chrono::seconds{ 120 });
+    valid &= messages.sentPayloads.size() == 2;
+
+    return valid;
+}
+
+static bool NetworkingServerRetriesHandshakeOnSessionRequest()
+{
+    TestSteamNetworkingMessages messages;
+    NetworkingServer networking{ &messages };
+
+    constexpr uint64_t SteamId = 76561198083722517ull;
+    constexpr uint8_t Ticket = 1;
+    networking.ClientConnected(SteamId, &Ticket, sizeof(Ticket));
+
+    networking.HandleSessionRequest(SteamId);
+    bool valid = messages.sentPayloads.size() == 2
+        && messages.acceptedSteamIds.size() == 1
+        && messages.acceptedSteamIds.back() == SteamId;
+
+    // Peers we have no session with are not accepted and get nothing.
+    networking.HandleSessionRequest(0x1234);
+    valid &= messages.sentPayloads.size() == 2 && messages.acceptedSteamIds.size() == 1;
+
+    return valid;
+}
+
+static bool NetworkingServerRetriesHandshakeAfterSessionFailure()
+{
+    TestSteamNetworkingMessages messages;
+    NetworkingServer networking{ &messages };
+
+    constexpr uint64_t SteamId = 76561198083722517ull;
+    constexpr uint8_t Ticket = 1;
+    networking.ClientConnected(SteamId, &Ticket, sizeof(Ticket));
+
+    const std::vector<uint8_t> socache = BuildServerSocacheMessage(SteamId);
+    networking.HandleIncomingMessage(SteamId, socache.data(), static_cast<uint32_t>(socache.size()));
+
+    networking.Update(std::chrono::steady_clock::now() + std::chrono::seconds{ 120 });
+    bool valid = messages.sentPayloads.size() == 1;
+
+    // A broken session invalidates the previous handshake, so the socache has to be
+    // fetched again.
+    networking.HandleSessionFailed(SteamId);
+    networking.Update(std::chrono::steady_clock::now() + std::chrono::milliseconds{ 1 });
+    valid &= messages.sentPayloads.size() == 2;
+
+    return valid;
+}
+
+static bool NetworkingServerGivesUpAfterMaxConnectAttempts()
+{
+    TestSteamNetworkingMessages messages;
+    NetworkingServer networking{ &messages };
+
+    constexpr uint64_t SteamId = 76561198083722517ull;
+    constexpr uint8_t Ticket = 1;
+    networking.ClientConnected(SteamId, &Ticket, sizeof(Ticket));
+
+    auto time = std::chrono::steady_clock::now();
+    for (int i = 0; i < 10; i++)
+    {
+        time += std::chrono::seconds{ 60 };
+        networking.Update(time);
+    }
+
+    bool valid = messages.sentPayloads.size() == 6;
+
+    // A session request is a reason to send early, not a reason to exceed the budget.
+    networking.HandleSessionRequest(SteamId);
+    valid &= messages.sentPayloads.size() == 6;
+
+    return valid;
+}
+
+static bool NetworkingServerForgetsClientOnDisconnect()
+{
+    TestSteamNetworkingMessages messages;
+    NetworkingServer networking{ &messages };
+
+    constexpr uint64_t SteamId = 76561198083722517ull;
+    constexpr uint8_t Ticket = 1;
+    networking.ClientConnected(SteamId, &Ticket, sizeof(Ticket));
+    networking.ClientDisconnected(SteamId);
+
+    networking.Update(std::chrono::steady_clock::now() + std::chrono::seconds{ 120 });
+    bool valid = messages.sentPayloads.size() == 1;
+
+    networking.HandleSessionRequest(SteamId);
+    valid &= messages.sentPayloads.size() == 1 && messages.acceptedSteamIds.empty();
+
+    return valid;
 }
 
 static bool WaitForHostMessage(ClientGC &gc, uint32_t type, EventData &result,
@@ -4358,6 +4496,16 @@ int main(int argc, char **argv)
             NetworkingServerPreservesHostEventSteamId },
         { "NetworkingServerRefreshesTicketOnDuplicateConnect",
             NetworkingServerRefreshesTicketOnDuplicateConnect },
+        { "NetworkingServerRetriesConnectUntilSocacheArrives",
+            NetworkingServerRetriesConnectUntilSocacheArrives },
+        { "NetworkingServerRetriesHandshakeOnSessionRequest",
+            NetworkingServerRetriesHandshakeOnSessionRequest },
+        { "NetworkingServerRetriesHandshakeAfterSessionFailure",
+            NetworkingServerRetriesHandshakeAfterSessionFailure },
+        { "NetworkingServerGivesUpAfterMaxConnectAttempts",
+            NetworkingServerGivesUpAfterMaxConnectAttempts },
+        { "NetworkingServerForgetsClientOnDisconnect",
+            NetworkingServerForgetsClientOnDisconnect },
         { "PlayerProfileRequestsReturnMinimalProfiles",
             PlayerProfileRequestsReturnMinimalProfiles },
         { "InventoryPersistenceProtectsFiles", InventoryPersistenceProtectsFiles },

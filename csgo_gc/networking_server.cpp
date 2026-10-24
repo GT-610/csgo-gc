@@ -3,6 +3,25 @@
 #include "gc_message.h"
 #include "gc_shared.h"
 
+// The handshake is sent once when the client connects, which can happen before the
+// P2P session exists, and is retried on a doubling delay until the client answers
+// with its socache. The delays add up to about a minute, which covers map loads.
+constexpr uint32_t MaxConnectAttempts = 6;
+constexpr std::chrono::seconds ConnectRetryBaseDelay{ 2 };
+constexpr std::chrono::seconds ConnectRetryMaxDelay{ 30 };
+
+static std::chrono::seconds ConnectRetryDelay(uint32_t attempts)
+{
+    // attempts is the number of connect messages sent so far
+    std::chrono::seconds delay = ConnectRetryBaseDelay;
+    for (uint32_t i = 1; i < attempts && delay < ConnectRetryMaxDelay; i++)
+    {
+        delay *= 2;
+    }
+
+    return std::min(delay, ConnectRetryMaxDelay);
+}
+
 NetworkingServer::NetworkingServer(ISteamNetworkingMessages *networkingMessages)
     : m_networkingMessages{ networkingMessages }
     , m_sessionRequest{ this, &NetworkingServer::OnSessionRequest }
@@ -27,11 +46,35 @@ bool NetworkingServer::ReceiveMessage(SteamNetworkingMessage_t *&message)
         return false;
     }
 
+    HandleIncomingMessage(steamId, message->GetData(), static_cast<uint32_t>(message->GetSize()));
+
     return true;
 }
 
-// helper for SteamNetworkingMessages::SendMessageToUser that attempts to do some kind of error handling
-static void SendMessageToUser(ISteamNetworkingMessages *networkingMessages, uint64_t steamId, const void *data, uint32_t size)
+void NetworkingServer::HandleIncomingMessage(uint64_t steamId, const void *data, uint32_t size)
+{
+    auto it = m_clients.find(steamId);
+    if (it == m_clients.end() || it->second.hasSOCache)
+    {
+        return;
+    }
+
+    // The client answers the connect handshake with its socache, which is the only
+    // acknowledgement this protocol has. A later socache is just an inventory update.
+    GCMessageRead messageRead{ 0, data, size };
+    if (messageRead.IsValid() && messageRead.IsProtobuf()
+        && messageRead.TypeUnmasked() == k_ESOMsg_CacheSubscribed)
+    {
+        it->second.hasSOCache = true;
+        Platform::Print("NetworkingServer: %llu sent their socache, handshake done after %u attempt(s)\n",
+            steamId, it->second.connectAttempts);
+    }
+}
+
+// helper for SteamNetworkingMessages::SendMessageToUser, returns whether the SDK took
+// the message
+static bool SendMessageToUser(ISteamNetworkingMessages *networkingMessages, uint64_t steamId,
+    const void *data, uint32_t size, int flags)
 {
     SteamNetworkingIdentity identity;
     identity.SetSteamID64(steamId);
@@ -40,31 +83,28 @@ static void SendMessageToUser(ISteamNetworkingMessages *networkingMessages, uint
         identity,
         data,
         size,
-        NetMessageSendFlags,
+        flags,
         NetMessageChannel);
 
-    if (result != k_EResultOK)
+    if (result == k_EResultOK)
     {
-        Platform::Print("SendMessageToUser failed for %llu: %d, closing session and trying again\n", steamId, result);
-
-        networkingMessages->CloseChannelWithUser(identity, NetMessageChannel);
-
-        result = networkingMessages->SendMessageToUser(
-            identity,
-            data,
-            size,
-            NetMessageSendFlags,
-            NetMessageChannel);
-
-        if (result != k_EResultOK)
-        {
-            // not much we can do in this situation i guess
-            Platform::Print("SendMessageToUser failed for %llu\n", steamId);
-        }
+        return true;
     }
+
+    Platform::Print("SendMessageToUser failed for %llu: %d\n", steamId, static_cast<int>(result));
+
+    if (result == k_EResultNoConnection)
+    {
+        // The session is unusable. Acknowledge that so a later send can start a new
+        // one; the handshake itself also carries the auto-restart flag.
+        networkingMessages->CloseSessionWithUser(identity);
+    }
+
+    return false;
 }
 
-void NetworkingServer::SendConnectMessage(uint64_t steamId, const ClientSession &session)
+void NetworkingServer::SendConnectMessage(uint64_t steamId, ClientSession &session,
+    std::chrono::steady_clock::time_point now)
 {
     // send a message, if the client has csgo_gc installed they will
     // reply with their so cache and we'll add them to our list
@@ -75,7 +115,36 @@ void NetworkingServer::SendConnectMessage(uint64_t steamId, const ClientSession 
         messageWrite.WriteData(session.ticket.data(), static_cast<uint32_t>(session.ticket.size()));
     }
 
-    SendMessageToUser(m_networkingMessages, steamId, messageWrite.Data(), messageWrite.Size());
+    const bool sent = SendMessageToUser(m_networkingMessages, steamId,
+        messageWrite.Data(), messageWrite.Size(), NetMessageHandshakeSendFlags);
+
+    session.connectAttempts++;
+    session.nextConnect = now + ConnectRetryDelay(session.connectAttempts);
+
+    if (session.connectAttempts == MaxConnectAttempts)
+    {
+        Platform::Print("NetworkingServer: giving up the connect handshake with %llu after %u attempts\n",
+            steamId, session.connectAttempts);
+    }
+    else if (session.connectAttempts > 1)
+    {
+        Platform::Print("NetworkingServer: connect handshake with %llu, attempt %u/%u%s\n",
+            steamId, session.connectAttempts, MaxConnectAttempts, sent ? "" : " (send failed)");
+    }
+}
+
+void NetworkingServer::Update(std::chrono::steady_clock::time_point now)
+{
+    for (auto &[steamId, session] : m_clients)
+    {
+        if (session.hasSOCache || session.connectAttempts >= MaxConnectAttempts
+            || now < session.nextConnect)
+        {
+            continue;
+        }
+
+        SendConnectMessage(steamId, session, now);
+    }
 }
 
 void NetworkingServer::ClientConnected(uint64_t steamId, const void *ticket, uint32_t ticketSize)
@@ -97,11 +166,14 @@ void NetworkingServer::ClientConnected(uint64_t steamId, const void *ticket, uin
     {
         // The game can begin a new auth session for a player without telling us that
         // the previous one ended. The connect message carries this ticket and the
-        // client validates it, so re-send the handshake with the current ticket.
+        // client validates it, so re-send the handshake with the current ticket and a
+        // fresh retry budget.
         Platform::Print("got ClientConnected for %llu but they're already on the list, refreshing the session\n", steamId);
+        session.hasSOCache = false;
+        session.connectAttempts = 0;
     }
 
-    SendConnectMessage(steamId, session);
+    SendConnectMessage(steamId, session, std::chrono::steady_clock::now());
 }
 
 void NetworkingServer::ClientDisconnected(uint64_t steamId)
@@ -125,7 +197,7 @@ void NetworkingServer::SendMessage(uint64_t steamId, const void *data, uint32_t 
         return;
     }
 
-    SendMessageToUser(m_networkingMessages, steamId, data, size);
+    SendMessageToUser(m_networkingMessages, steamId, data, size, NetMessageSendFlags);
 }
 
 void NetworkingServer::SendHostEvent(const EventData &event)
@@ -136,9 +208,19 @@ void NetworkingServer::SendHostEvent(const EventData &event)
 
 void NetworkingServer::OnSessionRequest(SteamNetworkingMessagesSessionRequest_t *param)
 {
-    uint64_t steamId = param->m_identityRemote.GetSteamID64();
+    HandleSessionRequest(param->m_identityRemote.GetSteamID64());
+}
 
-    if (!m_clients.contains(steamId))
+void NetworkingServer::OnSessionFailed(SteamNetworkingMessagesSessionFailed_t *param)
+{
+    Platform::Print("OnSessionFailed: %s\n", param->m_info.m_szEndDebug);
+    HandleSessionFailed(param->m_info.m_identityRemote.GetSteamID64());
+}
+
+void NetworkingServer::HandleSessionRequest(uint64_t steamId)
+{
+    auto it = m_clients.find(steamId);
+    if (it == m_clients.end())
     {
         Platform::Print("%llu sent a session request, we don't have a csgo_gc session, ignoring...\n", steamId);
         return;
@@ -146,15 +228,33 @@ void NetworkingServer::OnSessionRequest(SteamNetworkingMessagesSessionRequest_t 
 
     Platform::Print("%llu sent a session request, we were playing GC with them so accept\n", steamId);
 
-    if (!m_networkingMessages->AcceptSessionWithUser(param->m_identityRemote))
+    SteamNetworkingIdentity identity;
+    identity.SetSteamID64(steamId);
+    if (!m_networkingMessages->AcceptSessionWithUser(identity))
     {
-        Platform::Print("AcceptSessionWithUser with %llu failed???\n",
-            param->m_identityRemote.GetSteamID64());
+        Platform::Print("AcceptSessionWithUser with %llu failed???\n", steamId);
     }
+
+    if (it->second.hasSOCache || it->second.connectAttempts >= MaxConnectAttempts)
+    {
+        return;
+    }
+
+    // The client is reaching out right now, so the path is up. No reason to wait for
+    // the next retry slot.
+    SendConnectMessage(steamId, it->second, std::chrono::steady_clock::now());
 }
 
-void NetworkingServer::OnSessionFailed(SteamNetworkingMessagesSessionFailed_t *param)
+void NetworkingServer::HandleSessionFailed(uint64_t steamId)
 {
-    // don't do anything, rely on the auth session
-    Platform::Print("OnSessionFailed: %s\n", param->m_info.m_szEndDebug);
+    auto it = m_clients.find(steamId);
+    if (it == m_clients.end())
+    {
+        return;
+    }
+
+    // Whatever the client told us may have been lost with the session, so the socache
+    // has to be asked for again instead of trusting the previous handshake.
+    it->second.hasSOCache = false;
+    it->second.nextConnect = std::chrono::steady_clock::now();
 }
