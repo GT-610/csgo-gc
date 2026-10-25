@@ -255,6 +255,15 @@ void NetworkingServer::HandleSessionFailed(uint64_t steamId)
 
     // Whatever the client told us may have been lost with the session, so the socache
     // has to be asked for again instead of trusting the previous handshake.
+    if (it->second.hasSOCache)
+    {
+        // The handshake did succeed, so its attempt budget is spent history. Give the
+        // re-handshake a fresh budget; otherwise a client that only answered on the
+        // last allowed attempt could never be reached again. A session that was never
+        // acknowledged keeps its count, so a broken path does not buy extra attempts.
+        it->second.connectAttempts = 0;
+    }
+
     it->second.hasSOCache = false;
     it->second.nextConnect = std::chrono::steady_clock::now();
 }

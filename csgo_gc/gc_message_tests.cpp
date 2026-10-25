@@ -462,6 +462,67 @@ static bool NetworkingServerGivesUpAfterMaxConnectAttempts()
     return valid;
 }
 
+static bool NetworkingServerReArmsBudgetAfterAcknowledgedSessionFailure()
+{
+    constexpr uint64_t SteamId = 76561198083722517ull;
+    constexpr uint8_t Ticket = 1;
+
+    auto exhaustBudget = [&](TestSteamNetworkingMessages &messages, NetworkingServer &networking)
+    {
+        networking.ClientConnected(SteamId, &Ticket, sizeof(Ticket));
+        auto time = std::chrono::steady_clock::now();
+        for (int i = 0; i < 10; i++)
+        {
+            time += std::chrono::seconds{ 60 };
+            networking.Update(time);
+        }
+        return messages.sentPayloads.size();
+    };
+
+    // Acknowledged on the last allowed attempt: losing the session afterwards must
+    // let the handshake start over, or that client could never be reached again.
+    {
+        TestSteamNetworkingMessages messages;
+        NetworkingServer networking{ &messages };
+        if (exhaustBudget(messages, networking) != 6)
+        {
+            return false;
+        }
+
+        const std::vector<uint8_t> socache = BuildServerSocacheMessage(SteamId);
+        networking.HandleIncomingMessage(SteamId, socache.data(), static_cast<uint32_t>(socache.size()));
+
+        networking.HandleSessionFailed(SteamId);
+        networking.Update(std::chrono::steady_clock::now() + std::chrono::milliseconds{ 1 });
+
+        if (messages.sentPayloads.size() != 7)
+        {
+            return false;
+        }
+    }
+
+    // A session that never acknowledged keeps its exhausted budget, so a broken path
+    // does not buy extra attempts.
+    {
+        TestSteamNetworkingMessages messages;
+        NetworkingServer networking{ &messages };
+        if (exhaustBudget(messages, networking) != 6)
+        {
+            return false;
+        }
+
+        networking.HandleSessionFailed(SteamId);
+        networking.Update(std::chrono::steady_clock::now() + std::chrono::milliseconds{ 1 });
+
+        if (messages.sentPayloads.size() != 6)
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 static bool NetworkingServerForgetsClientOnDisconnect()
 {
     TestSteamNetworkingMessages messages;
@@ -4504,6 +4565,8 @@ int main(int argc, char **argv)
             NetworkingServerRetriesHandshakeAfterSessionFailure },
         { "NetworkingServerGivesUpAfterMaxConnectAttempts",
             NetworkingServerGivesUpAfterMaxConnectAttempts },
+        { "NetworkingServerReArmsBudgetAfterAcknowledgedSessionFailure",
+            NetworkingServerReArmsBudgetAfterAcknowledgedSessionFailure },
         { "NetworkingServerForgetsClientOnDisconnect",
             NetworkingServerForgetsClientOnDisconnect },
         { "PlayerProfileRequestsReturnMinimalProfiles",
