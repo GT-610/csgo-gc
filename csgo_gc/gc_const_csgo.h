@@ -11,6 +11,11 @@ constexpr uint64_t GameServerCookieId = 0x293A206F6C6C6548;
 // next lowest 16 bits = paint kit index
 constexpr uint64_t ItemIdDefaultItemMask = 0xfull << 60;
 
+// store region reported to the client. The client welcome and the deprecated
+// fields of the store user data response have to agree, so keep them here
+constexpr int GCStoreCurrency = 2; // euros
+constexpr const char *GCStoreCountry = "FI"; // finland
+
 // technically 5 but there are attributes for 6 stickers...
 constexpr int MaxStickers = 6;
 

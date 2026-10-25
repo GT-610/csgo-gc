@@ -1293,6 +1293,21 @@ static bool GameServerInventoryUpdatesOnlyIncludeEquipment()
             gc.PostToGC(GCEvent::Message, write.TypeMasked(), write.Data(), write.Size());
             drain();
         };
+        // Older clients address items by the 32-bit item id, which this GC
+        // stores in the high half of the full id (the low half is the account).
+        auto legacyPositions = [&](std::initializer_list<uint64_t> ids, uint32_t position)
+        {
+            CMsgSetItemPositions request;
+            for (uint64_t id : ids)
+            {
+                auto *item = request.add_item_positions();
+                item->set_legacy_item_id(static_cast<uint32_t>(id >> 32));
+                item->set_position(position++);
+            }
+            GCMessageWrite write{ k_EMsgGCSetItemPositions, request };
+            gc.PostToGC(GCEvent::Message, write.TypeMasked(), write.Data(), write.Size());
+            drain();
+        };
         auto checkSingle = [&](uint32_t type, bool serverExpected)
         {
             int clientMessages = 0, serverMessages = 0;
@@ -1345,6 +1360,12 @@ static bool GameServerInventoryUpdatesOnlyIncludeEquipment()
         valid &= gc.RunRconCommand("give_item 7").rfind("OK item_ids=", 0) == 0;
         drain();
         checkSingle(k_ESOMsg_Create, false);
+
+        // A legacy-only id must resolve to the same item as the full id.
+        legacyPositions({ itemId(1) }, 400);
+        checkUpdates({ itemId(1) }, {});
+        legacyPositions({ itemId(1) }, 500);
+        checkUpdates({ itemId(1) }, {});
     }
     TestFilesystem::RemoveFile("csgo/scripts/items/items_game.txt");
     TestFilesystem::RemoveDirectory("csgo/scripts/items");
@@ -2498,6 +2519,16 @@ static bool StorePurchasesFinalizeTransactionally()
         valid &= matchmakingHello.ParseFromString(welcome.game_data2());
         uint32_t priceSheetVersion = matchmakingHello.global_stats().pricesheet_version();
 
+        // The client welcome and the deprecated store region fields must agree,
+        // and the singular ranking mirrors the competitive rank.
+        valid &= welcome.currency() == GCStoreCurrency
+            && welcome.txn_country_code() == GCStoreCountry
+            && welcome.location().country() == GCStoreCountry
+            && matchmakingHello.has_ranking()
+            && matchmakingHello.ranking().account_id() == static_cast<uint32_t>(SteamId)
+            && matchmakingHello.ranking().rank_id() == GetConfig().m_competitiveRank
+            && matchmakingHello.ranking().wins() == GetConfig().m_competitiveWins;
+
         CMsgStoreGetUserData storeData;
         storeData.set_price_sheet_version(0);
         SendGCProtobuf(gc, k_EMsgGCStoreGetUserData, storeData);
@@ -2692,7 +2723,10 @@ static bool LegacyStorePriceSheetMatchesClientSchema()
             && response.price_sheet().find(UnknownBanner) == std::string::npos
             && response.price_sheet().find(LinkedCoupon) == std::string::npos
             && response.price_sheet().find(ExistingCouponPrice) != std::string::npos
-            && response.price_sheet().find(FallbackCouponPrice) != std::string::npos;
+            && response.price_sheet().find(FallbackCouponPrice) != std::string::npos
+            // older clients read only the deprecated store region fields
+            && response.currency_deprecated() == GCStoreCurrency
+            && response.country_deprecated() == GCStoreCountry;
 
         CMsgGCStorePurchaseInit invalidPurchase;
         CGCStorePurchaseInit_LineItem *lineItem = invalidPurchase.add_line_items();

@@ -1455,7 +1455,6 @@ bool ItemSchema::ParseLootListItem(LootListItem &item, std::string_view name)
         item.paintKitInfo = PaintKitInfoByName(attributeName);
         if (!item.paintKitInfo)
         {
-            assert(false);
             Platform::Print("WARNING: No such paint kit %s\n", std::string{ attributeName }.c_str());
             return false;
         }

@@ -385,6 +385,9 @@ const char *MessageName(uint32_t type)
         HANDLE_MSG(k_ESOMsg_CacheSubscriptionRefresh);
     }
 
-    assert(false);
-    return "UNKNOWN MESSAGE";
+    // Unhandled message types are normal for a GC that only implements part of
+    // the protocol, so report the numeric type instead of asserting.
+    static thread_local char unnamed[16];
+    snprintf(unnamed, sizeof(unnamed), "%u", type);
+    return unnamed;
 }

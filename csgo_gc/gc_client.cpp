@@ -1804,6 +1804,14 @@ void ClientGC::BuildMatchmakingHello(CMsgGCCStrike15_v2_MatchmakingGC2ClientHell
     message.mutable_global_stats()->set_active_survey_id(0);
 
     message.set_vac_banned(GetConfig().m_vacBanned);
+
+    // Clients that predate the separate ClientGCRankUpdate message read the
+    // competitive rank from this singular field, so fill it in as the real GC
+    // does. SendRankUpdate still carries all three rank types.
+    message.mutable_ranking()->set_account_id(AccountId());
+    message.mutable_ranking()->set_rank_id(GetConfig().m_competitiveRank);
+    message.mutable_ranking()->set_wins(GetConfig().m_competitiveWins);
+
     message.mutable_commendation()->set_cmd_friendly(GetConfig().m_commendedFriendly);
     message.mutable_commendation()->set_cmd_teaching(GetConfig().m_commendedTeaching);
     message.mutable_commendation()->set_cmd_leader(GetConfig().m_commendedLeader);
@@ -1844,11 +1852,11 @@ void ClientGC::BuildClientWelcome(CMsgClientWelcome &message, const CMsgClientHe
     }
     message.mutable_location()->set_latitude(65.0133006f);
     message.mutable_location()->set_longitude(25.4646212f);
-    message.mutable_location()->set_country("FI"); // finland
+    message.mutable_location()->set_country(GCStoreCountry);
     message.set_game_data2(matchmakingHello.SerializeAsString());
     message.set_rtime32_gc_welcome_timestamp(static_cast<uint32_t>(time(nullptr)));
-    message.set_currency(2); // euros
-    message.set_txn_country_code("FI"); // finland
+    message.set_currency(GCStoreCurrency);
+    message.set_txn_country_code(GCStoreCountry);
 }
 
 void ClientGC::SendOverwatchCaseAssignment()
@@ -2429,6 +2437,12 @@ void ClientGC::StoreGetUserData(GCMessageRead &messageRead)
     response.set_result(StoreResultOK);
     response.set_price_sheet_version(PriceSheetVersion);
     *response.mutable_price_sheet() = std::move(binaryString);
+
+    // Final-client Panorama reads currency and country from the client welcome.
+    // Older builds only look at these deprecated fields, so fill both in and
+    // keep the values identical.
+    response.set_currency_deprecated(GCStoreCurrency);
+    response.set_country_deprecated(GCStoreCountry);
 
     SendMessageToGame(false, k_EMsgGCStoreGetUserDataResponse, response, messageRead.JobId());
 }

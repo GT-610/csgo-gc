@@ -1859,7 +1859,15 @@ bool Inventory::SetItemPositions(
 {
     for (const CMsgSetItemPositions_ItemPosition &position : message.item_positions())
     {
-        auto it = m_items.find(position.item_id());
+        // Older clients send only the 32-bit item id. In this inventory that id
+        // is the high half of the full id, while the low half is the account id,
+        // so rebuild the full id the same way ComposeItemId does. The final
+        // client sends item_id directly.
+        const uint64_t itemId = position.has_item_id()
+            ? position.item_id()
+            : ComposeItemId(AccountId(), position.legacy_item_id());
+
+        auto it = m_items.find(itemId);
         if (it == m_items.end())
         {
             assert(false);
@@ -1868,7 +1876,7 @@ bool Inventory::SetItemPositions(
 
         CSOEconItem &item = it->second;
 
-        Platform::Print("SetItemPositions: %llu --> %u\n", position.item_id(), position.position());
+        Platform::Print("SetItemPositions: %llu --> %u\n", itemId, position.position());
 
         CMsgItemAcknowledged &acknowledgement = acknowledgements.emplace_back();
         ItemToPreviewDataBlock(item, *acknowledgement.mutable_iteminfo());
