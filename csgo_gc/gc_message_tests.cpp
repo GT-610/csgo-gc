@@ -235,6 +235,12 @@ public:
         const auto *bytes = static_cast<const uint8_t *>(data);
         sentPayloads.emplace_back(bytes, bytes + size);
         sentFlags.push_back(flags);
+
+        if (queuedSendResultIndex < queuedSendResults.size())
+        {
+            return queuedSendResults[queuedSendResultIndex++];
+        }
+
         return sendResult;
     }
 
@@ -256,8 +262,9 @@ public:
         return true;
     }
 
-    bool CloseChannelWithUser(const SteamNetworkingIdentity &, int) override
+    bool CloseChannelWithUser(const SteamNetworkingIdentity &identity, int) override
     {
+        closedChannelSteamIds.push_back(identity.GetSteamID64());
         return true;
     }
 
@@ -269,12 +276,16 @@ public:
     }
 
     EResult sendResult{ k_EResultOK };
+    // When set, overrides sendResult for the Nth send, then falls back to sendResult.
+    std::vector<EResult> queuedSendResults;
+    size_t queuedSendResultIndex{};
     int receiveCalls{};
     std::vector<uint64_t> sentSteamIds;
     std::vector<std::vector<uint8_t>> sentPayloads;
     std::vector<int> sentFlags;
     std::vector<uint64_t> acceptedSteamIds;
     std::vector<uint64_t> closedSteamIds;
+    std::vector<uint64_t> closedChannelSteamIds;
 };
 
 static bool NetworkingClientRefreshesInterfacesAndSkipsIdlePolling()
@@ -521,6 +532,59 @@ static bool NetworkingServerReArmsBudgetAfterAcknowledgedSessionFailure()
     }
 
     return true;
+}
+
+static bool NetworkingServerRetriesOrdinarySendAfterClosingChannel()
+{
+    constexpr uint64_t SteamId = 76561198083722517ull;
+    constexpr uint8_t Ticket = 1;
+    constexpr uint8_t Payload[]{ 9, 8, 7 };
+
+    // A healthy session sends once and leaves the channel alone.
+    {
+        TestSteamNetworkingMessages messages;
+        NetworkingServer networking{ &messages };
+        networking.ClientConnected(SteamId, &Ticket, sizeof(Ticket));
+
+        networking.SendMessage(SteamId, Payload, sizeof(Payload));
+
+        if (messages.sentPayloads.size() != 2 || !messages.closedChannelSteamIds.empty()
+            || messages.sentFlags.back() != NetMessageSendFlags)
+        {
+            return false;
+        }
+    }
+
+    // A broken session closes the channel and retries the same message once.
+    {
+        TestSteamNetworkingMessages messages;
+        messages.queuedSendResults = { k_EResultOK, k_EResultNoConnection, k_EResultOK };
+        NetworkingServer networking{ &messages };
+        networking.ClientConnected(SteamId, &Ticket, sizeof(Ticket));
+
+        networking.SendMessage(SteamId, Payload, sizeof(Payload));
+
+        const std::vector<uint8_t> expected{ std::begin(Payload), std::end(Payload) };
+
+        if (messages.sentPayloads.size() != 3)
+        {
+            return false;
+        }
+
+        // The handshake keeps its own auto-restart flag; the ordinary path must not use it.
+        if (messages.sentFlags[0] != NetMessageHandshakeSendFlags
+            || messages.sentFlags[1] != NetMessageSendFlags
+            || messages.sentFlags[2] != NetMessageSendFlags)
+        {
+            return false;
+        }
+
+        return messages.closedChannelSteamIds.size() == 1
+            && messages.closedChannelSteamIds.back() == SteamId
+            && messages.closedSteamIds.empty()
+            && messages.sentPayloads[1] == expected
+            && messages.sentPayloads[2] == expected;
+    }
 }
 
 static bool NetworkingServerForgetsClientOnDisconnect()
@@ -4567,6 +4631,8 @@ int main(int argc, char **argv)
             NetworkingServerGivesUpAfterMaxConnectAttempts },
         { "NetworkingServerReArmsBudgetAfterAcknowledgedSessionFailure",
             NetworkingServerReArmsBudgetAfterAcknowledgedSessionFailure },
+        { "NetworkingServerRetriesOrdinarySendAfterClosingChannel",
+            NetworkingServerRetriesOrdinarySendAfterClosingChannel },
         { "NetworkingServerForgetsClientOnDisconnect",
             NetworkingServerForgetsClientOnDisconnect },
         { "PlayerProfileRequestsReturnMinimalProfiles",

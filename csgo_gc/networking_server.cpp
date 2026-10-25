@@ -71,9 +71,9 @@ void NetworkingServer::HandleIncomingMessage(uint64_t steamId, const void *data,
     }
 }
 
-// helper for SteamNetworkingMessages::SendMessageToUser, returns whether the SDK took
-// the message
-static bool SendMessageToUser(ISteamNetworkingMessages *networkingMessages, uint64_t steamId,
+// helper for SteamNetworkingMessages::SendMessageToUser, returns the SDK's send result.
+// What a broken session means differs per caller, so tearing it down is left to them.
+static EResult SendMessageToUser(ISteamNetworkingMessages *networkingMessages, uint64_t steamId,
     const void *data, uint32_t size, int flags)
 {
     SteamNetworkingIdentity identity;
@@ -86,21 +86,12 @@ static bool SendMessageToUser(ISteamNetworkingMessages *networkingMessages, uint
         flags,
         NetMessageChannel);
 
-    if (result == k_EResultOK)
+    if (result != k_EResultOK)
     {
-        return true;
+        Platform::Print("SendMessageToUser failed for %llu: %d\n", steamId, static_cast<int>(result));
     }
 
-    Platform::Print("SendMessageToUser failed for %llu: %d\n", steamId, static_cast<int>(result));
-
-    if (result == k_EResultNoConnection)
-    {
-        // The session is unusable. Acknowledge that so a later send can start a new
-        // one; the handshake itself also carries the auto-restart flag.
-        networkingMessages->CloseSessionWithUser(identity);
-    }
-
-    return false;
+    return result;
 }
 
 void NetworkingServer::SendConnectMessage(uint64_t steamId, ClientSession &session,
@@ -115,8 +106,17 @@ void NetworkingServer::SendConnectMessage(uint64_t steamId, ClientSession &sessi
         messageWrite.WriteData(session.ticket.data(), static_cast<uint32_t>(session.ticket.size()));
     }
 
-    const bool sent = SendMessageToUser(m_networkingMessages, steamId,
+    const EResult result = SendMessageToUser(m_networkingMessages, steamId,
         messageWrite.Data(), messageWrite.Size(), NetMessageHandshakeSendFlags);
+
+    if (result == k_EResultNoConnection)
+    {
+        // Only reachable when the auto-restart flag did not do its job. Acknowledge the
+        // broken session so a later send can start a new one.
+        SteamNetworkingIdentity identity;
+        identity.SetSteamID64(steamId);
+        m_networkingMessages->CloseSessionWithUser(identity);
+    }
 
     session.connectAttempts++;
     session.nextConnect = now + ConnectRetryDelay(session.connectAttempts);
@@ -129,7 +129,8 @@ void NetworkingServer::SendConnectMessage(uint64_t steamId, ClientSession &sessi
     else if (session.connectAttempts > 1)
     {
         Platform::Print("NetworkingServer: connect handshake with %llu, attempt %u/%u%s\n",
-            steamId, session.connectAttempts, MaxConnectAttempts, sent ? "" : " (send failed)");
+            steamId, session.connectAttempts, MaxConnectAttempts,
+            result == k_EResultOK ? "" : " (send failed)");
     }
 }
 
@@ -197,7 +198,27 @@ void NetworkingServer::SendMessage(uint64_t steamId, const void *data, uint32_t 
         return;
     }
 
-    SendMessageToUser(m_networkingMessages, steamId, data, size, NetMessageSendFlags);
+    // Ordinary GC traffic does not carry the handshake's auto-restart flag, so a broken
+    // session surfaces as k_EResultNoConnection instead of silently restarting. Close the
+    // channel to acknowledge that, then retry once: the retry is what re-opens the session,
+    // and giving up here would drop the message until the handshake happens to run again.
+    if (SendMessageToUser(m_networkingMessages, steamId, data, size, NetMessageSendFlags)
+        != k_EResultNoConnection)
+    {
+        return;
+    }
+
+    SteamNetworkingIdentity identity;
+    identity.SetSteamID64(steamId);
+    m_networkingMessages->CloseChannelWithUser(identity, NetMessageChannel);
+
+    const EResult result = SendMessageToUser(m_networkingMessages, steamId, data, size,
+        NetMessageSendFlags);
+    if (result != k_EResultOK)
+    {
+        Platform::Print("NetworkingServer: retrying the send to %llu failed: %d\n",
+            steamId, static_cast<int>(result));
+    }
 }
 
 void NetworkingServer::SendHostEvent(const EventData &event)
