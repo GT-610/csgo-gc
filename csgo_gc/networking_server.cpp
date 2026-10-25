@@ -200,8 +200,11 @@ void NetworkingServer::SendMessage(uint64_t steamId, const void *data, uint32_t 
 
     // Ordinary GC traffic does not carry the handshake's auto-restart flag, so a broken
     // session surfaces as k_EResultNoConnection instead of silently restarting. Close the
-    // channel to acknowledge that, then retry once: the retry is what re-opens the session,
-    // and giving up here would drop the message until the handshake happens to run again.
+    // session to acknowledge that, then retry once: the retry is what re-opens it, and
+    // giving up here would drop the message until the handshake happens to run again.
+    // Closing only the channel would not do: the SDK closes the session when the last
+    // channel goes away, so another open channel to the peer would keep it in the broken
+    // state and leave the retry failing too.
     if (SendMessageToUser(m_networkingMessages, steamId, data, size, NetMessageSendFlags)
         != k_EResultNoConnection)
     {
@@ -210,7 +213,7 @@ void NetworkingServer::SendMessage(uint64_t steamId, const void *data, uint32_t 
 
     SteamNetworkingIdentity identity;
     identity.SetSteamID64(steamId);
-    m_networkingMessages->CloseChannelWithUser(identity, NetMessageChannel);
+    m_networkingMessages->CloseSessionWithUser(identity);
 
     const EResult result = SendMessageToUser(m_networkingMessages, steamId, data, size,
         NetMessageSendFlags);

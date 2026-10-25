@@ -534,7 +534,7 @@ static bool NetworkingServerReArmsBudgetAfterAcknowledgedSessionFailure()
     return true;
 }
 
-static bool NetworkingServerRetriesOrdinarySendAfterClosingChannel()
+static bool NetworkingServerRetriesOrdinarySendAfterClosingSession()
 {
     constexpr uint64_t SteamId = 76561198083722517ull;
     constexpr uint8_t Ticket = 1;
@@ -549,13 +549,15 @@ static bool NetworkingServerRetriesOrdinarySendAfterClosingChannel()
         networking.SendMessage(SteamId, Payload, sizeof(Payload));
 
         if (messages.sentPayloads.size() != 2 || !messages.closedChannelSteamIds.empty()
+            || !messages.closedSteamIds.empty()
             || messages.sentFlags.back() != NetMessageSendFlags)
         {
             return false;
         }
     }
 
-    // A broken session closes the channel and retries the same message once.
+    // A broken session is closed outright (a channel close would leave the session broken
+    // while another channel to the peer is open), then the same message is retried once.
     {
         TestSteamNetworkingMessages messages;
         messages.queuedSendResults = { k_EResultOK, k_EResultNoConnection, k_EResultOK };
@@ -579,9 +581,9 @@ static bool NetworkingServerRetriesOrdinarySendAfterClosingChannel()
             return false;
         }
 
-        return messages.closedChannelSteamIds.size() == 1
-            && messages.closedChannelSteamIds.back() == SteamId
-            && messages.closedSteamIds.empty()
+        return messages.closedSteamIds.size() == 1
+            && messages.closedSteamIds.back() == SteamId
+            && messages.closedChannelSteamIds.empty()
             && messages.sentPayloads[1] == expected
             && messages.sentPayloads[2] == expected;
     }
@@ -4631,8 +4633,8 @@ int main(int argc, char **argv)
             NetworkingServerGivesUpAfterMaxConnectAttempts },
         { "NetworkingServerReArmsBudgetAfterAcknowledgedSessionFailure",
             NetworkingServerReArmsBudgetAfterAcknowledgedSessionFailure },
-        { "NetworkingServerRetriesOrdinarySendAfterClosingChannel",
-            NetworkingServerRetriesOrdinarySendAfterClosingChannel },
+        { "NetworkingServerRetriesOrdinarySendAfterClosingSession",
+            NetworkingServerRetriesOrdinarySendAfterClosingSession },
         { "NetworkingServerForgetsClientOnDisconnect",
             NetworkingServerForgetsClientOnDisconnect },
         { "PlayerProfileRequestsReturnMinimalProfiles",
