@@ -58,6 +58,8 @@ jobs:
         docker run --rm \
           -v "${{ github.workspace }}:${{ github.workspace }}" \
           -w "${{ github.workspace }}" \
+          -e HOST_UID="$(id -u)" \
+          -e HOST_GID="$(id -g)" \
           "${{ matrix.container_image }}" \
           bash -euo pipefail -c '
             export DEBIAN_FRONTEND=noninteractive
@@ -71,12 +73,23 @@ jobs:
             if [ -f vcpkg/bootstrap-vcpkg.sh ]; then
               ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
             fi
+
+            # Hand the clone back to the runner user. Git refuses to read a
+            # repository owned by another user ("dubious ownership"), so the
+            # host-side "Get vcpkg commit" step would fail while this stays
+            # root-owned.
+            chown -R "${HOST_UID}:${HOST_GID}" vcpkg
           '
 
     - name: Get vcpkg commit
       id: vcpkg-commit
       shell: bash
-      run: echo "sha=$(git -C '${{ github.workspace }}/vcpkg' rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      run: |
+        # Fail instead of emitting an empty sha. An empty value would collapse
+        # the cache key to "vcpkg-<platform>--<manifest>" and make unrelated
+        # runs share a cache entry.
+        sha="$(git -C '${{ github.workspace }}/vcpkg' rev-parse --verify HEAD)"
+        echo "sha=${sha}" >> "$GITHUB_OUTPUT"
 
     - name: Get runner image version
       id: runner-image
