@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [ "main" ]
 
+# Least privilege for the whole workflow. The build jobs only read the
+# repository and upload artifacts; the publish job re-grants itself
+# contents: write below, which is the only job that needs it.
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ${{ matrix.os }}
@@ -29,8 +35,14 @@ jobs:
           # platform is the runtime the artifact targets, not the machine that
           # builds it. It names the artifact and keys the vcpkg cache, so it
           # must stay stable when the runner image changes.
+          #
+          # container_image is pinned to a digest, not the moving :22.04 tag,
+          # so a rebuild of the same commit uses byte-identical build tooling.
+          # Bumping the digest is a deliberate act: update container_digest and
+          # the cache key follows automatically because it is derived from it.
           - os: ubuntu-24.04
-            container_image: ubuntu:22.04
+            container_image: ubuntu@sha256:e0f80c829509ef4df9e76bd8944eb7b8ec25cbb379b112a7f9448b2c77a77c9b
+            container_digest: sha256:e0f80c829509ef4df9e76bd8944eb7b8ec25cbb379b112a7f9448b2c77a77c9b
             platform: ubuntu-22.04
 
     steps:
@@ -79,6 +91,18 @@ jobs:
             # host-side "Get vcpkg commit" step would fail while this stays
             # root-owned.
             chown -R "${HOST_UID}:${HOST_GID}" vcpkg
+
+            # Record the exact build toolchain so the cache key can include it.
+            # The image digest alone does not pin apt: a fixed image still
+            # pulls whatever the archive currently serves. Hashing the resolved
+            # versions gives an immutable identity for those inputs without
+            # hardcoding version numbers.
+            {
+              dpkg-query -W -f='${Package}=${Version}\n' \
+                build-essential gcc g++ libc6 libc6-dev binutils \
+                cmake ninja-build 2>/dev/null | sort
+            } > .toolchain-id
+            chown "${HOST_UID}:${HOST_GID}" .toolchain-id
           '
 
     - name: Get vcpkg commit
@@ -96,26 +120,43 @@ jobs:
       shell: bash
       run: echo "version=${ImageVersion:-unknown}" >> "$GITHUB_OUTPUT"
 
+    # Hash the resolved apt toolchain so the cache key covers inputs the image
+    # digest does not pin. macOS has no such file and keeps keying on the
+    # runner image version.
+    - name: Get Linux toolchain identity
+      id: toolchain
+      shell: bash
+      run: |
+        f='${{ github.workspace }}/.toolchain-id'
+        if [ -f "$f" ]; then
+          echo "id=$(sha256sum "$f" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+        else
+          echo "id=none" >> "$GITHUB_OUTPUT"
+        fi
+
     - name: Cache vcpkg installed packages
       uses: actions/cache@v4
       with:
         path: |
           ${{ github.workspace }}/build/vcpkg_installed
           ${{ github.workspace }}/build_ds/vcpkg_installed
-        # Linux keys on the target platform, everything else on the runner
+        # Linux keys on the target platform, the pinned image digest and the
+        # resolved toolchain hash; macOS and Windows keep keying on the runner
         # image version.
         #
-        # Linux builds its dependencies inside the pinned ubuntu:22.04
+        # Linux builds its dependencies inside a digest-pinned ubuntu:22.04
         # container, which does not change when GitHub rolls ubuntu-24.04, so
-        # tying that key to ImageVersion throws away a warm cache on every
-        # runner bump and forces a full ~45 minute source rebuild of
-        # mbedtls/abseil/protobuf.
+        # tying that key to ImageVersion would throw away a warm cache on every
+        # runner bump and force a full ~45 minute source rebuild of
+        # mbedtls/abseil/protobuf. The digest covers the base image; the
+        # toolchain hash covers apt, which the digest does not pin because a
+        # fixed image still installs whatever the archive currently serves.
         #
         # macOS is the opposite: a runner update does change the Xcode/SDK and
         # the libraries must be rebuilt, so keep the image version there.
-        key: vcpkg-${{ matrix.platform || steps.runner-image.outputs.version }}-${{ steps.vcpkg-commit.outputs.sha }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'overlays/**') }}
+        key: vcpkg-${{ matrix.platform || steps.runner-image.outputs.version }}-${{ matrix.container_digest || 'host-image' }}-${{ steps.toolchain.outputs.id }}-${{ steps.vcpkg-commit.outputs.sha }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'overlays/**') }}
         restore-keys: |
-          vcpkg-${{ matrix.platform || steps.runner-image.outputs.version }}-${{ steps.vcpkg-commit.outputs.sha }}-
+          vcpkg-${{ matrix.platform || steps.runner-image.outputs.version }}-${{ matrix.container_digest || 'host-image' }}-${{ steps.toolchain.outputs.id }}-${{ steps.vcpkg-commit.outputs.sha }}-
 
     # Run the Linux build inside the pinned Ubuntu 22.04 container so the
     # artifacts keep the GLIBC_2.34 floor regardless of the runner image.
@@ -198,6 +239,44 @@ jobs:
           --test-dir "${{ github.workspace }}/build" `
           --build-config ${{ matrix.build_type }} `
           --output-on-failure
+
+    # Guard against the regression that caused issue #143: a build that
+    # silently picks up the i386 GLIBC_ABI_GNU_TLS dependency raises the
+    # runtime glibc floor to 2.42 and makes the artifact refuse to load on
+    # Ubuntu 24.04. The tag is a safety assertion (see CMakeLists.txt), so it
+    # must not appear in anything we ship. Fail rather than publish it.
+    - if: matrix.os == 'ubuntu-24.04'
+      name: Verify release ELF glibc tags
+      shell: bash
+      run: |
+        set -euo pipefail
+        status=0
+        found=0
+        while IFS= read -r -d '' f; do
+          # Only inspect ELF files; the release dir also holds text and config.
+          magic="$(head -c 4 "$f" | od -An -tx1 | tr -d '[:space:]')"
+          if [ "$magic" != "7f454c46" ]; then
+            continue
+          fi
+          found=$((found + 1))
+          if ! readelf --version-info "$f" > /tmp/vi.txt 2>/tmp/vi.err; then
+            echo "::error file=$f::readelf failed to inspect ELF version info"
+            cat /tmp/vi.err
+            status=1
+            continue
+          fi
+          if grep -q 'GLIBC_ABI_GNU_TLS' /tmp/vi.txt; then
+            echo "::error file=$f::requires GLIBC_ABI_GNU_TLS, which raises the glibc floor to 2.42"
+            status=1
+          fi
+        done < <(find "${{ github.workspace }}/release" -type f -print0)
+
+        if [ "$found" -eq 0 ]; then
+          echo "::error::no ELF files found under release/"
+          exit 1
+        fi
+        echo "inspected ${found} ELF file(s)"
+        exit $status
 
     - name: Package
       shell: bash
