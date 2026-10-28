@@ -26,8 +26,12 @@ jobs:
         os: [ubuntu-24.04, macos-15, windows-latest]
         build_type: [Release]
         include:
+          # platform is the runtime the artifact targets, not the machine that
+          # builds it. It names the artifact and keys the vcpkg cache, so it
+          # must stay stable when the runner image changes.
           - os: ubuntu-24.04
             container_image: ubuntu:22.04
+            platform: ubuntu-22.04
 
     steps:
     - uses: actions/checkout@v4
@@ -85,9 +89,20 @@ jobs:
         path: |
           ${{ github.workspace }}/build/vcpkg_installed
           ${{ github.workspace }}/build_ds/vcpkg_installed
-        key: vcpkg-${{ matrix.os }}-${{ matrix.container_image || steps.runner-image.outputs.version }}-${{ steps.vcpkg-commit.outputs.sha }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'overlays/**') }}
+        # Linux keys on the target platform, everything else on the runner
+        # image version.
+        #
+        # Linux builds its dependencies inside the pinned ubuntu:22.04
+        # container, which does not change when GitHub rolls ubuntu-24.04, so
+        # tying that key to ImageVersion throws away a warm cache on every
+        # runner bump and forces a full ~45 minute source rebuild of
+        # mbedtls/abseil/protobuf.
+        #
+        # macOS is the opposite: a runner update does change the Xcode/SDK and
+        # the libraries must be rebuilt, so keep the image version there.
+        key: vcpkg-${{ matrix.platform || steps.runner-image.outputs.version }}-${{ steps.vcpkg-commit.outputs.sha }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'overlays/**') }}
         restore-keys: |
-          vcpkg-${{ matrix.os }}-${{ matrix.container_image || steps.runner-image.outputs.version }}-${{ steps.vcpkg-commit.outputs.sha }}-
+          vcpkg-${{ matrix.platform || steps.runner-image.outputs.version }}-${{ steps.vcpkg-commit.outputs.sha }}-
 
     # Run the Linux build inside the pinned Ubuntu 22.04 container so the
     # artifacts keep the GLIBC_2.34 floor regardless of the runner image.
@@ -216,7 +231,7 @@ jobs:
       if: runner.os == 'Windows'
       shell: pwsh
       env:
-        OUTNAME: csgo_gc-${{ matrix.os }}.zip
+        OUTNAME: csgo_gc-${{ matrix.platform || matrix.os }}.zip
       run: |
         $out = Join-Path $env:GITHUB_WORKSPACE $env:OUTNAME
         if (Test-Path $out) { Remove-Item $out -Force }
@@ -228,14 +243,14 @@ jobs:
       if: runner.os != 'Windows'
       shell: bash
       run: |
-        OUTNAME="csgo_gc-${{ matrix.os }}.zip"
+        OUTNAME="csgo_gc-${{ matrix.platform || matrix.os }}.zip"
         (cd release && zip -r "../${OUTNAME}" .)
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: artifact-${{ matrix.os }}
-        path: ${{ github.workspace }}/csgo_gc-${{ matrix.os }}.zip
+        name: artifact-${{ matrix.platform || matrix.os }}
+        path: ${{ github.workspace }}/csgo_gc-${{ matrix.platform || matrix.os }}.zip
 
   publish:
     if: github.event_name != 'pull_request'
