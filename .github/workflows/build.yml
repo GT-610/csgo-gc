@@ -97,11 +97,13 @@ jobs:
             # pulls whatever the archive currently serves. Hashing the resolved
             # versions gives an immutable identity for those inputs without
             # hardcoding version numbers.
-            {
-              dpkg-query -W -f='${Package}=${Version}\n' \
-                build-essential gcc g++ libc6 libc6-dev binutils \
-                cmake ninja-build 2>/dev/null | sort
-            } > .toolchain-id
+            #
+            # Only query packages this step actually installs; cmake and
+            # ninja-build arrive in the build step. dpkg-query exits non-zero
+            # for a missing package, and with -e that would abort the step.
+            for pkg in build-essential gcc g++ libc6 libc6-dev binutils; do
+              dpkg-query -W -f='${Package}=${Version}\n' "$pkg" || true
+            done | sort > .toolchain-id
             chown "${HOST_UID}:${HOST_GID}" .toolchain-id
           '
 
