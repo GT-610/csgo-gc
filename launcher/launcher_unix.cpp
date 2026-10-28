@@ -48,8 +48,6 @@ static void ErrorMessageBox(const char *format, ...)
         &responseFlags); // not used but idk if it can be null
 
     CFRelease(messageString);
-#else
-    fprintf(stderr, "csgo_gc: %s\n", message);
 #endif
 }
 

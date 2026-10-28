@@ -51,6 +51,23 @@ else()
 
     if (NOT APPLE)
         add_link_options(-Wl,--no-undefined -z noexecstack)
+
+        # binutils 2.45+ records a GLIBC_ABI_GNU_TLS version dependency on i386
+        # when an object references __tls_get_addr and libc.so defines that
+        # version. That silently raises the minimum glibc of the shipped .so to
+        # 2.42+, so a build made on a newer distro refuses to load on 24.04 with
+        # "version `GLIBC_ABI_GNU_TLS' not found". Suppress it when the linker
+        # knows how; older linkers that lack the option need no suppression
+        # because they never emit the tag. The option is i386-only, hence the
+        # IS_32BIT guard, and we probe instead of assuming so that a future
+        # runner image change cannot reintroduce the dependency. See issue #143.
+        if (IS_32BIT)
+            include(CheckLinkerFlag)
+            check_linker_flag(CXX "LINKER:--no-gnu-tls-tag" HAVE_NO_GNU_TLS_TAG)
+            if (HAVE_NO_GNU_TLS_TAG)
+                add_link_options("LINKER:--no-gnu-tls-tag")
+            endif()
+        endif()
     endif()
 endif()
 
