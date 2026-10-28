@@ -15,26 +15,59 @@ jobs:
 
     strategy:
       matrix:
-        # Pin the Linux runner instead of using the ubuntu-latest alias. That
-        # alias is migrated gradually and can silently change the glibc used to
-        # link the release artifacts, which raises the minimum glibc required at
-        # run time. Ubuntu 22.04 (glibc 2.35) keeps the floor at GLIBC_2.34 and
-        # does not arm the i386 GLIBC_ABI_GNU_TLS tag. See issue #143.
-        os: [ubuntu-22.04, macos-15, windows-latest]
+        # The Linux job must not use the ubuntu-latest alias: that alias is
+        # migrated gradually and silently changes the glibc the release
+        # artifacts are linked against, which raises the minimum glibc required
+        # at run time (issue #143). It must not pin ubuntu-22.04 either, because
+        # that image began deprecation on 2026-09-17 and is retired on
+        # 2027-04-17. Instead the job runs on a current runner and does the
+        # actual build inside a pinned ubuntu:22.04 container, which fixes the
+        # glibc floor at 2.34 independently of the host image.
+        os: [ubuntu-24.04, macos-15, windows-latest]
         build_type: [Release]
+        include:
+          - os: ubuntu-24.04
+            container_image: ubuntu:22.04
 
     steps:
     - uses: actions/checkout@v4
 
-    - if: matrix.os != 'windows-latest'
+    # sccache only for the native builds. The Linux build runs in a container
+    # with its own glibc, so a host-provided sccache/PATH cannot be used there.
+    - if: matrix.os == 'macos-15'
       name: Run sccache-cache
       uses: mozilla-actions/sccache-action@v0.0.9
 
-    - name: Setup vcpkg
+    - if: matrix.os != 'ubuntu-24.04'
+      name: Setup vcpkg
       uses: lukka/run-vcpkg@v11
       with:
         vcpkgDirectory: '${{ github.workspace }}/vcpkg'
         doNotCache: true # cache vcpkg_installed ourselves instead
+
+    # vcpkg must be bootstrapped by the container's own toolchain. A binary
+    # bootstrapped on the ubuntu-24.04 host needs glibc 2.39 and would fail
+    # inside the glibc 2.35 container.
+    - if: matrix.os == 'ubuntu-24.04'
+      name: Setup vcpkg (Linux container)
+      run: |
+        docker run --rm \
+          -v "${{ github.workspace }}:${{ github.workspace }}" \
+          -w "${{ github.workspace }}" \
+          "${{ matrix.container_image }}" \
+          bash -euo pipefail -c '
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update
+            apt-get install --yes --no-install-recommends \
+              git curl zip unzip tar ca-certificates build-essential
+
+            if [ ! -d vcpkg/.git ]; then
+              git clone https://github.com/microsoft/vcpkg.git vcpkg
+            fi
+            if [ -f vcpkg/bootstrap-vcpkg.sh ]; then
+              ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
+            fi
+          '
 
     - name: Get vcpkg commit
       id: vcpkg-commit
@@ -52,27 +85,62 @@ jobs:
         path: |
           ${{ github.workspace }}/build/vcpkg_installed
           ${{ github.workspace }}/build_ds/vcpkg_installed
-        key: vcpkg-${{ matrix.os }}-${{ steps.runner-image.outputs.version }}-${{ steps.vcpkg-commit.outputs.sha }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'overlays/**') }}
+        key: vcpkg-${{ matrix.os }}-${{ matrix.container_image || steps.runner-image.outputs.version }}-${{ steps.vcpkg-commit.outputs.sha }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'overlays/**') }}
         restore-keys: |
-          vcpkg-${{ matrix.os }}-${{ steps.runner-image.outputs.version }}-${{ steps.vcpkg-commit.outputs.sha }}-
+          vcpkg-${{ matrix.os }}-${{ matrix.container_image || steps.runner-image.outputs.version }}-${{ steps.vcpkg-commit.outputs.sha }}-
 
-    - if: matrix.os == 'ubuntu-22.04'
-      name: Dependencies
+    # Run the Linux build inside the pinned Ubuntu 22.04 container so the
+    # artifacts keep the GLIBC_2.34 floor regardless of the runner image.
+    - if: matrix.os == 'ubuntu-24.04'
+      name: Build Linux (ubuntu:22.04 container)
       run: |
-        sudo dpkg --add-architecture i386
-        sudo apt-get update
-        sudo apt install --yes --no-install-recommends gcc-multilib g++-multilib
+        docker run --rm \
+          -v "${{ github.workspace }}:${{ github.workspace }}" \
+          -w "${{ github.workspace }}" \
+          -e CI=true \
+          -e VCPKG_DEFAULT_BINARY_CACHE=/tmp/vcpkg-bincache \
+          -e VCPKG_ROOT="${{ github.workspace }}/vcpkg" \
+          -e HOST_UID="$(id -u)" \
+          -e HOST_GID="$(id -g)" \
+          "${{ matrix.container_image }}" \
+          bash -euo pipefail -c '
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update
+            apt-get install --yes --no-install-recommends \
+              build-essential cmake ninja-build git curl zip unzip tar \
+              pkg-config ca-certificates gcc-multilib g++-multilib
 
-    - if: matrix.os == 'ubuntu-22.04'
-      name: Build Linux
-      run: |
-        mkdir ${{ github.workspace }}/release
-        cmake -B ${{ github.workspace }}/build -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -S ${{ github.workspace }} -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DOUTDIR=${{ github.workspace }}/release -DCMAKE_TOOLCHAIN_FILE=${{ env.VCPKG_ROOT }}/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET=x64-linux -DBUILD_TESTING=ON
-        cmake --build ${{ github.workspace }}/build --config ${{ matrix.build_type }}
-        ctest --test-dir ${{ github.workspace }}/build --build-config ${{ matrix.build_type }} --output-on-failure
-        cmake -B ${{ github.workspace }}/build_ds -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -S ${{ github.workspace }} -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DCMAKE_C_FLAGS=-m32 -DCMAKE_CXX_FLAGS=-m32 -DCMAKE_ASM_FLAGS=-m32 -DOUTDIR=${{ github.workspace }}/release -DCMAKE_TOOLCHAIN_FILE=${{ env.VCPKG_ROOT }}/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET=x86-linux
-        cmake --build ${{ github.workspace }}/build_ds --config ${{ matrix.build_type }} --target srcds csgo_gc game_types_tests
-        ctest --test-dir ${{ github.workspace }}/build_ds --build-config ${{ matrix.build_type }} --output-on-failure -R '^game_types_tests$'
+            mkdir -p "${VCPKG_DEFAULT_BINARY_CACHE}" "${{ github.workspace }}/release"
+
+            cmake -B "${{ github.workspace }}/build" -G Ninja \
+              -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+              -S "${{ github.workspace }}" \
+              -DOUTDIR="${{ github.workspace }}/release" \
+              -DCMAKE_TOOLCHAIN_FILE="${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake" \
+              -DVCPKG_TARGET_TRIPLET=x64-linux \
+              -DBUILD_TESTING=ON
+            cmake --build "${{ github.workspace }}/build" --config ${{ matrix.build_type }}
+            ctest --test-dir "${{ github.workspace }}/build" --output-on-failure
+
+            cmake -B "${{ github.workspace }}/build_ds" -G Ninja \
+              -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+              -S "${{ github.workspace }}" \
+              -DCMAKE_C_FLAGS=-m32 -DCMAKE_CXX_FLAGS=-m32 -DCMAKE_ASM_FLAGS=-m32 \
+              -DOUTDIR="${{ github.workspace }}/release" \
+              -DCMAKE_TOOLCHAIN_FILE="${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake" \
+              -DVCPKG_TARGET_TRIPLET=x86-linux
+            cmake --build "${{ github.workspace }}/build_ds" --config ${{ matrix.build_type }} \
+              --target srcds csgo_gc game_types_tests
+            ctest --test-dir "${{ github.workspace }}/build_ds" --output-on-failure \
+              -R "^game_types_tests$"
+
+            # The container runs as root; hand the workspace back to the runner
+            # user so the later Package/upload steps can write to it.
+            chown -R "${HOST_UID}:${HOST_GID}" \
+              "${{ github.workspace }}/build" \
+              "${{ github.workspace }}/build_ds" \
+              "${{ github.workspace }}/release"
+          '
 
     - if: matrix.os == 'macos-15'
       name: Build macOS
@@ -120,7 +188,7 @@ jobs:
 
         # Collect licenses installed by vcpkg from each target build tree.
         case "${{ matrix.os }}" in
-          ubuntu-22.04)
+          ubuntu-24.04)
             VCPKG_SHARES=(
               "$GITHUB_WORKSPACE/build/vcpkg_installed/x64-linux/share"
               "$GITHUB_WORKSPACE/build_ds/vcpkg_installed/x86-linux/share"
