@@ -1,35 +1,12 @@
 #include "stdafx.h"
 #include "appid.h"
+#include "keyvalue.h" // LoadFile
 #include "config.h"
 
 namespace AppId
 {
 
-static std::string LoadFile(const char *path)
-{
-    FILE *f = fopen(path, "rb");
-    if (!f)
-    {
-        return {};
-    }
-
-    fseek(f, 0, SEEK_END);
-    long size = ftell(f);
-    fseek(f, 0, SEEK_SET);
-
-    std::string buffer;
-    buffer.resize(size);
-    long bytesRead = static_cast<long>(fread(buffer.data(), 1, size, f));
-
-    fclose(f);
-
-    if (bytesRead != size)
-    {
-        return {};
-    }
-
-    return buffer;
-}
+constexpr uint32_t DefaultBuildYear = 2023;
 
 static size_t ifind(std::string_view haystack, std::string_view needle)
 {
@@ -82,6 +59,55 @@ static SteamInfResult ReplaceSteamInfAppId(std::string &buf, uint32_t appId)
     return SteamInfResult::Ok;
 }
 
+static uint32_t ParseSteamInfBuildYear(std::string_view buf)
+{
+    size_t keyPos = ifind(buf, "VersionDate=");
+    if (keyPos == std::string::npos)
+    {
+        return 0;
+    }
+
+    size_t valuePos = keyPos + sizeof("VersionDate=") - 1;
+    size_t valueEnd = buf.find_first_of("\r\n", valuePos);
+    if (valueEnd == std::string_view::npos)
+    {
+        valueEnd = buf.size();
+    }
+
+    std::string_view value = buf.substr(valuePos, valueEnd - valuePos);
+    for (size_t i = 0; i + 4 <= value.size(); i++)
+    {
+        bool fourDigits = true;
+        for (size_t digit = 0; digit < 4; digit++)
+        {
+            fourDigits &= value[i + digit] >= '0' && value[i + digit] <= '9';
+        }
+
+        if (!fourDigits)
+        {
+            continue;
+        }
+
+        const bool startsAtBoundary = i == 0 || value[i - 1] < '0' || value[i - 1] > '9';
+        const bool endsAtBoundary = i + 4 == value.size()
+            || value[i + 4] < '0' || value[i + 4] > '9';
+        if (!startsAtBoundary || !endsAtBoundary)
+        {
+            continue;
+        }
+
+        uint32_t year = 0;
+        auto [ptr, ec] = std::from_chars(value.data() + i, value.data() + i + 4, year);
+        if (ec == std::errc{} && ptr == value.data() + i + 4
+            && year >= 2012 && year <= DefaultBuildYear)
+        {
+            return year;
+        }
+    }
+
+    return 0;
+}
+
 static void WriteFile(const char *path, const std::string &buffer)
 {
     FILE *f = fopen(path, "wb");
@@ -97,7 +123,7 @@ void Init()
     // defaults to 730 if not specified
     uint32_t appIdOverride = GetConfig().m_appIdOverride;
 
-    Platform::Print("Using app id {}\n", appIdOverride);
+    Platform::Print("Using app id %u\n", appIdOverride);
 
     std::string steamInf = LoadFile("csgo/steam.inf");
     SteamInfResult steamInfResult = ReplaceSteamInfAppId(steamInf, appIdOverride);
@@ -107,15 +133,15 @@ void Init()
     case SteamInfResult::Ok:
         // could make a backup, but don't...
         WriteFile("csgo/steam.inf", steamInf);
-        Platform::Print("Replaced steam.inf app id with {}\n", appIdOverride);
+        Platform::Print("Replaced steam.inf app id with %u\n", appIdOverride);
         break;
 
     case SteamInfResult::InvalidFile:
-        Platform::Print("Did not replace steam.inf app id with {} (invalid file)\n", appIdOverride);
+        Platform::Print("Did not replace steam.inf app id with %u (invalid file)\n", appIdOverride);
         break;
 
     case SteamInfResult::AlreadyOk:
-        Platform::Print("steam.inf app id was already set to {}\n", appIdOverride);
+        Platform::Print("steam.inf app id was already set to %u\n", appIdOverride);
         break;
     }
 }
@@ -123,6 +149,19 @@ void Init()
 uint32_t GetOverride()
 {
     return GetConfig().m_appIdOverride;
+}
+
+uint32_t GetBuildYear()
+{
+    uint32_t buildYear = ParseSteamInfBuildYear(LoadFile("csgo/steam.inf"));
+    if (!buildYear)
+    {
+        Platform::Print("Could not read the client build year from steam.inf; using %u\n",
+            DefaultBuildYear);
+        return DefaultBuildYear;
+    }
+
+    return buildYear;
 }
 
 bool IsOriginal()

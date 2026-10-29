@@ -21,8 +21,17 @@ void Initialize()
     }
 }
 
-void PrintV(std::string_view fmt, std::format_args args)
+void Print(const char *format, ...)
 {
+    va_list ap;
+    char buffer[4096];
+
+    va_start(ap, format);
+    vsnprintf(buffer, sizeof(buffer), format, ap);
+    va_end(ap);
+
+    // Buffer first, then consult the config. Messages logged while the config
+    // is still under construction would otherwise be dropped entirely.
     LogOutput logOutput = GetConfig().m_logOutput;
     if (logOutput <= LogOutputNone)
     {
@@ -30,24 +39,21 @@ void PrintV(std::string_view fmt, std::format_args args)
         return;
     }
 
-    std::string buffer = std::vformat(fmt, args);
-
     if (s_ConColorMsg)
     {
         uint8_t color[4] = { 0, 255, 128, 255 };
-        s_ConColorMsg(color, "[GC] %s", buffer.c_str());
+        s_ConColorMsg(color, "[GC] %s", buffer);
     }
 
     // optionally also log to file
     if (logOutput >= LogOutputFile)
     {
-        // timestamp it
-        auto now = std::chrono::system_clock::now();
-        std::string nowString = std::format("{:%H:%M:%S}", now);
-
         FILE *f = fopen("gc_log.txt", "a");
-        fprintf(f, "[%s] %s", nowString.c_str(), buffer.c_str());
-        fclose(f);
+        if (f)
+        {
+            fprintf(f, "%s", buffer);
+            fclose(f);
+        }
     }
 }
 
@@ -67,13 +73,27 @@ void Error(const char *format, ...)
 bool SteamClientPath(void *buffer, size_t bufferSize)
 {
     HMODULE steamclient = GetModuleHandleW(L"steamclient.dll");
-    DWORD result = GetModuleFileNameW(steamclient, reinterpret_cast<wchar_t *>(buffer), bufferSize / sizeof(wchar_t));
-    return (result > 0 && result < bufferSize);
+    if (!steamclient)
+    {
+        return false;
+    }
+
+    DWORD bufferLength = static_cast<DWORD>(bufferSize / sizeof(wchar_t));
+    DWORD result = GetModuleFileNameW(steamclient, reinterpret_cast<wchar_t *>(buffer), bufferLength);
+    return result > 0 && result < bufferLength;
 }
 
 void *LoadDynamicLibrary(const void *pathBuffer)
 {
     const wchar_t *path = reinterpret_cast<const wchar_t *>(pathBuffer);
+
+    // Bare Steam API names rely on the normal Windows DLL search order. The
+    // DLL-load-directory flag is only valid when the path is fully qualified.
+    if (!wcschr(path, L'\\') && !wcschr(path, L'/'))
+    {
+        return LoadLibraryW(path);
+    }
+
     return LoadLibraryExW(path, nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
 }
 
@@ -82,9 +102,45 @@ void *GetSymbol(void *handle, const char *symbol)
     return GetProcAddress(static_cast<HMODULE>(handle), symbol);
 }
 
+void *ModuleFactory(std::string_view moduleName)
+{
+    std::string actualModuleName;
+    actualModuleName.assign(moduleName);
+    actualModuleName.append(".dll");
+
+    HMODULE module = GetModuleHandleA(actualModuleName.c_str());
+    if (!module)
+    {
+        return nullptr;
+    }
+
+    return GetProcAddress(module, "CreateInterface");
+}
+
 void SetEnvVar(const char *name, const char *value)
 {
     SetEnvironmentVariableA(name, value);
+}
+
+bool WriteToProtectedMemory(void *address, const void *data, size_t size, bool needsExecute)
+{
+    DWORD newProtect = needsExecute ? PAGE_EXECUTE_READWRITE : PAGE_READWRITE;
+    DWORD oldProtect;
+
+    if (!VirtualProtect(address, size, newProtect, &oldProtect))
+    {
+        return false;
+    }
+
+    memcpy(address, data, size);
+    bool restoreOk = VirtualProtect(address, size, oldProtect, &oldProtect);
+
+    if (needsExecute)
+    {
+        restoreOk = FlushInstructionCache(GetCurrentProcess(), address, size) && restoreOk;
+    }
+
+    return restoreOk;
 }
 
 static void *Q_memmem(const void *_haystack, size_t haystack_len, const void *_needle, size_t needle_len)
@@ -114,7 +170,7 @@ static void *Q_memmem(const void *_haystack, size_t haystack_len, const void *_n
     return NULL;
 }
 
-bool PatchGraffitiPublicKey(std::string_view moduleName, const void *original, const void *replacement, size_t size)
+bool UpdateGraffitiKey(std::string_view moduleName, const void *original, const void *replacement, size_t size)
 {
     std::string actualModuleName;
     actualModuleName.assign(moduleName);
@@ -137,15 +193,7 @@ bool PatchGraffitiPublicKey(std::string_view moduleName, const void *original, c
         return false;
     }
 
-    DWORD oldProtect;
-    if (VirtualProtect(address, size, PAGE_READWRITE, &oldProtect))
-    {
-        memcpy(address, replacement, size);
-        VirtualProtect(address, size, oldProtect, &oldProtect);
-        return true;
-    }
-
-    return false;
+    return WriteToProtectedMemory(address, replacement, size, false);
 }
 
 // FIXME: generalize and use for graffiti public key as well
@@ -181,7 +229,7 @@ static uint8_t *FindUint32FromCode(uint8_t *start, uint8_t *end, uint32_t value)
 
 // the server browser filters out servers with appid < 200 or > 900 unless it's garry's mod,
 // so replace gmod appid (4000) with the requested one
-bool PatchServerBrowserAppId(uint32_t appId)
+bool UpdateServerBrowserAppId(uint32_t appId)
 {
     HMODULE module = GetModuleHandleA("serverbrowser.dll");
     if (!module)
@@ -230,34 +278,13 @@ bool PatchServerBrowserAppId(uint32_t appId)
 
         if (foundLow && foundHigh)
         {
-            DWORD oldProtect;
-
-            // if we find both, this should be the address we need to patch --> replace gmod appid with the target one
-            if (VirtualProtect(ptr4000, sizeof(uint32_t), PAGE_EXECUTE_READWRITE, &oldProtect))
-            {
-                *reinterpret_cast<uint32_t *>(ptr4000) = appId;
-                VirtualProtect(ptr4000, sizeof(uint32_t), oldProtect, &oldProtect);
-
-                // might want to do this since we're patching so late
-                FlushInstructionCache(GetCurrentProcess(), ptr4000, sizeof(uint32_t));
-            }
-            else
-            {
-                return false;
-            }
-
-            return true;
+            return WriteToProtectedMemory(ptr4000, &appId, sizeof(uint32_t), true);
         }
 
         searchStart = ptr4000 + 1;
     }
 
     return false;
-}
-
-bool RemoveFile(const char *path)
-{
-    return DeleteFileA(path) ? true : false;
 }
 
 } // namespace Platform

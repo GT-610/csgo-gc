@@ -7,13 +7,7 @@ namespace Platform
 void Initialize();
 
 // print a debugging message to the in game console or something
-void PrintV(std::string_view fmt, std::format_args args);
-
-template<class... Args>
-void Print(std::format_string<Args...> fmt, Args &&...args)
-{
-    PrintV(fmt.get(), std::make_format_args(args...));
-}
+void Print(const char *format, ...);
 
 // fatal error, show a message box if possible and exit the program
 [[noreturn]] void Error(const char *format, ...);
@@ -30,17 +24,24 @@ void *LoadDynamicLibrary(const void *pathBuffer);
 // GetProcAddress/dlsym
 void *GetSymbol(void *handle, const char *symbol);
 
+// get a module's factory function from an already loaded game module
+// the module name is given in a platform-agnostic format
+// (e.g. "engine" maps to engine.dll / engine_client.so / engine.dylib)
+void *ModuleFactory(std::string_view moduleName);
+
 // set an envar to the specified value even if it's already set
 void SetEnvVar(const char *name, const char *value);
 
-// patch the graffiti public key in the specified module to get sprays working
+// safely write to memory that may be read-only, handles protection changes internally
+// set needsExecute to true when modifying code sections
+bool WriteToProtectedMemory(void *address, const void *data, size_t size, bool needsExecute);
+
+// update the graffiti public key in the specified module to get sprays working
 // the module name is given in a platform-agnostic format
 // (e.g. on linux pass server as moduleName, and it'll operate on server_client.so)
-bool PatchGraffitiPublicKey(std::string_view moduleName, const void *original, const void *replacement, size_t size);
+bool UpdateGraffitiKey(std::string_view moduleName, const void *original, const void *replacement, size_t size);
 
-// returns true if serverbrowser was loaded and we patched it
-bool PatchServerBrowserAppId(uint32_t appId);
-
-bool RemoveFile(const char *path);
+// returns true if serverbrowser was loaded and we updated it
+bool UpdateServerBrowserAppId(uint32_t appId);
 
 } // namespace Platform

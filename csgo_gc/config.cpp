@@ -1,39 +1,49 @@
 #include "stdafx.h"
 #include "config.h"
 #include "keyvalue.h"
+#include "random.h"
 
 constexpr const char *ConfigFilePath = "csgo_gc/config.txt";
 
-static GCConfig s_config;
-
-void LoadConfig()
-{
-    s_config.Load();
-}
-
 const GCConfig &GetConfig()
 {
-    return s_config;
+    static GCConfig instance;
+
+    // Publish diagnostics only after construction has finished. Platform::Print
+    // calls GetConfig(), so mark them reported before entering the logger.
+    static std::atomic<bool> diagnosticsReported{ false };
+    bool expected = false;
+    if (!diagnosticsReported.load(std::memory_order_relaxed)
+        && diagnosticsReported.compare_exchange_strong(expected, true, std::memory_order_relaxed))
+    {
+        instance.PrintDiagnostics();
+    }
+    return instance;
 }
 
-void GCConfig::Load()
+GCConfig::GCConfig()
 {
-    KeyValueRead configRead{ ConfigFilePath };
-    if (!configRead.Good())
+    KeyValue config{ "config" };
+
+    if (!config.ParseFromFile(ConfigFilePath))
     {
         return;
     }
-
-    const KeyValue &config = configRead.Root();
 
     m_logOutput = config.GetNumber("log_output", m_logOutput);
 
     m_appIdOverride = config.GetNumber("appid_override", m_appIdOverride);
     m_showCsgoGCServersOnly = config.GetNumber("show_csgo_gc_servers_only", m_showCsgoGCServersOnly);
+    m_overwatchEnabled = config.GetNumber("overwatch_enabled", m_overwatchEnabled);
 
-    m_itemSchemaPath = config.GetString("item_schema_path", m_itemSchemaPath);
-
-    m_inventoryEditorOrigin = config.GetString("inventory_editor_origin", m_inventoryEditorOrigin);
+    const KeyValue *rcon = config.GetSubkey("rcon");
+    if (rcon)
+    {
+        m_rconEnabled = rcon->GetNumber("enabled", m_rconEnabled);
+        m_rconBindAddress = rcon->GetString("bind_address", m_rconBindAddress);
+        m_rconPort = rcon->GetNumber("port", m_rconPort);
+        m_rconPassword = rcon->GetString("password", m_rconPassword);
+    }
 
     const KeyValue *ranks = config.GetSubkey("ranks");
     if (ranks)
@@ -48,18 +58,37 @@ void GCConfig::Load()
         m_dangerZoneWins = ranks->GetNumber("dangerzone_wins", m_dangerZoneWins);
     }
 
+    m_itemSchemaPath = config.GetString("item_schema_path", m_itemSchemaPath);
+
     m_destroyUsedItems = config.GetNumber("destroy_used_items", m_destroyUsedItems);
+    m_primeStatus = config.GetNumber("prime_status", m_primeStatus);
+
+    std::string_view musicKitStatTrak =
+        config.GetString("music_kit_stattrak", std::string_view{});
+    if (musicKitStatTrak == "always")
+    {
+        m_musicKitStatTrakGate = MusicKit::StatTrakGate::Always;
+    }
+    else if (musicKitStatTrak == "competitive" || musicKitStatTrak.empty())
+    {
+        m_musicKitStatTrakGate = MusicKit::StatTrakGate::CompetitiveRuleset;
+    }
+    else
+    {
+        m_unknownMusicKitStatTrak = musicKitStatTrak;
+        m_musicKitStatTrakGate = MusicKit::StatTrakGate::CompetitiveRuleset;
+    }
 
     const KeyValue *rarityWeights = config.GetSubkey("rarity_weights");
     if (rarityWeights)
     {
         m_rarityWeights.clear();
-        m_rarityWeights.reserve(rarityWeights->Subkeys().size());
+        m_rarityWeights.reserve(rarityWeights->SubkeyCount());
 
-        for (const KeyValue &subkey : rarityWeights->Subkeys())
+        for (const KeyValue &subkey : *rarityWeights)
         {
             RarityWeight weight;
-            weight.rarity = ToEnum<Rarity>(FromString<uint32_t>(subkey.Name()));
+            weight.rarity = FromString<uint32_t>(subkey.Name());
             weight.weight = FromString<float>(subkey.String());
             m_rarityWeights.push_back(weight);
         }
@@ -71,12 +100,18 @@ void GCConfig::Load()
     m_commendedLeader = config.GetNumber("cmd_leader", m_commendedLeader);
     m_level = config.GetNumber("player_level", m_level);
     m_xp = config.GetNumber("player_cur_xp", m_xp);
-
-    m_country = config.GetString("country", m_country);
-    m_currency = config.GetNumber("currency", m_currency);
 }
 
-float GCConfig::GetRarityWeight(Rarity rarity) const
+void GCConfig::PrintDiagnostics() const
+{
+    if (!m_unknownMusicKitStatTrak.empty())
+    {
+        Platform::Print("config: unknown music_kit_stattrak value '%s', using competitive\n",
+            m_unknownMusicKitStatTrak.c_str());
+    }
+}
+
+float GCConfig::GetRarityWeight(uint32_t rarity) const
 {
     for (const RarityWeight &weight : m_rarityWeights)
     {

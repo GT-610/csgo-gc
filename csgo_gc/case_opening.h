@@ -1,30 +1,23 @@
 #pragma once
 
-#include "gc_const_csgo.h"
-#include "item_schema_const.h"
-
 class ItemSchema;
+class Random;
 
-struct ItemDesc;
 struct LootListItem;
 struct LootList;
 
 class CaseOpening
 {
 public:
-    CaseOpening(const ItemSchema &itemSchema);
+    CaseOpening(const ItemSchema &itemSchema, Random &random);
 
-    bool SelectItemFromCrate(ItemDefIndex crateDefIndex, ItemDesc &desc);
-
-    bool SelectItemsFromLootList(const LootList &lootList,
-        bool forceStatTrak,
-        ItemOrigin origin,
-        UnacknowledgedType unacknowledgedType,
-        std::vector<ItemDesc> &descs);
+    bool SelectItemFromCrate(const CSOEconItem &crate, CSOEconItem &item);
 
 private:
-    const LootListItem *SelectLootListItem(std::span<const LootListItem *const> sortedItems);
+    const LootListItem *SelectLootListItem(const std::vector<const LootListItem *> &items);
+    uint32_t RandomRarityForItems(const std::vector<const LootListItem *> &items);
     bool ShouldMakeStatTrak(const LootListItem &item, const LootList &lootList, bool containsUnusuals);
 
     const ItemSchema &m_itemSchema;
+    Random &m_random;
 };

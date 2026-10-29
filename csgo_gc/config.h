@@ -1,11 +1,12 @@
 #pragma once
 
 #include "gc_const_csgo.h"
-#include "item_schema_const.h" // rarity constants
+#include "item_schema.h" // rarity constants
+#include "music_kit.h"
 
 struct RarityWeight
 {
-    Rarity rarity;
+    uint32_t rarity;
     float weight;
 };
 
@@ -20,20 +21,26 @@ enum LogOutput
 class GCConfig
 {
 public:
-    void Load();
+    GCConfig();
 
-    float GetRarityWeight(Rarity rarity) const;
+    float GetRarityWeight(uint32_t rarity) const;
 
+    // Log level for Platform::Print.
     LogOutput m_logOutput{ LogOutputConsole };
 
     // actually default to 4465480 instead of 730, people are going to use old configs
     // and then wonder why the game doesn't work and open an issue on github otherwise
     uint32_t m_appIdOverride{ 4465480 };
     bool m_showCsgoGCServersOnly{ true };
+    bool m_overwatchEnabled{ false };
+    bool m_rconEnabled{ false };
+    std::string m_rconBindAddress{ "127.0.0.1" };
+    uint16_t m_rconPort{ 37016 };
+    std::string m_rconPassword;
 
+    // Path the item schema is loaded from. Keep this in sync with the path the
+    // game itself reads so item definitions match the running client.
     std::string m_itemSchemaPath{ "csgo/scripts/items/items_game.txt" };
-
-    std::string m_inventoryEditorOrigin;
 
     RankId m_competitiveRank{ RankNone };
     int m_competitiveWins{ 0 };
@@ -44,6 +51,13 @@ public:
 
     bool m_destroyUsedItems{ true };
 
+    // Music kit StatTrak follows competitive rules by default, matching the only
+    // scope the official backend ever supported.
+    MusicKit::StatTrakGate m_musicKitStatTrakGate{ MusicKit::StatTrakGate::CompetitiveRuleset };
+
+    // accounts default to prime so existing clients keep their current behavior
+    bool m_primeStatus{ true };
+
     bool m_vacBanned{ false };
     int m_commendedFriendly{ 0 };
     int m_commendedTeaching{ 0 };
@@ -51,21 +65,21 @@ public:
     int m_level{ 0 };
     int m_xp{ 0 };
 
-    std::string m_country{ "FI" };
-    int m_currency{ 2 };
-
 private:
+    friend const GCConfig &GetConfig();
+    void PrintDiagnostics() const;
+    std::string m_unknownMusicKitStatTrak;
+
     // default to valve weights
     std::vector<RarityWeight> m_rarityWeights{
-        { Rarity::Common, 10000000 },
-        { Rarity::Uncommon, 2000000 },
-        { Rarity::Rare, 400000 },
-        { Rarity::Mythical, 80000 },
-        { Rarity::Legendary, 16000 },
-        { Rarity::Ancient, 3200 },
-        { Rarity::Unusual, 1280 },
+        { ItemSchema::RarityCommon, 10000000 },
+        { ItemSchema::RarityUncommon, 2000000 },
+        { ItemSchema::RarityRare, 400000 },
+        { ItemSchema::RarityMythical, 80000 },
+        { ItemSchema::RarityLegendary, 16000 },
+        { ItemSchema::RarityAncient, 3200 },
+        { ItemSchema::RarityUnusual, 1280 },
     };
 };
 
-void LoadConfig();
 const GCConfig &GetConfig();
