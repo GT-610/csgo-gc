@@ -2,8 +2,6 @@
 #include "graffiti.h"
 #include "platform.h"
 
-#include "cstrike15_gcmessages.pb.h"
-
 #include <mbedtls/pk.h>
 #include <mbedtls/md.h>
 #include <mbedtls/entropy.h>
@@ -116,14 +114,14 @@ void Initialize()
         return;
     }
 
-    if (!Platform::PatchGraffitiPublicKey("client", PublicKeyValve, publicKey, sizeof(PublicKeyValve)))
+    if (!Platform::UpdateGraffitiKey("client", PublicKeyValve, publicKey, sizeof(PublicKeyValve)))
     {
-        Platform::Print("Failed to patch graffiti public key in client! Graffiti will not work\n");
+        Platform::Print("Failed to update graffiti public key in client! Graffiti will not work\n");
     }
 
-    if (!Platform::PatchGraffitiPublicKey("server", PublicKeyValve, publicKey, sizeof(PublicKeyValve)))
+    if (!Platform::UpdateGraffitiKey("server", PublicKeyValve, publicKey, sizeof(PublicKeyValve)))
     {
-        Platform::Print("Failed to patch graffiti public key in server! Graffiti will not work\n");
+        Platform::Print("Failed to update graffiti public key in server! Graffiti will not work\n");
     }
 
     s_initialized = true;
