@@ -1,6 +1,5 @@
 {
   "dependencies": [
-    "libwebsockets",
     "mbedtls",
     "protobuf"
   ],

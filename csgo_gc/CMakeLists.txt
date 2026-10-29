@@ -2,12 +2,9 @@ project(csgo_gc)
 
 find_package(MbedTLS CONFIG REQUIRED)
 find_package(Protobuf CONFIG REQUIRED)
-find_package(libwebsockets CONFIG REQUIRED)
 
-# funchook and its deps get pulled in via FetchContent
-# FIXME: consider alternatives!!! funchook is no longer
-# maintained, and our hooks won't work reliably on x86_64
-# macOS when using it
+# Funchook and its dependencies are pulled in via FetchContent. Consider a
+# maintained alternative if reliable x86_64 macOS hooking becomes necessary.
 include(FetchContent)
 set(FETCHCONTENT_QUIET FALSE)
 
@@ -17,39 +14,34 @@ option(FUNCHOOK_INSTALL "Install Funchook" OFF)
 
 FetchContent_Declare(funchook
 	GIT_REPOSITORY https://github.com/kubo/funchook
+	GIT_TAG v1.1.3
 	GIT_SHALLOW TRUE)
 
 FetchContent_MakeAvailable(funchook)
 
-add_library(csgo_gc STATIC
+add_library(csgo_gc SHARED
     appid.cpp
     case_opening.cpp
     config.cpp
+    game_types.cpp
     gc_client.cpp
     gc_message.cpp
     gc_server.cpp
     gc_shared.cpp
     graffiti.cpp
     inventory.cpp
-    inventory_editor.cpp
-    inventory_modify.cpp
-    item.cpp
     item_schema.cpp
+    item_utils.cpp
     keyvalue.cpp
+    local_user_stats.cpp
     main.cpp
-    message.cpp
+    music_kit.cpp
     networking_client.cpp
     networking_server.cpp
-    random.cpp
-    steam_callbacks.cpp
-    steam_hook.cpp
-    steamgamecoordinatorproxy.cpp
-    steamgameserverproxy.cpp
-    steammatchmakingserversproxy.cpp
-    steampipecontext.cpp
-    steamuserproxy.cpp
-    steamuserstatsproxy.cpp
-    steamutilsproxy.cpp)
+    rcon_server.cpp
+    saved_item_shuffles.cpp
+    souvenir.cpp
+    steam_hook.cpp)
 
 if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
     target_sources(csgo_gc PRIVATE platform_windows.cpp)
@@ -62,38 +54,365 @@ target_precompile_headers(csgo_gc PRIVATE stdafx.h)
 set_target_properties(csgo_gc PROPERTIES PREFIX "")
 
 if (MSVC)
-    target_compile_options(csgo_gc PRIVATE /W4 /wd4244)
+    target_compile_options(csgo_gc PRIVATE /W4 /wd4244 /wd4819 /Zc:preprocessor)
     target_compile_definitions(csgo_gc PRIVATE _CRT_SECURE_NO_WARNINGS)
 else()
     target_compile_options(csgo_gc PRIVATE -Wall -Wextra)
 endif()
 
 set(PROTO_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../protobufs)
-file(GLOB PROTOS ${PROTO_DIR}/*.proto)
+file(GLOB PROTOS CONFIGURE_DEPENDS ${PROTO_DIR}/*.proto)
 set(PROTOC_OUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
 
-target_include_directories(csgo_gc PRIVATE ${PROTOC_OUT_DIR})
-
-# bruhhhhhh
 file(MAKE_DIRECTORY ${PROTOC_OUT_DIR})
 
+add_library(csgo_gc_protobufs STATIC)
+set_target_properties(csgo_gc_protobufs PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
 protobuf_generate(
-    TARGET csgo_gc
+    TARGET csgo_gc_protobufs
     PROTOS ${PROTOS}
     IMPORT_DIRS ${PROTO_DIR}
     PROTOC_OUT_DIR ${PROTOC_OUT_DIR})
 
 source_group("Protobufs" REGULAR_EXPRESSION "\\.pb\\.(cc|h)$")
 
+target_include_directories(csgo_gc_protobufs PUBLIC ${PROTOC_OUT_DIR})
+target_link_libraries(csgo_gc_protobufs PUBLIC protobuf::libprotobuf-lite)
+
 target_link_libraries(csgo_gc PRIVATE
     MbedTLS::mbedcrypto
-    protobuf::libprotobuf-lite
+    csgo_gc_protobufs
     funchook-static
     steam_api
-    websockets)
+    Threads::Threads)
+
+if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    target_link_libraries(csgo_gc PRIVATE ws2_32)
+endif()
 
 # apple message box
 if (APPLE)
     target_link_libraries(csgo_gc PRIVATE "-framework Foundation")
 endif()
 
+if (OUTDIR)
+    add_custom_command(TARGET csgo_gc POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy
+        $<TARGET_FILE:csgo_gc>
+        ${OUTDIR}/csgo_gc/${GC_LIB_DIR}/$<TARGET_FILE_NAME:csgo_gc>)
+endif()
+
+if (BUILD_TESTING)
+    add_executable(gc_message_tests
+        appid.cpp
+        case_opening.cpp
+        config.cpp
+        gc_client.cpp
+        gc_shared.cpp
+        graffiti.cpp
+        gc_message_tests.cpp
+        gc_message.cpp
+        inventory.cpp
+        music_kit.cpp
+        game_types.cpp
+        item_schema.cpp
+        item_utils.cpp
+        keyvalue.cpp
+        networking_client.cpp
+        networking_server.cpp
+        souvenir.cpp)
+
+    target_precompile_headers(gc_message_tests PRIVATE stdafx.h)
+    target_link_libraries(gc_message_tests PRIVATE
+        MbedTLS::mbedcrypto
+        csgo_gc_protobufs
+        steam_api
+        Threads::Threads)
+
+    if (MSVC)
+        target_compile_options(gc_message_tests PRIVATE /W4 /wd4244 /wd4819)
+        target_compile_definitions(gc_message_tests PRIVATE _CRT_SECURE_NO_WARNINGS)
+    else()
+        target_compile_options(gc_message_tests PRIVATE -Wall -Wextra)
+    endif()
+
+    add_test(NAME gc_message_tests COMMAND gc_message_tests)
+
+    set(souvenir_workdir "${CMAKE_CURRENT_BINARY_DIR}/souvenir_keep_items_test")
+    file(MAKE_DIRECTORY "${souvenir_workdir}/csgo_gc")
+    file(WRITE "${souvenir_workdir}/csgo_gc/config.txt" "\"destroy_used_items\" \"0\"\n")
+    add_test(NAME souvenir_keep_used_items COMMAND gc_message_tests --souvenir-output)
+    set_tests_properties(souvenir_keep_used_items PROPERTIES
+        WORKING_DIRECTORY "${souvenir_workdir}" TIMEOUT 10)
+
+    add_executable(config_tests config_tests.cpp config.cpp keyvalue.cpp)
+    target_precompile_headers(config_tests PRIVATE stdafx.h)
+    target_link_libraries(config_tests PRIVATE csgo_gc_protobufs Threads::Threads)
+    if (MSVC)
+        target_compile_options(config_tests PRIVATE /W4 /wd4244 /wd4819)
+        target_compile_definitions(config_tests PRIVATE _CRT_SECURE_NO_WARNINGS)
+    else()
+        target_compile_options(config_tests PRIVATE -Wall -Wextra)
+    endif()
+    foreach(mode IN ITEMS 0 1 2)
+        set(config_workdir "${CMAKE_CURRENT_BINARY_DIR}/config_test_${mode}")
+        file(MAKE_DIRECTORY "${config_workdir}/csgo_gc")
+        file(WRITE "${config_workdir}/csgo_gc/config.txt"
+            "\"music_kit_stattrak\" \"invalid\"\n\"log_output\" \"${mode}\"\n\"appid_override\" \"12345\"\n\"player_cur_xp\" \"987\"\n")
+        add_test(NAME config_invalid_logging_${mode} COMMAND config_tests invalid)
+        set_tests_properties(config_invalid_logging_${mode} PROPERTIES
+            WORKING_DIRECTORY "${config_workdir}" TIMEOUT 10)
+    endforeach()
+    foreach(case IN ITEMS valid missing malformed)
+        set(config_workdir "${CMAKE_CURRENT_BINARY_DIR}/config_test_${case}")
+        file(MAKE_DIRECTORY "${config_workdir}/csgo_gc")
+        if(case STREQUAL "valid")
+            file(WRITE "${config_workdir}/csgo_gc/config.txt" "\"music_kit_stattrak\" \"competitive\"\n")
+        elseif(case STREQUAL "malformed")
+            file(WRITE "${config_workdir}/csgo_gc/config.txt" "\"unterminated")
+        endif()
+        add_test(NAME config_${case} COMMAND config_tests)
+        set_tests_properties(config_${case} PROPERTIES
+            WORKING_DIRECTORY "${config_workdir}" TIMEOUT 10)
+    endforeach()
+
+    add_executable(overwatch_tests
+        appid.cpp
+        case_opening.cpp
+        config.cpp
+        gc_client.cpp
+        gc_shared.cpp
+        graffiti.cpp
+        gc_message.cpp
+        inventory.cpp
+        music_kit.cpp
+        game_types.cpp
+        item_schema.cpp
+        item_utils.cpp
+        keyvalue.cpp
+        networking_client.cpp
+        overwatch_tests.cpp
+        souvenir.cpp)
+
+    target_precompile_headers(overwatch_tests PRIVATE stdafx.h)
+    target_link_libraries(overwatch_tests PRIVATE
+        MbedTLS::mbedcrypto
+        csgo_gc_protobufs
+        steam_api
+        Threads::Threads)
+
+    if (MSVC)
+        target_compile_options(overwatch_tests PRIVATE /W4 /wd4244 /wd4819)
+        target_compile_definitions(overwatch_tests PRIVATE _CRT_SECURE_NO_WARNINGS)
+    else()
+        target_compile_options(overwatch_tests PRIVATE -Wall -Wextra)
+    endif()
+
+    set(OVERWATCH_TEST_WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/overwatch_test_workdir")
+    file(MAKE_DIRECTORY "${OVERWATCH_TEST_WORKING_DIRECTORY}/csgo_gc")
+    file(WRITE "${OVERWATCH_TEST_WORKING_DIRECTORY}/csgo_gc/config.txt"
+        "\"overwatch_enabled\"\t\"1\"\n")
+    add_test(NAME overwatch_tests COMMAND overwatch_tests)
+    set_tests_properties(overwatch_tests PROPERTIES
+        WORKING_DIRECTORY "${OVERWATCH_TEST_WORKING_DIRECTORY}")
+
+    add_executable(gc_message_non_prime_tests
+        appid.cpp
+        case_opening.cpp
+        config.cpp
+        gc_client.cpp
+        gc_shared.cpp
+        gc_message_non_prime_tests.cpp
+        gc_message.cpp
+        inventory.cpp
+        music_kit.cpp
+        game_types.cpp
+        item_schema.cpp
+        item_utils.cpp
+        keyvalue.cpp
+        graffiti.cpp
+        networking_client.cpp
+        souvenir.cpp)
+
+    target_precompile_headers(gc_message_non_prime_tests PRIVATE stdafx.h)
+    target_link_libraries(gc_message_non_prime_tests PRIVATE
+        MbedTLS::mbedcrypto
+        csgo_gc_protobufs
+        steam_api
+        Threads::Threads)
+
+    if (MSVC)
+        target_compile_options(gc_message_non_prime_tests PRIVATE /W4 /wd4244 /wd4819)
+        target_compile_definitions(gc_message_non_prime_tests PRIVATE _CRT_SECURE_NO_WARNINGS)
+    else()
+        target_compile_options(gc_message_non_prime_tests PRIVATE -Wall -Wextra)
+    endif()
+
+    set(NON_PRIME_TEST_WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/gc_message_non_prime_test_workdir")
+    file(MAKE_DIRECTORY "${NON_PRIME_TEST_WORKING_DIRECTORY}/csgo_gc")
+    file(WRITE "${NON_PRIME_TEST_WORKING_DIRECTORY}/csgo_gc/config.txt"
+        "\"prime_status\"\t\t\"0\"\n")  # trailing newline required by the keyvalue parser
+    add_test(NAME gc_message_non_prime_tests COMMAND gc_message_non_prime_tests)
+    set_tests_properties(gc_message_non_prime_tests PROPERTIES
+        WORKING_DIRECTORY "${NON_PRIME_TEST_WORKING_DIRECTORY}")
+
+    add_executable(item_schema_tests
+        item_schema_tests.cpp
+        config.cpp
+        item_schema.cpp
+        keyvalue.cpp)
+
+    target_precompile_headers(item_schema_tests PRIVATE stdafx.h)
+    target_link_libraries(item_schema_tests PRIVATE csgo_gc_protobufs)
+
+    if (MSVC)
+        target_compile_options(item_schema_tests PRIVATE /W4 /wd4244 /wd4819)
+        target_compile_definitions(item_schema_tests PRIVATE _CRT_SECURE_NO_WARNINGS)
+    else()
+        target_compile_options(item_schema_tests PRIVATE -Wall -Wextra)
+    endif()
+
+    add_test(NAME item_schema_tests COMMAND item_schema_tests)
+
+    add_executable(souvenir_tests
+        config.cpp
+        item_schema.cpp
+        keyvalue.cpp
+        souvenir.cpp
+        souvenir_tests.cpp)
+
+    target_precompile_headers(souvenir_tests PRIVATE stdafx.h)
+    target_link_libraries(souvenir_tests PRIVATE csgo_gc_protobufs)
+
+    if (MSVC)
+        target_compile_options(souvenir_tests PRIVATE /W4 /wd4244 /wd4819)
+        target_compile_definitions(souvenir_tests PRIVATE _CRT_SECURE_NO_WARNINGS)
+    else()
+        target_compile_options(souvenir_tests PRIVATE -Wall -Wextra)
+    endif()
+
+    add_test(NAME souvenir_tests COMMAND souvenir_tests)
+
+    add_executable(keyvalue_tests
+        keyvalue_tests.cpp
+        keyvalue.cpp)
+
+    target_precompile_headers(keyvalue_tests PRIVATE stdafx.h)
+    target_link_libraries(keyvalue_tests PRIVATE csgo_gc_protobufs)
+
+    if (MSVC)
+        target_compile_options(keyvalue_tests PRIVATE /W4 /wd4244 /wd4819)
+        target_compile_definitions(keyvalue_tests PRIVATE _CRT_SECURE_NO_WARNINGS)
+    else()
+        target_compile_options(keyvalue_tests PRIVATE -Wall -Wextra)
+    endif()
+
+    add_test(NAME keyvalue_tests COMMAND keyvalue_tests)
+
+    add_executable(rcon_server_tests
+        config.cpp
+        keyvalue.cpp
+        rcon_server.cpp
+        rcon_server_tests.cpp)
+
+    target_precompile_headers(rcon_server_tests PRIVATE stdafx.h)
+    target_link_libraries(rcon_server_tests PRIVATE
+        csgo_gc_protobufs
+        Threads::Threads)
+
+    if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
+        target_link_libraries(rcon_server_tests PRIVATE ws2_32)
+    endif()
+
+    if (MSVC)
+        target_compile_options(rcon_server_tests PRIVATE /W4 /wd4244 /wd4819)
+        target_compile_definitions(rcon_server_tests PRIVATE _CRT_SECURE_NO_WARNINGS)
+    else()
+        target_compile_options(rcon_server_tests PRIVATE -Wall -Wextra)
+    endif()
+
+    set(RCON_SERVER_TEST_WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/rcon_server_test_workdir")
+    file(MAKE_DIRECTORY "${RCON_SERVER_TEST_WORKING_DIRECTORY}")
+    add_test(NAME rcon_server_tests COMMAND rcon_server_tests)
+    set_tests_properties(rcon_server_tests PROPERTIES
+        WORKING_DIRECTORY "${RCON_SERVER_TEST_WORKING_DIRECTORY}")
+
+    add_executable(saved_item_shuffles_tests
+        saved_item_shuffles.cpp
+        saved_item_shuffles_tests.cpp)
+
+    target_precompile_headers(saved_item_shuffles_tests PRIVATE stdafx.h)
+    target_link_libraries(saved_item_shuffles_tests PRIVATE
+        csgo_gc_protobufs
+        steam_api)
+
+    if (MSVC)
+        target_compile_options(saved_item_shuffles_tests PRIVATE /W4 /wd4244 /wd4819)
+        target_compile_definitions(saved_item_shuffles_tests PRIVATE _CRT_SECURE_NO_WARNINGS)
+    else()
+        target_compile_options(saved_item_shuffles_tests PRIVATE -Wall -Wextra)
+    endif()
+
+    set(SAVED_ITEM_SHUFFLES_TEST_WORKING_DIRECTORY
+        "${CMAKE_CURRENT_BINARY_DIR}/saved_item_shuffles_test_workdir")
+    file(MAKE_DIRECTORY
+        "${SAVED_ITEM_SHUFFLES_TEST_WORKING_DIRECTORY}/csgo_gc")
+    add_test(NAME saved_item_shuffles_tests COMMAND saved_item_shuffles_tests)
+    set_tests_properties(saved_item_shuffles_tests PROPERTIES
+        WORKING_DIRECTORY "${SAVED_ITEM_SHUFFLES_TEST_WORKING_DIRECTORY}")
+
+    add_executable(local_user_stats_tests
+        keyvalue.cpp
+        local_user_stats.cpp
+        local_user_stats_tests.cpp)
+
+    target_precompile_headers(local_user_stats_tests PRIVATE stdafx.h)
+    target_link_libraries(local_user_stats_tests PRIVATE csgo_gc_protobufs)
+
+    if (MSVC)
+        target_compile_options(local_user_stats_tests PRIVATE /W4 /wd4244 /wd4819)
+        target_compile_definitions(local_user_stats_tests PRIVATE _CRT_SECURE_NO_WARNINGS)
+    else()
+        target_compile_options(local_user_stats_tests PRIVATE -Wall -Wextra)
+    endif()
+
+    set(LOCAL_USER_STATS_TEST_WORKING_DIRECTORY
+        "${CMAKE_CURRENT_BINARY_DIR}/local_user_stats_test_workdir")
+    file(MAKE_DIRECTORY "${LOCAL_USER_STATS_TEST_WORKING_DIRECTORY}")
+    add_test(NAME local_user_stats_tests COMMAND local_user_stats_tests)
+    set_tests_properties(local_user_stats_tests PROPERTIES
+        WORKING_DIRECTORY "${LOCAL_USER_STATS_TEST_WORKING_DIRECTORY}")
+
+    add_executable(game_types_tests
+        game_types.cpp
+        game_types_tests.cpp)
+
+    target_link_libraries(game_types_tests PRIVATE Threads::Threads)
+
+    if (MSVC)
+        target_compile_options(game_types_tests PRIVATE /W4 /wd4244 /wd4819)
+        target_compile_definitions(game_types_tests PRIVATE _CRT_SECURE_NO_WARNINGS)
+    else()
+        target_compile_options(game_types_tests PRIVATE -Wall -Wextra)
+    endif()
+
+    add_test(NAME game_types_tests COMMAND game_types_tests)
+
+    add_executable(music_kit_tests
+        game_types.cpp
+        music_kit.cpp
+        music_kit_tests.cpp)
+
+    target_precompile_headers(music_kit_tests PRIVATE stdafx.h)
+    target_link_libraries(music_kit_tests PRIVATE csgo_gc_protobufs)
+
+    if (MSVC)
+        target_compile_options(music_kit_tests PRIVATE /W4 /wd4244 /wd4819)
+        target_compile_definitions(music_kit_tests PRIVATE _CRT_SECURE_NO_WARNINGS)
+    else()
+        target_compile_options(music_kit_tests PRIVATE -Wall -Wextra)
+    endif()
+
+    add_test(NAME music_kit_tests COMMAND music_kit_tests)
+endif()
