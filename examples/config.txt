@@ -16,8 +16,8 @@
 "player_level"	"39"
 "player_cur_xp"	"4999"
 
-"country"	"FI"
-"currency"	"2"
+// 1 reports the account as prime (unchanged behavior), 0 reports it as non-prime
+"prime_status"	"1"
 
 // these are the same weights valve uses
 "rarity_weights"
@@ -43,6 +43,20 @@
 // only show servers with the "csgo_gc" tag in the server browser
 "show_csgo_gc_servers_only"	"1"
 
+// make the final CS:GO client show its built-in Overwatch tab with a simulated case
+// this enables the tab UI only; evidence download and verdict submission are not implemented
+"overwatch_enabled"	"0"
+
+// local Source RCON. keep bind_address on localhost unless you use a password.
+// empty password accepts any Source RCON password.
+"rcon"
+{
+	"enabled"		"0"
+	"bind_address"	"127.0.0.1"
+	"port"			"37016"
+	"password"		""
+}
+
 // 0 = don't log anything
 // 1 = log to in-game console
 // 2 = log to in-game console and file (gc_log.txt)
@@ -50,9 +64,4 @@
 
 // optionally load the item schema from another location
 // normally this should always be the path the game loads it from
-"item_schema_path"  "csgo/scripts/items/items_game.txt"
-
-// allow an inventory editor with this Origin to
-// connect to the websocket server at 127.0.0.1:13001
-// empty or null means the server is disabled
-"inventory_editor_origin"	"https://mikkokko.github.io"
+"item_schema_path"	"csgo/scripts/items/items_game.txt"

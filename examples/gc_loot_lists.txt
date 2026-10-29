@@ -1,0 +1,20 @@
+"legacy_souvenir_2013_2014"
+{
+	"item_sets"
+	{
+		"set_dust_2"		"1"
+		"set_italy"		"1"
+		"set_lake"		"1"
+		"set_mirage"		"1"
+		"set_safehouse"		"1"
+		"set_train"		"1"
+	}
+}
+"crate_dhw13_promo"
+{
+	"legacy_souvenir_2013_2014"		"1"
+}
+"crate_ems14_promo"
+{
+	"legacy_souvenir_2013_2014"		"1"
+}
