@@ -9,7 +9,6 @@ message CMsgSOIDOwner {
 }
 
 message CMsgSOSingleObject {
-    optional fixed64 owner = 1; // mikko: added for 2013
     optional int32 type_id = 2;
     optional bytes object_data = 3;
     optional fixed64 version = 4;
@@ -17,8 +16,6 @@ message CMsgSOSingleObject {
 }
 
 message CMsgSOMultipleObjects {
-    optional fixed64 owner = 1; // mikko: added for 2013
-
     repeated SingleObject objects_modified = 2;
     message SingleObject {
         optional int32 type_id = 1;
@@ -30,8 +27,6 @@ message CMsgSOMultipleObjects {
 }
 
 message CMsgSOCacheSubscribed {
-    optional fixed64 owner = 1; // mikko: added for 2013
-
     repeated SubscribedType objects = 2;
     message SubscribedType {
         optional int32 type_id = 1;
@@ -43,18 +38,15 @@ message CMsgSOCacheSubscribed {
 }
 
 message CMsgSOCacheUnsubscribed {
-    optional fixed64 owner = 1; // mikko: added for 2013
     optional CMsgSOIDOwner owner_soid = 2;
 }
 
 message CMsgSOCacheSubscriptionCheck {
-    optional fixed64 owner = 1; // mikko: added for 2013
     optional fixed64 version = 2;
     optional CMsgSOIDOwner owner_soid = 3;
 }
 
 message CMsgSOCacheSubscriptionRefresh {
-    optional fixed64 owner = 1; // mikko: added for 2013
     optional CMsgSOIDOwner owner_soid = 2;
 }
 
