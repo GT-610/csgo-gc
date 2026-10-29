@@ -1,7 +1,15 @@
 #pragma once
 
 class KeyValueParser;
-class KeyValueStorage;
+
+enum class KeyValueFileResult
+{
+    Success,
+    NotFound,
+    Empty,
+    ReadError,
+    InvalidFormat
+};
 
 // not really the right place for this...
 template<typename T>
@@ -16,20 +24,6 @@ inline T FromString(std::string_view string)
     }
 
     return value;
-}
-
-template<typename T>
-inline bool FromString(std::string_view string, T &value)
-{
-    const char *begin = string.data();
-    const char *end = string.data() + string.size();
-    std::from_chars_result result = std::from_chars(begin, end, value);
-    if (result.ec != std::errc{} || result.ptr !=end)
-    {
-        return false;
-    }
-
-    return true;
 }
 
 #if defined(__APPLE__)
@@ -51,28 +45,34 @@ inline bool FromString(std::string_view string)
 class KeyValue
 {
 public:
-    KeyValue() = default;
-    KeyValue(std::string_view name);
+    explicit KeyValue(std::string_view name);
 
-    void BinaryWriteToString(std::string &buffer) const;
+    bool ParseFromFile(const char *path);
+    KeyValueFileResult ParseFromFileDetailed(const char *path);
+    bool WriteToFile(const char *path);
+
+    void BinaryWriteToString(std::string &buffer);
 
     std::string_view Name() const { return m_name; }
+    size_t SubkeyCount() const { return m_subkeys.size(); }
+    std::string_view String() const { return m_string; }
 
-    std::string_view String() const
-    {
-        const auto *result = std::get_if<std::string_view>(&m_value);
-        return result ? *result : std::string_view{};
-    }
-
-    std::span<const KeyValue> Subkeys() const
-    {
-        const auto *result = std::get_if<std::vector<KeyValue>>(&m_value);
-        return result ? *result : std::span<const KeyValue>{};
-    }
+    // range based for loops for subkeys
+    KeyValue *begin() { return m_subkeys.data(); }
+    KeyValue *end() { return m_subkeys.data() + m_subkeys.size(); }
+    const KeyValue *begin() const { return m_subkeys.data(); }
+    const KeyValue *end() const { return m_subkeys.data() + m_subkeys.size(); }
 
     // parsing helpers
+    KeyValue *GetSubkey(std::string_view name);
     const KeyValue *GetSubkey(std::string_view name) const;
     std::string_view GetString(std::string_view name, std::string_view fallback = {}) const;
+
+    // writing helpers
+    KeyValue &AddSubkey(std::string_view name);
+    bool RemoveSubkey(std::string_view name);
+    void AddString(std::string_view name, std::string_view value);
+    void SetString(std::string_view name, std::string_view value);
 
     // template helpers for parsing/writing integers/floats
 
@@ -87,75 +87,32 @@ public:
 
         if constexpr (std::is_enum<T>::value)
         {
-            return static_cast<T>(FromString<typename std::underlying_type<T>::type>(subkey->String()));
+            return static_cast<T>(FromString<typename std::underlying_type<T>::type>(subkey->m_string));
         }
         else
         {
-            return FromString<T>(subkey->String());
+            return FromString<T>(subkey->m_string);
         }
     }
-
-private:
-    friend class KeyValueRead;
-
-    bool ParseFromFile(const char *path, KeyValueStorage &storage);
-    bool Parse(KeyValueParser &parser, std::string_view path, KeyValueStorage &storage);
-    bool Dedupe(std::vector<size_t> &order, std::vector<bool> &removed);
-
-    std::string_view m_name;
-    std::variant<std::vector<KeyValue>, std::string_view> m_value;
-};
-
-// temp bullshit for migration
-class KeyValueStorage
-{
-public:
-    char *AllocateString(size_t length)
-    {
-        return m_strings.emplace_back(std::make_unique_for_overwrite<char[]>(length)).get();
-    }
-
-private:
-    std::vector<std::unique_ptr<char[]>> m_strings;
-};
-
-class KeyValueRead : public NonCopyable
-{
-public:
-    KeyValueRead(const char *path);
-
-    bool Good() const { return m_good; }
-    const KeyValue &Root() const { return m_root; }
-
-    // hacks for the item schema!!!
-    bool MergeToFromFile(const char *path);
-
-private:
-    KeyValueStorage m_storage;
-    KeyValue m_root;
-    bool m_good{};
-};
-
-class KeyValueWrite
-{
-public:
-    KeyValueWrite(FILE *file);
-
-    void BeginBlock(std::string_view name);
-    void AddString(std::string_view name, std::string_view value);
-    void EndBlock();
 
     template<typename T>
     void AddNumber(std::string_view name, T value)
     {
-        AddString(name, std::to_string(value));
+        KeyValue &subkey = AddSubkey(name);
+        subkey.m_string = std::to_string(value);
     }
 
 private:
-    void WriteText(std::string_view text);
-    void WriteQuoted(std::string_view text);
-    void WriteIndent();
+    bool Parse(KeyValueParser &parser, bool expectClosingBrace = false);
+    KeyValue *FindOrCreateSubkey(std::string_view name);
+    void WriteToFile(FILE *f, int indent);
 
-    FILE *m_file{};
-    int m_depth{};
+    std::string m_name;
+
+    // we could stick these into a variant and save a couple
+    // of bytes but don't to keep things simple
+    std::vector<KeyValue> m_subkeys;
+    std::string m_string;
 };
+
+std::string LoadFile(const char *path);

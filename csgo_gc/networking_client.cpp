@@ -1,46 +1,180 @@
 #include "stdafx.h"
 #include "networking_client.h"
-#include "gc_shared.h"
+#include "gc_client.h"
 
-NetworkingClient::NetworkingClient(ISteamNetworkingMessages *networkingMessages, SharedGC &gc)
+NetworkingClient::NetworkingClient(ISteamNetworkingMessages *networkingMessages)
     : m_networkingMessages{ networkingMessages }
-    , m_gc{ gc }
     , m_sessionRequest{ this, &NetworkingClient::OnSessionRequest }
     , m_sessionFailed{ this, &NetworkingClient::OnSessionFailed }
 {
 }
 
-void NetworkingClient::Update()
+void NetworkingClient::SetNetworkingMessages(ISteamNetworkingMessages *networkingMessages)
 {
+    assert(networkingMessages);
+    m_networkingMessages = networkingMessages;
+}
+
+void NetworkingClient::Update(ClientGC *gc)
+{
+    if (m_tickets.empty() && !m_serverSteamId)
+    {
+        return;
+    }
+
     SteamNetworkingMessage_t *message;
     while (m_networkingMessages->ReceiveMessagesOnChannel(NetMessageChannel, &message, 1))
     {
-        m_gc.PostToGC(GCEvent::NetMessage, message->m_identityPeer.GetSteamID64(), message->GetData(), message->GetSize());
+        uint64_t steamId = message->m_identityPeer.GetSteamID64();
+
+        // pass 0 as type so it gets parsed from the message
+        GCMessageRead messageRead{ 0, message->GetData(), message->GetSize() };
+        if (!messageRead.IsValid())
+        {
+            assert(false);
+            message->Release();
+            continue;
+        }
+
+        if (HandleMessage(gc, steamId, messageRead))
+        {
+            // that was an internal message
+            message->Release();
+            continue;
+        }
+
+        // don't pass messages to the gc unless it's our gameserver
+        if (!m_serverSteamId || steamId != m_serverSteamId)
+        {
+            Platform::Print("NetworkingClient: ignored message from %llu (not our gs %llu)\n", steamId, m_serverSteamId);
+            message->Release();
+            continue;
+        }
+
+        // let the gc have a whack at it
+        gc->PostToGC(GCEvent::NetMessage, 0, message->GetData(), message->GetSize());
+
         message->Release();
     }
 }
 
-void NetworkingClient::SendMessage(uint64_t steamId, const void *data, uint32_t size)
+static bool ValidateTicket(std::unordered_map<uint32_t, AuthTicket> &tickets, uint64_t steamId, const void *data, uint32_t size)
 {
-    // mikkotodo check return
-    SteamNetworkingIdentity identity;
-    identity.SetSteamID64(steamId);
+    for (auto &pair : tickets)
+    {
+        if (pair.second.buffer.size() == size && !memcmp(pair.second.buffer.data(), data, size))
+        {
+            pair.second.steamId = steamId;
+            return true;
+        }
+    }
 
-    [[maybe_unused]] EResult result = m_networkingMessages->SendMessageToUser(
+    return false;
+}
+
+bool NetworkingClient::HandleMessage(ClientGC *gc, uint64_t steamId, GCMessageRead &message)
+{
+    if (message.IsProtobuf())
+    {
+        // internal messages are not protobuf based
+        return false;
+    }
+
+    uint32_t typeUnmasked = message.TypeUnmasked();
+    if (typeUnmasked == k_EMsgNetworkConnect)
+    {
+        uint32_t ticketSize = message.ReadUint32();
+        const void *ticket = message.ReadData(ticketSize);
+        if (!message.IsValid())
+        {
+            Platform::Print("NetworkingClient: ignored connection from %llu (malfored message)\n", steamId);
+            return true;
+        }
+
+        if (!ValidateTicket(m_tickets, steamId, ticket, ticketSize))
+        {
+            Platform::Print("NetworkingClient: ignored connection from %llu (ticket mismatch)\n", steamId);
+            return true;
+        }
+
+        Platform::Print("NetworkingClient: sending socache to %llu\n", steamId);
+        m_serverSteamId = steamId;
+        gc->PostToGC(GCEvent::SOCacheRequest, 0, nullptr, 0);
+
+        return true;
+    }
+
+    return false;
+}
+
+void NetworkingClient::SendMessage(const void *data, uint32_t size)
+{
+    if (!m_serverSteamId)
+    {
+        // not connected to a server
+        return;
+    }
+
+    SteamNetworkingIdentity identity;
+    identity.SetSteamID64(m_serverSteamId);
+
+    // The auto-restart flag keeps the client able to talk after the session broke,
+    // which also lets the next send re-establish it without an explicit accept cycle.
+    EResult result = m_networkingMessages->SendMessageToUser(
         identity,
         data,
         size,
-        NetMessageSendFlags,
+        NetMessageHandshakeSendFlags,
         NetMessageChannel);
 
-    assert(result == k_EResultOK);
+    if (result != k_EResultOK)
+    {
+        Platform::Print("NetworkingClient: send to %llu failed: %d\n",
+            m_serverSteamId, static_cast<int>(result));
+
+        if (result == k_EResultNoConnection)
+        {
+            m_networkingMessages->CloseSessionWithUser(identity);
+        }
+    }
 }
 
-void NetworkingClient::CloseChannel(uint64_t steamId)
+void NetworkingClient::SetAuthTicket(uint32_t handle, const void *data, uint32_t size)
 {
-    SteamNetworkingIdentity identity;
-    identity.SetSteamID64(steamId);
-    m_networkingMessages->CloseChannelWithUser(identity, NetMessageChannel);
+    AuthTicket &ticket = m_tickets[handle];
+    ticket.steamId = 0;
+    const uint8_t *bytes = reinterpret_cast<const uint8_t *>(data);
+    ticket.buffer.assign(bytes, bytes + size);
+}
+
+void NetworkingClient::ClearAuthTicket(uint32_t handle)
+{
+    auto it = m_tickets.find(handle);
+    if (it == m_tickets.end())
+    {
+        assert(false);
+        Platform::Print("NetworkingClient: tried to clear a nonexistent auth ticket???\n");
+        return;
+    }
+
+    if (it->second.steamId)
+    {
+        Platform::Print("NetworkingClient: closing p2p session with %llu\n", it->second.steamId);
+
+        // we had a session so close the connection
+        SteamNetworkingIdentity identity;
+        identity.SetSteamID64(it->second.steamId);
+        m_networkingMessages->CloseChannelWithUser(identity, NetMessageChannel);
+
+        // was this our current gameserver? if it was, clear it
+        if (it->second.steamId == m_serverSteamId)
+        {
+            Platform::Print("NetworkingClient: clearing gs identity\n");
+            m_serverSteamId = 0;
+        }
+    }
+
+    m_tickets.erase(it);
 }
 
 void NetworkingClient::OnSessionRequest(SteamNetworkingMessagesSessionRequest_t *param)
@@ -57,5 +191,5 @@ void NetworkingClient::OnSessionRequest(SteamNetworkingMessagesSessionRequest_t 
 
 void NetworkingClient::OnSessionFailed(SteamNetworkingMessagesSessionFailed_t *param)
 {
-    Platform::Print("NetworkingClient::OnSessionFailed: {}\n", param->m_info.m_szEndDebug);
+    Platform::Print("NetworkingClient::OnSessionFailed: %s\n", param->m_info.m_szEndDebug);
 }

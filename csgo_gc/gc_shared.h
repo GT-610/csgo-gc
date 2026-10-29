@@ -1,28 +1,23 @@
 #pragma once
 
+#include "gc_message.h"
+
 enum class HostEvent
 {
     Message, // id contains the message type, buffer contains the payload
     NetMessage, // id contains the recipient steam id, buffer contains the payload
-    MicroTransactionResponse, // runs MicroTxnAuthorizationResponse_t, no arguments
-    CloseChannel, // id contains the steam id
+    MicroTransactionResponse, // id contains the Steam microtransaction order id
 };
 
 enum class GCEvent
 {
-    // shared
     Message, // id contains the message type, buffer contains the payload
-    NetMessage, // id contains the sender steam id, buffer contains the payload
-    Tick, // sent when running callbacks
-
-    // client
-    SetAuthTicket, // id contains the ticket handle, buffer contains the ticket
-    ClearAuthTicket, // id contains the ticket handle
-
-    // server
-    ClientConnected, // id contains the steam id, buffer contains the ticket
-    ClientDisconnected, // id contains the steam id
-    SessionRequest, // id contains the steam id
+    NetMessage, // id contains the recipient steam id, buffer contains the payload
+    SOCacheRequest, // sent to client gc when connected to a gameserver
+    LocalPlayerRoundMVP, // sent to client gc when the local player earns round MVP
+    SyncLocalPlayerMusicKitState, // sent to client gc from the main thread, buffer contains the local userid
+    ClientSOCacheUnsubscribe, // sent to server gc when a client disconnects, id contains the steam id
+    RconCommand, // sent to client gc, buffer contains an owned RconCommand holder pointer
 };
 
 struct EventData
@@ -45,10 +40,10 @@ protected:
     void StartThread();
     void StopThread();
 
-    void PostToHost(HostEvent type, uint64_t id, std::vector<uint8_t> &&buffer);
+    void PostToHost(HostEvent type, uint64_t id, const void *data, uint32_t dataSize);
 
 private:
-    virtual void HandleEvent(GCEvent type, uint64_t id, std::vector<uint8_t> &&buffer) = 0;
+    virtual void HandleEvent(GCEvent type, uint64_t id, const std::vector<uint8_t> &buffer) = 0;
 
     void WorkerThread();
 

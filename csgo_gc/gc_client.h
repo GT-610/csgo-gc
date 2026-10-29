@@ -1,88 +1,151 @@
 #pragma once
 
-#include "gc_const.h"
+#include "config.h"
 #include "gc_shared.h"
 #include "inventory.h"
-
-class GCMessageRead;
-
-class CMsgClientWelcome;
-class CMsgCStrike15Welcome;
-class CMsgGCCStrike15_v2_MatchmakingGC2ClientHello;
-
-struct AuthTicket
-{
-    uint64_t steamId{}; // gameserver
-    std::vector<uint8_t> buffer;
-};
 
 class ClientGC final : public SharedGC
 {
 public:
     ClientGC(uint64_t steamId);
     ~ClientGC();
+    // The number of music kit MVPs to publish in the local player's round_mvp
+    // event, or 0 when nothing should be published. Returns 0 when the StatTrak
+    // gate is inactive for the current game type and mode.
+    uint32_t LocalPlayerMusicKitMVPsForRoundMVPEvent() const;
+    // Whether music kit StatTrak is active right now. Evaluated on every call
+    // rather than cached, because a server can change its game mode mid-session.
+    bool MusicKitStatTrakActive() const;
+    std::string RunRconCommand(std::string command);
+    static std::string RconCommandUsageList();
 
 private:
-    void HandleEvent(GCEvent type, uint64_t id, std::vector<uint8_t> &&buffer) override;
+    struct RconRequest
+    {
+        std::string name;
+        std::vector<std::string> args;
+    };
+
+    struct RconCommandDef
+    {
+        const char *name;
+        const char *usage;
+        std::string (ClientGC::*handler)(const RconRequest &request);
+    };
+
+    struct PendingStoreLineItem
+    {
+        uint32_t defIndex;
+        uint32_t quantity;
+    };
+
+    void HandleEvent(GCEvent type, uint64_t id, const std::vector<uint8_t> &buffer) override;
 
     // event handlers
     void HandleMessage(uint32_t type, const void *data, uint32_t size);
-    void HandleNetMessage(uint64_t steamId, const void *data, uint32_t size);
-    void SetAuthTicket(uint32_t handle, std::vector<uint8_t> &&buffer);
-    void ClearAuthTicket(uint32_t handle);
-    void HandleConnect(uint64_t steamId, GCMessageRead &message);
+    void HandleNetMessage(const void *data, uint32_t size);
     void HandleSOCacheRequest();
-    void InventoryUpdate();
+    // The inventory's music kit MVP count, or -1 when no StatTrak music kit is
+    // equipped. Independent of the StatTrak gate, which is applied on publish.
+    int32_t CachedMusicKitMVPsFromInventory() const;
+    void RefreshCachedMusicKitMVPs();
+    void SyncLocalPlayerMusicKitState(int userId);
+    void SendMusicKitMVPStateToGameServer();
+    static const RconCommandDef *RconCommands(size_t &count);
+    std::string ExecuteRconCommand(std::string_view command);
+    std::string RconHelp(const RconRequest &request);
+    std::string RconPing(const RconRequest &request);
+    std::string RconStatus(const RconRequest &request);
+    std::string RconClients(const RconRequest &request);
+    std::string RconListItems(const RconRequest &request);
+    std::string RconFindItem(const RconRequest &request);
+    std::string RconItemInfo(const RconRequest &request);
+    std::string RconGiveItem(const RconRequest &request);
+    std::string RconRemoveItem(const RconRequest &request);
+    std::string RconRefreshInventory(const RconRequest &request);
+    std::string RconSaveInventory(const RconRequest &request);
+    void PublishItemRemoval(const CMsgSOSingleObject &itemDestroy,
+        const CMsgSOSingleObject &recurringSubscriptionDestroy);
+
+    // Tracks the last published equipment state so final unequips and destroys
+    // still reach the server even after the inventory mutation removed it.
+    bool GameServerItemDirty(int32_t soType, const std::string &data, bool destroyed);
+    void SendMessageToGameServer(uint32_t type,
+        const google::protobuf::MessageLite &message, uint64_t jobId);
 
     // send to the local game and the game server we're connected to (if we're connected)
     void SendMessageToGame(bool sendToGameServer, uint32_t type,
         const google::protobuf::MessageLite &message, uint64_t jobId = JobIdInvalid);
 
-    void SendInventoryChangeMessages(const InventoryChangeMessages &messages);
-    void SendMessageToServer(std::vector<uint8_t> &&buffer);
-
     void OnClientHello(GCMessageRead &messageRead);
-    void OnMatchmakingHello();
-    void OnRequestInventoryRefresh();
+    void SOCacheSubscriptionRefresh(GCMessageRead &messageRead);
     void AdjustItemEquippedState(GCMessageRead &messageRead);
     void ClientPlayerDecalSign(GCMessageRead &messageRead);
+    void PlayerOverwatchCaseUpdate(GCMessageRead &messageRead);
+    void PlayerOverwatchCaseStatus(GCMessageRead &messageRead);
     void UseItemRequest(GCMessageRead &messageRead);
+    void ClientRequestNewMission(GCMessageRead &messageRead);
     void ClientRequestJoinServerData(GCMessageRead &messageRead);
+    void ClientRequestPlayersProfile(GCMessageRead &messageRead);
+    void SetEventFavorite(GCMessageRead &messageRead);
+    void GetEventFavorites(GCMessageRead &messageRead);
     void SetItemPositions(GCMessageRead &messageRead);
     void IncrementKillCountAttribute(GCMessageRead &messageRead);
+    void ModifyItemAttribute(GCMessageRead &messageRead);
+    // Increment the equipped StatTrak music kit when the local player receives round MVP.
+    void LocalPlayerRoundMVP();
     void ApplySticker(GCMessageRead &messageRead);
+    void RequestPrestigeCoin(GCMessageRead &messageRead);
     void StoreGetUserData(GCMessageRead &messageRead);
     void StorePurchaseInit(GCMessageRead &messageRead);
     void StorePurchaseFinalize(GCMessageRead &messageRead);
-    void StorePurchaseFinalizeStruct(GCMessageRead &messageRead);
-    void OnGetEventFavorites(GCMessageRead &messageRead);
-    void OnPartyRegister(GCMessageRead &messageRead);
+    void IgnoreMatchmakingStart(GCMessageRead &messageRead);
+    void IgnoreMatchmakingStop(GCMessageRead &messageRead);
+    void HandlePartyRegister(GCMessageRead &messageRead);
+    void IgnorePartyUnregister(GCMessageRead &messageRead);
+    void HandlePartySearch(GCMessageRead &messageRead);
+    void HandleAccountRequestCoPlays(GCMessageRead &messageRead);
+    void HandleAccountPrivacySettings(GCMessageRead &messageRead);
+    void HandleMatchListRequest(GCMessageRead &messageRead);
+    void HandleStatsSubscriptionStatus(GCMessageRead &messageRead);
+    void HandleClientDeepStats(GCMessageRead &messageRead);
 
     void DeleteItem(GCMessageRead &messageRead);
     void UnlockCrate(GCMessageRead &messageRead);
+    void Craft(GCMessageRead &messageRead);
     void NameItem(GCMessageRead &messageRead);
     void NameBaseItem(GCMessageRead &messageRead);
     void RemoveItemName(GCMessageRead &messageRead);
 
-    void ProcessCasketItemLoadContents(GCMessageRead &messageRead);
-    void ProcessCasketItemAdd(GCMessageRead &messageRead);
-    void ProcessCasketItemExtract(GCMessageRead &messageRead);
+    void ProcessStorageInspect(GCMessageRead &messageRead);
+    void ProcessStorageDeposit(GCMessageRead &messageRead);
+    void ProcessStorageWithdraw(GCMessageRead &messageRead);
+    void DispatchStorageResult(const Inventory::StorageTransaction &tx);
+    void HandleCounterSwapRequest(GCMessageRead &messageRead);
+    void HandleRequestSouvenir(GCMessageRead &messageRead);
+    void BroadcastSwapOutcome(const Inventory::CounterSwapResult &outcome);
 
     void BuildMatchmakingHello(CMsgGCCStrike15_v2_MatchmakingGC2ClientHello &message);
-    void BuildClientWelcome(CMsgClientWelcome &message, const CMsgCStrike15Welcome &csWelcome,
+    void BuildClientWelcome(CMsgClientWelcome &message, const CMsgClientHello &hello,
+        const CMsgCStrike15Welcome &csWelcome,
         const CMsgGCCStrike15_v2_MatchmakingGC2ClientHello &matchmakingHello);
+    void SendOverwatchCaseAssignment();
+    void SendStatsSubscriptionStatus(uint64_t jobId = JobIdInvalid);
+    void SendEmptyDeepStats(const CMsgGCCStrike15_ClientDeepStats &request,
+        uint64_t jobId = JobIdInvalid);
     void SendRankUpdate();
 
     uint32_t AccountId() const { return m_steamId & 0xffffffff; }
 
     const uint64_t m_steamId;
+    const uint32_t m_buildYear;
 
     Inventory m_inventory;
-
-    uint64_t m_serverSteamId{};
-    std::unordered_map<uint32_t, AuthTicket> m_tickets;
+    std::unordered_set<uint64_t> m_gameServerEquippedItems;
+    std::atomic<int32_t> m_localUserId{};
+    std::atomic<int32_t> m_cachedMusicKitMVPs{ -1 };
 
     // microtransactions, we only have one going at a time
     uint64_t m_transactionId{};
-    std::vector<uint64_t> m_transactionItemIds;
+    std::vector<PendingStoreLineItem> m_transactionLineItems;
 };

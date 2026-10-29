@@ -11,8 +11,15 @@ constexpr uint64_t GameServerCookieId = 0x293A206F6C6C6548;
 // next lowest 16 bits = paint kit index
 constexpr uint64_t ItemIdDefaultItemMask = 0xfull << 60;
 
+// store region reported to the client. The client welcome and the deprecated
+// fields of the store user data response have to agree, so keep them here
+constexpr int GCStoreCurrency = 2; // euros
+constexpr const char *GCStoreCountry = "FI"; // finland
+
 // technically 5 but there are attributes for 6 stickers...
 constexpr int MaxStickers = 6;
+
+constexpr int CSGOMaxPlayerLevel = 40;
 
 enum RankType : uint32_t
 {
@@ -71,16 +78,19 @@ enum SOTypeId : uint32_t
     SOTypePersonaDataPublic = 2,
     SOTypeEquipSlot = 3,
     SOTypeGameAccountClient = 7,
+    SOTypeAccountRecurringSubscription = 39,
+    SOTypeAccountSeasonalOperation = 41,
     SOTypeDefaultEquippedDefinitionInstanceClient = 43
 };
 
 // CSOEconItem origin
 enum ItemOrigin
 {
-    ItemOriginDropped = 0,
     ItemOriginPurchased = 2,
+    ItemOriginTraded = 3,
     ItemOriginCrate = 8,
-    ItemOriginBaseItem = 22
+    ItemOriginBaseItem = 22,
+    ItemOriginLevelUpReward = 24
 };
 
 enum ElevatedState : uint32_t

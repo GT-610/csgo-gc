@@ -1,103 +1,347 @@
 #pragma once
 
 #include "gc_const_csgo.h"
-#include "inventory_editor.h"
-#include "item.h"
 #include "item_schema.h"
+#include "random.h"
 
-class CMsgApplySticker;
-class CMsgSetItemPositions;
-class CMsgItemAcknowledged;
+class KeyValue;
 
-class CMsgSOCacheSubscribed;
-class CMsgSOMultipleObjects;
-class CMsgSOSingleObject;
-
-enum EGCItemCustomizationNotification : int;
-
-class InventoryModify;
-struct InventoryChangeMessages;
+using ItemMap = std::unordered_map<uint64_t, CSOEconItem>;
 
 class Inventory
 {
+    friend struct InventoryTestAccess;
+
 public:
     Inventory(uint64_t steamId);
     ~Inventory();
 
-    // called on client welcome
-    void SetOldProtocol(bool oldProtocol) { m_oldProtocol = oldProtocol; }
+    struct ParameterizedItemOptions
+    {
+        struct TournamentOptions
+        {
+            std::optional<uint32_t> eventId;
+            std::optional<uint32_t> stageId;
+            std::optional<uint32_t> team0Id;
+            std::optional<uint32_t> team1Id;
+            std::optional<uint32_t> mvpAccountId;
+        };
 
-    bool Update(InventoryChangeMessages &changeMessages);
+        std::optional<uint32_t> level;
+        std::optional<uint32_t> quality;
+        std::optional<uint32_t> rarity;
+        std::optional<std::string> customName;
 
-    void BuildCacheSubscription(CMsgSOCacheSubscribed &message, int level, bool server);
+        std::optional<uint32_t> paint;
+        std::optional<uint32_t> seed;
+        std::optional<float> wear;
+        std::optional<uint32_t> statTrak;
+        std::optional<uint32_t> music;
+        std::optional<uint32_t> sprayColor;
+        std::optional<uint32_t> sprayRemaining;
+        TournamentOptions tournament;
 
-    InventoryChangeMessages EquipItem(uint64_t itemId, uint32_t classId, uint32_t slotId);
-    InventoryChangeMessages RemoveItem(uint64_t itemId);
-    InventoryChangeMessages UseItem(uint64_t itemId);
-    InventoryChangeMessages UnlockCrate(uint64_t crateId, uint64_t keyId);
-    InventoryChangeMessages ApplySticker(const CMsgApplySticker &message);
-    InventoryChangeMessages ScrapeSticker(const CMsgApplySticker &message);
-    InventoryChangeMessages IncrementKillCountAttribute(uint64_t itemId, uint32_t amount);
-    InventoryChangeMessages NameItem(uint64_t nameTagId, uint64_t itemId, std::string_view name);
-    InventoryChangeMessages NameBaseItem(uint64_t nameTagId, uint32_t defIndex, std::string_view name);
-    InventoryChangeMessages RemoveItemName(uint64_t itemId);
-    InventoryChangeMessages CasketItemAdd(uint64_t casketId, uint64_t itemId);
-    InventoryChangeMessages CasketItemExtract(uint64_t casketId, uint64_t itemId);
+        std::array<std::optional<uint32_t>, 6> sticker;
+        std::array<std::optional<float>, 6> stickerWear;
+        std::array<std::optional<float>, 6> stickerScale;
+        std::array<std::optional<float>, 6> stickerRotation;
+    };
 
-    InventoryChangeMessages SetItemPositions(const CMsgSetItemPositions &message, std::vector<CMsgItemAcknowledged> &acknowledgements);
-    InventoryChangeMessages PurchaseItems(const std::vector<uint32_t> &defIndexes, std::vector<uint64_t> &itemIds);
+    void BuildCacheSubscription(CMsgSOCacheSubscribed &message, bool server);
+    uint64_t Version() const { return m_version; }
+    int PlayerLevel() const { return m_playerLevel; }
+    int PlayerXp() const { return m_playerXp; }
+
+    struct PrestigeMedalPlan
+    {
+        uint32_t defIndex{};
+        uint64_t upgradeId{};
+    };
+
+    struct PrestigeMedalClaim
+    {
+        CMsgSOSingleObject itemData;
+        CMsgSOSingleObject personaData;
+        uint64_t itemId{};
+        bool created{};
+    };
+
+    std::optional<PrestigeMedalPlan> GetPrestigeMedalPlan(uint32_t year) const;
+    bool ClaimPrestigeMedal(uint32_t year, uint32_t expectedDefIndex,
+        PrestigeMedalClaim &claim);
+
+    bool EquipItem(uint64_t itemId, uint32_t classId, uint32_t slotId, bool swap,
+        CMsgSOMultipleObjects &update);
+
+    bool RemoveItem(uint64_t itemId, CMsgSOSingleObject &destroy,
+        CMsgSOSingleObject *recurringSubscriptionDestroy = nullptr);
+
+    enum class UseItemChange
+    {
+        None,
+        Create,
+        Update
+    };
+
+    struct UseItemResult
+    {
+        CMsgSOSingleObject destroy;
+        CMsgSOSingleObject itemData;
+        CMsgSOSingleObject operationData;
+        CMsgSOMultipleObjects updateMultiple;
+        CMsgGCItemCustomizationNotification notification;
+        UseItemChange itemChange{ UseItemChange::None };
+        UseItemChange operationChange{ UseItemChange::None };
+    };
+
+    bool UseItem(uint64_t itemId, UseItemResult &result);
+    bool SelectSeasonalMissionCard(uint32_t seasonValue, uint32_t missionCardId,
+        CMsgSOSingleObject &update);
+
+    bool UnlockCrate(uint64_t crateId,
+        uint64_t keyId,
+        CMsgSOSingleObject &destroyCrate,
+        CMsgSOSingleObject &destroyKey,
+        CMsgSOSingleObject &newItem,
+        CMsgGCItemCustomizationNotification &notification);
+
+    static bool IsMegaBundle(uint32_t defIndex);
+    bool OpenMegaBundle(uint64_t bundleId,
+        CMsgSOSingleObject &destroyBundle,
+        std::vector<CMsgSOSingleObject> &newItems,
+        CMsgGCItemCustomizationNotification &notification);
+
+    bool OpenStatTrakSwapToolBundle(uint64_t bundleId,
+        CMsgSOSingleObject &destroyBundle,
+        std::array<CMsgSOSingleObject, 2> &newTools,
+        CMsgGCItemCustomizationNotification &notification);
+
+    bool OpenSouvenirPackage(uint64_t packageId,
+        CMsgSOSingleObject &destroyPackage,
+        CMsgSOSingleObject &newItem,
+        CMsgGCItemCustomizationNotification &notification);
+
+    bool SetItemPositions(
+        const CMsgSetItemPositions &message,
+        std::vector<CMsgItemAcknowledged> &acknowledgements,
+        CMsgSOMultipleObjects &update);
+
+    bool ApplySticker(const CMsgApplySticker &message,
+        CMsgSOSingleObject &update,
+        CMsgSOSingleObject &destroy,
+        CMsgGCItemCustomizationNotification &notification);
+
+    bool ScrapeSticker(const CMsgApplySticker &message,
+        CMsgSOSingleObject &update,
+        CMsgSOSingleObject &destroy,
+        CMsgGCItemCustomizationNotification &notification);
+
+    // The equipped StatTrak music kit, or 0 when none is equipped. Music kits are
+    // not StatTrak in the same way weapons are: the counter is gated on the kill
+    // eater score type being the music kit value.
+    uint64_t EquippedStatTrakMusicKitItemId() const;
+
+    // The "kill eater" counter of the given music kit, or 0 when the item is
+    // absent or has no counter.
+    uint32_t MusicKitMVPCount(uint64_t musicKitItemId) const;
+
+    bool IncrementKillCountAttribute(uint64_t itemId, uint32_t amount, CMsgSOSingleObject &update);
+
+    // Applies a client-requested attribute value (k_EMsgGCModifyItemAttribute).
+    // This is how Panorama persists the graffiti a tournament journal has
+    // selected: it sets "sticker slot 0 id" on the journal. Only that item and
+    // attribute combination is accepted, so the client cannot rewrite other
+    // GC-managed attributes. The journal's event is deliberately not checked,
+    // so a graffiti from any tournament can be selected.
+    bool ModifyItemAttribute(uint64_t itemId, uint32_t defIndex, uint32_t value,
+        CMsgSOSingleObject &update);
+
+    bool NameItem(uint64_t nameTagId,
+        uint64_t itemId,
+        std::string_view name,
+        CMsgSOSingleObject &update,
+        CMsgSOSingleObject &destroy,
+        CMsgGCItemCustomizationNotification &notification);
+
+    bool NameBaseItem(uint64_t nameTagId,
+        uint32_t defIndex,
+        std::string_view name,
+        CMsgSOSingleObject &create,
+        CMsgSOSingleObject &destroy,
+        CMsgGCItemCustomizationNotification &notification);
+
+    bool RemoveItemName(uint64_t itemId,
+        CMsgSOSingleObject &update,
+        CMsgSOSingleObject &destroy,
+        CMsgGCItemCustomizationNotification &notification);
+
+    enum class StorageResult
+    {
+        Success,
+        CapacityExceeded,
+        ItemNotFound,
+        ContainerNotFound,
+        InvalidContainerType,
+        InternalError
+    };
+
+    struct StorageTransaction
+    {
+        CMsgSOSingleObject itemData;
+        CMsgSOSingleObject containerData;
+        EGCItemCustomizationNotification notificationType;
+        uint64_t affectedContainerId;
+        StorageResult outcome;
+        
+        bool Succeeded() const { return outcome == StorageResult::Success; }
+        bool ReachedCapacity() const { return outcome == StorageResult::CapacityExceeded; }
+    };
+
+    StorageTransaction DepositItemToStorage(uint64_t storageId, uint64_t itemId);
+    StorageTransaction WithdrawItemFromStorage(uint64_t storageId, uint64_t itemId);
+
+    enum class CounterSwapStatus
+    {
+        Completed,
+        ToolMissing,
+        InvalidTool,
+        WeaponMissing,
+        CounterAttributeAbsent,
+        InvalidWeaponState
+    };
+
+    struct CounterSwapResult
+    {
+        CounterSwapStatus status;
+        CMsgSOSingleObject toolRemoval;
+        CMsgSOSingleObject weaponAUpdate;
+        CMsgSOSingleObject weaponBUpdate;
+        uint64_t weaponAId;
+        uint64_t weaponBId;
+        
+        bool IsValid() const { return status == CounterSwapStatus::Completed; }
+    };
+
+    CounterSwapResult PerformCounterSwap(uint64_t toolId, uint64_t weaponAId, uint64_t weaponBId);
+
+    const CSOEconItem *GetItem(uint64_t itemId) const;
+    const ItemSchema &GetItemSchema() const { return m_itemSchema; }
+    std::string GetCustomName(const CSOEconItem &item) const;
+
+    // Trade-up contract: craft 10 items of same rarity into 1 item of next rarity
+    // Returns true on success, false on validation failure
+    bool TradeUp(const std::vector<uint64_t> &inputItemIds,
+        std::vector<CMsgSOSingleObject> &destroyItems,
+        CMsgSOSingleObject &newItem,
+        int16_t &responseRecipeIndex,
+        CSOEconItem **outCraftedItem = nullptr);
+
+    // returns the item id and adds the item to the provided CMsgSOMultipleObjects
+    // on failure returns 0 and does nothing
+    uint64_t PurchaseItem(uint32_t defIndex, std::vector<CMsgSOSingleObject> &update);
+
+    // Creates an item granted through RCON with the traded acquisition reason.
+    // Returns the item id on success, or 0 and an error string on failure.
+    uint64_t CreateRconItem(uint32_t defIndex,
+        const ParameterizedItemOptions &options,
+        CMsgSOSingleObject &update,
+        std::string &error);
+    size_t ItemCount() const { return m_items.size(); }
+    const ItemMap &Items() const { return m_items; }
+    bool HasItemDefinition(uint32_t defIndex) const;
+
+    struct StatsSubscriptionState
+    {
+        uint64_t itemId{};
+        uint32_t timeInitiated{};
+        uint32_t timeNextCycle{};
+    };
+
+    std::optional<StatsSubscriptionState> GetStatsSubscription() const;
+    const CSOAccountSeasonalOperation *GetSeasonalOperation(uint32_t seasonValue) const;
+    const std::set<uint64_t> &EventFavorites() const { return m_eventFavorites; }
+    bool SetEventFavorite(uint64_t eventId, bool favorite);
+    bool Save() const { return WriteToFile(); }
 
 private:
     uint32_t AccountId() const;
 
-    // increment version, build messages for the game, send changes to editor and write to file
-    InventoryChangeMessages FinishChanges(
-        InventoryModify &modify,
-        std::optional<EGCItemCustomizationNotification> customizationType = std::nullopt,
-        std::initializer_list<uint64_t> customizationItemIds = {});
+    // allocates an empty item, sets id and account_id fields
+    // pass zero as highItemId to generate a new one
+    CSOEconItem &AllocateItem(uint32_t highItemId);
 
-    // allocates an unique low item id
-    // pass zero as lowItemId if you don't want a specific one
-    uint32_t GetLowItemId(uint32_t lowItemId);
-
-    // used to create items from inventory.txt
-    void CreateItem(uint32_t lowId, const KeyValue &kv);
-
-    // used to create items at runtime
-    Item &CreateItem(InventoryModify &modify, ItemDesc &&desc);
-
-    // find an existing item by id, returns nullptr if not found
-    Item *FindItem(uint64_t itemId);
+    // create a new item of a specific type
+    CSOEconItem &CreateItem(const CSOEconItem &copyFrom);
+    CSOEconItem &CreateItem(uint32_t defIndex, ItemOrigin origin, UnacknowledgedType unacknowledgedType);
 
     void ReadFromFile();
-    void WriteToFile() const;
+    void ReadItem(const KeyValue &itemKey, CSOEconItem &item) const;
+    void DeduplicateStatsSubscriptions();
+    void LogInventoryConsistency() const;
 
-    bool EquipItem(InventoryModify &modify, uint64_t itemId, uint32_t classId, uint32_t slotId);
-    bool UnequipItem(InventoryModify &modify, uint64_t itemId);
-    void UnequipItem(InventoryModify &modify, uint32_t classId, uint32_t slotId);
+    bool WriteToFile() const;
+    void WriteItem(KeyValue &itemKey, const CSOEconItem &item) const;
 
-    bool DestroyItemById(InventoryModify &modify, uint64_t itemId);
-    void DestroyItem(InventoryModify &modify, Item *item);
+    // helper, only called via EquipItem
+    bool UnequipItemForClass(uint64_t itemId, uint32_t classId, CMsgSOMultipleObjects &update);
+    void UnequipSlotForClass(uint32_t classId, uint32_t slotId, CMsgSOMultipleObjects &update);
+
+    void DestroyItem(ItemMap::iterator iterator, CMsgSOSingleObject &message);
+    bool ActivateSeasonPassItem(ItemMap::iterator passItem,
+        const SeasonPassInfo &pass, UseItemResult &result);
+    bool ActivateTournamentAccessItem(ItemMap::iterator accessItem,
+        const TournamentAccessInfo &access, UseItemResult &result);
+
+    // move this to the item schema maybe?
+    void ItemToPreviewDataBlock(const CSOEconItem &item, CEconItemPreviewDataBlock &block);
 
     // helpers for serializing items to CMsgSOMultipleObjects and CMsgSOSingleObject
     void AddToMultipleObjects(CMsgSOMultipleObjects &message, SOTypeId type, const google::protobuf::MessageLite &object);
     void ToSingleObject(CMsgSOSingleObject &message, SOTypeId type, const google::protobuf::MessageLite &object);
+    uint64_t AdvanceVersion();
 
-    void SendFullInventoryToEditor();
-    void SendChangesToEditor(const InventoryModify &modify);
+    // helpers for above..
+    void AddToMultipleObjects(CMsgSOMultipleObjects &message, const CSOEconItem &object)
+    {
+        AddToMultipleObjects(message, SOTypeItem, object);
+    }
 
-    void RemoveCachedIcon(uint32_t lowId) const;
+    void ToSingleObject(CMsgSOSingleObject &message, const CSOEconItem &object)
+    {
+        ToSingleObject(message, SOTypeItem, object);
+    }
+
+    void AddToMultipleObjects(CMsgSOMultipleObjects &message, const CSOEconDefaultEquippedDefinitionInstanceClient &object)
+    {
+        AddToMultipleObjects(message, SOTypeDefaultEquippedDefinitionInstanceClient, object);
+    }
+
+    void ToSingleObject(CMsgSOSingleObject &message, const CSOEconDefaultEquippedDefinitionInstanceClient &object)
+    {
+        ToSingleObject(message, SOTypeDefaultEquippedDefinitionInstanceClient, object);
+    }
+
+    struct StorageItemPair { CSOEconItem* storage; CSOEconItem* target; };
+    StorageItemPair ResolveStorageItems(uint64_t storageId, uint64_t targetId);
+    void EmbedStorageReference(CSOEconItem &item, uint64_t storageId);
+    void StripStorageReference(CSOEconItem &item);
+    bool ModifyStorageCounter(CSOEconItem &storage, int delta);
+
+    void ConsumeToolItem(uint64_t toolId, CMsgSOSingleObject &removalMsg);
 
     const uint64_t m_steamId;
+    const int m_configuredPlayerLevel;
+    const int m_configuredPlayerXp;
+    int m_playerLevel;
+    int m_playerXp;
+    uint64_t m_version;
     ItemSchema m_itemSchema;
-    bool m_oldProtocol{ false };
-    uint32_t m_lastLowItemId{};
-    uint64_t m_version{ 1 };
-    std::unordered_map<uint64_t, Item> m_items;
-    std::vector<DefaultEquip> m_defaultEquips;
-
-    InventoryEditor m_editor;
-
-    // stupid hack since we don't want to show casketed items in the editor
-    std::unordered_set<uint32_t> m_editorVisibleItems;
+    Random m_random;
+    uint32_t m_lastHighItemId{};
+    ItemMap m_items;
+    uint32_t m_statsSubscriptionTimeInitiated{};
+    std::unordered_map<uint32_t, CSOAccountSeasonalOperation> m_seasonalOperations;
+    std::vector<CSOEconDefaultEquippedDefinitionInstanceClient> m_defaultEquips;
+    std::set<uint64_t> m_eventFavorites;
+    bool m_saveEnabled{ true };
 };
