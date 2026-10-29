@@ -10,28 +10,36 @@
 DLL_EXPORT DWORD NvOptimusEnablement = 1;
 DLL_EXPORT int AmdPowerXpressRequestHighPerformance = 1;
 
-DLL_EXPORT bool BSecureAllowed(unsigned char *, int, int)
+// Security stubs - these are required by the game launcher but not used
+// for actual security checks in our implementation
+DLL_EXPORT bool BSecureAllowed(unsigned char *pData, int nSize, int nType)
 {
+    // Game expects this to return true to proceed with launch
+    // The parameters are not used in our implementation
     return true;
 }
 
 DLL_EXPORT int CountFilesCompletedTrustCheck()
 {
+    // Game expects this to return 0 to indicate no pending checks
     return 0;
 }
 
 DLL_EXPORT int CountFilesNeedTrustCheck()
 {
+    // Game expects this to return 0 to indicate no files need checking
     return 0;
 }
 
 DLL_EXPORT int GetTotalFilesLoaded()
 {
+    // Game expects this to return 0 to indicate no files loaded yet
     return 0;
 }
 
-DLL_EXPORT int RuntimeCheck(int, int)
+DLL_EXPORT int RuntimeCheck(int nType, int nFlags)
 {
+    // Game expects this to return 0 to indicate runtime is valid
     return 0;
 }
 
@@ -48,22 +56,26 @@ DLL_EXPORT int RuntimeCheck(int, int)
 typedef int (*OldLauncherMain_t)(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd);
 typedef int (*NewLauncherMain_t)(bool bSecure, HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd);
 
-// FIXME: is this reliable enough? necroed code from ages ago, not sure how well it was tested
-static bool UseNewLauncherMain(const void *prologue)
+// Signature verified against LauncherMain in the final supported CS:GO client.
+// Unknown client launchers fail closed instead of guessing their ABI.
+static bool HasSupportedLauncherMainSignature(const void *entryPoint)
 {
 #if defined(DEDICATED) || !defined(_M_IX86)
     return false;
 #else
-    const uint8_t *p = static_cast<const uint8_t *>(prologue);
+    static constexpr uint8_t Signature[] = {
+        0x55, // push ebp
+        0x8B, 0xEC, // mov ebp, esp
+        0x83, 0xE4, 0xF8, // and esp, -8
+        0x8B, 0x45, 0x0C, // mov eax, [ebp+0x0C]
+        0x81, 0xEC, 0x1C, 0x02, 0x00, 0x00 // sub esp, 0x21C
+    };
 
-    return (p[0] == 0x55 // push ebp
-        && p[1] == 0x8B && p[2] == 0xEC // mov ebp, esp
-        && p[6] == 0x8B && p[7] == 0x45 && p[8] == 0x0C); // mov eax, [ebp+0x0C]
+    return memcmp(entryPoint, Signature, sizeof(Signature)) == 0;
 #endif
 }
 
-// csgo_gc/main.cpp
-void InstallGC(bool dedicated);
+typedef void (*InstallGC_t)(bool dedicated);
 
 static void ErrorMessageBox(const wchar_t *format, ...)
 {
@@ -139,7 +151,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     wchar_t *slash = wcsrchr(baseDir, '\\');
     if (!slash)
     {
-        slash = baseDir; // what the fuck
+        ErrorMessageBox(L"Could not determine the launcher directory");
+        return 1;
     }
 
     *slash = '\0';
@@ -170,18 +183,31 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         return 1;
     }
 
+    _snwprintf_s(modulePath, std::size(modulePath), L"%ls\\csgo_gc\\" GC_LIB_DIR "\\"
+                                                    "csgo_gc" GC_LIB_EXTENSION,
+        baseDir);
+    InstallGC_t InstallGC = (InstallGC_t)LoadModuleAndFindSymbol(modulePath, "InstallGC");
+    if (!InstallGC)
+    {
+        // LoadModuleAndFindSymbol told us why
+        return 1;
+    }
+
 #if defined(DEDICATED)
     InstallGC(true);
 #else
     InstallGC(false);
 #endif
 
-    if (UseNewLauncherMain(LauncherMain))
+#if defined(DEDICATED)
+    return reinterpret_cast<OldLauncherMain_t>(LauncherMain)(hInstance, hPrevInstance, lpCmdLine, nShowCmd);
+#else
+    if (!HasSupportedLauncherMainSignature(LauncherMain))
     {
-        return static_cast<NewLauncherMain_t>(LauncherMain)(true, hInstance, hPrevInstance, lpCmdLine, nShowCmd);
+        ErrorMessageBox(L"Unsupported LauncherMain ABI");
+        return 1;
     }
-    else
-    {
-        return static_cast<OldLauncherMain_t>(LauncherMain)(hInstance, hPrevInstance, lpCmdLine, nShowCmd);
-    }
+
+    return reinterpret_cast<NewLauncherMain_t>(LauncherMain)(true, hInstance, hPrevInstance, lpCmdLine, nShowCmd);
+#endif
 }

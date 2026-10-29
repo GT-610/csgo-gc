@@ -3,7 +3,7 @@ project(launcher)
 # messy
 function(launcher_target NAME DEDICATED)
     if (WIN32)
-        add_executable(${NAME} WIN32 launcher_win.cpp launcher.manifest launcher.rc)
+        add_executable(${NAME} WIN32 launcher_win.cpp launcher.rc launcher.manifest)
     else()
         add_executable(${NAME} launcher_unix.cpp)
     endif()
@@ -20,18 +20,6 @@ function(launcher_target NAME DEDICATED)
         target_link_libraries(${NAME} PRIVATE "-framework Foundation")
     endif()
 
-    # try to get the linux client to use tcmalloc
-    if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT IS_32BIT)
-        add_library(tcmalloc_stub SHARED EXCLUDE_FROM_ALL tcmalloc_stub.cpp)
-
-        set_target_properties(tcmalloc_stub PROPERTIES OUTPUT_NAME tcmalloc_minimal SOVERSION 0)
-
-        target_link_libraries(${NAME} PRIVATE
-            "-Wl,--push-state,--no-as-needed"
-            tcmalloc_stub
-            "-Wl,--pop-state")
-    endif()
-
     if (DEDICATED)
         target_compile_definitions(${NAME} PRIVATE DEDICATED)
     endif()
@@ -40,10 +28,7 @@ function(launcher_target NAME DEDICATED)
         GC_LIB_DIR="${GC_LIB_DIR}"
         GC_LIB_SUFFIX="${GC_LIB_SUFFIX}"
         GC_LIB_EXTENSION="${CMAKE_SHARED_LIBRARY_SUFFIX}")
-
-    # this is now statically linked
-    target_link_libraries(${NAME} PRIVATE csgo_gc)
-
+    
     if (OUTDIR)
         add_custom_command(TARGET ${NAME} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy
