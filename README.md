@@ -1,62 +1,102 @@
 # csgo_gc
 
 > [!CAUTION]
-> This project is incomplete and not ready for general use.
+> This project is under active development and is approaching stability, but issues may still exist. Back up your game files before installation.
 
-In Valve games, the Game Coordinator (GC) is a backend service most notably responsible for matchmaking and inventory management (like loadouts and skins). This project redirects the GC traffic to a custom, in-process implementation, eliminating the need for a separate GC server.
+> [!NOTE]
+> Docs are at https://csgo-gc.gt610.dpdns.org/.
 
-## Features
+## What is this?
+In Valve games, the Game Coordinator (GC) is a backend service most notably responsible for matchmaking and inventory management (like loadouts and skins). This project redirects the GC traffic to a custom, in-process implementation.
 
-- **Inventory:** Editing, equipping, case opening, stickers, patches, graffiti, StatTrak, storage units, name tags, music kits and the in-game store
-- **Multiplayer:** Lobbies, dedicated servers and a functional server browser
-- Steam P2P networking for inventory data
-- Live inventory editing via a WebSocket server
-- [Multi-version support](docs/versions.md) (experimental)
-- Full Windows, Linux and macOS support
+This fork targets the final September 2023 legacy CS:GO client. It preserves interoperability with upstream for shared client/server protocol features, while fork-specific features may not have an upstream equivalent.
+
+## Why would you want this?
+While it's still possible to connect CS:GO to CS2's GC by spoofing the version number, this may break in the future if Valve updates the GC protocol. This project aims to restore most GC-related functionality without relying on a centralized server.
+
+## Current features
+- Editable inventory (`inventory.txt`)
+- Live inventory updates while the game is running
+- Item equipping and loadout updates
+- Opening cases, sticker capsules, patch packs, graffiti boxes, music kit boxes and souvenir packages
+- Souvenir item generation
+- Stickers and patches
+- Name tags
+- Graffiti support
+- Music kits
+- Weapon StatTrak support
+- Music kit StatTrak support, including round MVP count propagation
+- Storage Units
+- StatTrak Swaps
+- Trade ups
+- In-game store purchases
+- Read-only inventory consistency diagnostics
+- Source RCON-compatible local control interface
+- Parameterized RCON item creation for paint kits, wear, seed, StatTrak, music kits, sprays, stickers and custom names
 - Works without full Steam API emulation
+- Full Windows, Linux and macOS support
+- Functional lobbies
+- Dedicated server support
+- Functional server browser (only shows csgo_gc servers by default)
+- Networking using Steam's P2P interface
 
-Missing inventory features (trade ups, souvenirs, StatTrak swaps, etc.) are planned. Operation-related features are not currently planned. Matchmaking is not planned, as a proper implementation would require a centralized server, which this project intentionally avoids.
+## Planned features
+- More validation and polish for edge-case inventory operations
+- Tooling around live inventory editing
+
+I'm still looking for the **full** CS:GO Item Schema. If you have a relatively recent copy of it and are willing to share it, let me know!
+
+## Currently not planned
+- Matchmaking (can't be implemented without a centralized server, possibly will be considered in the future)
 
 ## Installation
-
-- Download [CS:GO from Steam](steam://install/4465480)
-- Download the latest release for your platform from the [releases page](https://github.com/mikkokko/csgo_gc/releases/latest)
-- Navigate to the game's installation directory
-- Back up your existing launcher executables as they'll be overwritten (i.e. csgo.exe, srcds.exe, csgo_linux64, etc.)
-- Extract the contents of the downloaded archive to your game directory, replace the executables when prompted
-- Launch the game. If you get the annoying VAC message box, launch the game with the -steam argument
-- macOS users: The release binaries are not notarized, so if you're using them, you'll have to deal with that somehow
+See [User Guide](https://csgo-gc.gt610.dpdns.org/user/).
 
 ## Inventory editing
+Inventory can still be edited offline through `inventory.txt`. For manual editing, there is a guide made by someone else [here](https://gist.github.com/dricotec/1ae3deb06c42012970c00df914348e76). For GUI editors, see [this issue](https://github.com/mikkokko/csgo_gc/issues/82).
 
-### Realtime editing
+The local RCON interface can also create and remove items while the game is running. This is intended for scripts and GUI editors that want to avoid the old edit-file-and-restart workflow.
 
-The GC exposes a local WebSocket API for inventory editors. An editor can read the inventory and send changes while the game is running. Changes appear in-game immediately and are saved to inventory.txt. In-game inventory changes are also sent to the connected editor.
-
-A web-based realtime editor is available [here](https://github.com/mikkokko/csgo_invedit). The default `inventory_editor_origin` in `csgo_gc/config.txt` allows connections from its site. To use another editor, set it to the `Origin` that editor provides.
-
-### Offline editing
-
-See [available GUI editors](https://github.com/mikkokko/csgo_gc/issues/82). There is also a guide for editing inventory.txt by hand [here](https://gist.github.com/dricotec/1ae3deb06c42012970c00df914348e76) if you want to do that for some reason.
+See [Souvenir Packages](https://csgo-gc.gt610.dpdns.org/user/souvenirs) for tournament attributes, examples
+for different Major eras, manual `inventory.txt` editing, and an explanation of
+how package loot lists differ from souvenir sticker metadata.
 
 ## Configuration
+See [Configuration](https://csgo-gc.gt610.dpdns.org/user/configuration) for available options.
 
-See [csgo_gc/config.txt](examples/config.txt) for available options.
+Supplemental server-only loot lists that are missing from the client schema are
+stored in [csgo_gc/gc_loot_lists.txt](examples/gc_loot_lists.txt). An external
+loot list can include an `item_sets` block to reuse collections from
+`items_game.txt` without duplicating every item in the collection.
+
+## RCON
+RCON is disabled by default and binds to localhost with the default configuration; the actual listen address is controlled by `bind_address`. It uses the Source RCON binary protocol, so existing Source RCON clients can be used.
+
+See [RCON user guide](https://csgo-gc.gt610.dpdns.org/user/rcon) for protocol details, configuration, supported parameters and error formats.
 
 ## Bug reports and support
 
-Report bugs by opening an issue and following the instructions. If the issue doesn't appear to be strictly GC related, verify that it doesn't happen on a clean game (no csgo_gc installed).
+**Got a crash or found a bug?**
+* **Broken csgo_gc feature?** Open an issue and follow the instructions.
+* **Game crashing or broken non-GC features?** If you are unsure if csgo_gc caused it, test the game without it installed first. If the bug still happens on a clean build, it's an issue with the game itself. **Do not report base game bugs here.** If you confirm csgo_gc is definitely causing the crash, open an issue.
 
-For support, ideas, and general discussion, use [Discussions](https://github.com/mikkokko/csgo_gc/discussions).
+**Need help, want to share ideas, or self-promote?**
+Use [Discussions](https://github.com/GT-610/csgo-gc/discussions). Do not open issues for support.
 
 ## Building
-
-Requires Git, vcpkg, CMake 3.20+, and a compiler with C++20 support. See [the continuous build workflow](.github/workflows/build.yml) for details.
+See [Building](https://csgo-gc.gt610.dpdns.org/developer/building) for building instructions.
 
 ## License
-
-[2-Clause BSD](LICENSE)
+This project is licensed under the 2-Clause BSD License. See [LICENSE](LICENSE) for details.
 
 ## Credits
-* **Mikko Kokko** - Author
+* **Mikko Kokko** - Original author
 * **Theeto** - Code reused from the predecessor project, unusual loot lists
+* **GT610** (`GT-610`) - Fork development
+* Contributors who continued inventory, networking, diagnostics and RCON work after the original upstream changes
+
+## Third party dependencies
+- [Mbed TLS](https://github.com/Mbed-TLS/mbedtls) ([Apache License 2.0](https://github.com/Mbed-TLS/mbedtls/blob/development/LICENSE))
+- [funchook](https://github.com/kubo/funchook) ([GPL v2 with Classpath Exception](https://github.com/kubo/funchook/blob/master/LICENSE))
+- [diStorm3](https://github.com/gdabah/distorm) ([3-Clause BSD License](https://github.com/gdabah/distorm/blob/master/COPYING))
+- [protobuf](https://github.com/protocolbuffers/protobuf) ([3-Clause BSD License](https://github.com/protocolbuffers/protobuf/blob/main/LICENSE))
