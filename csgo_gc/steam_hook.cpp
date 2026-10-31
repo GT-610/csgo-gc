@@ -1872,56 +1872,84 @@ static void RefreshClientNetworkingMessages()
     s_clientGC->m_networking.SetNetworkingMessages(networkingMessages);
 }
 
-// The Panorama frontend is loaded lazily by the engine, well after InstallGC runs,
-// so the patch cannot be applied at startup. RunCallbacks is the first stable
-// per-frame hook we own; retry until the module is mapped, then latch whatever the
-// outcome was so an unsupported build does not get re-scanned every frame.
-static void TryApplyPanoramaUnlock()
+// Applying the code.pbin bypass
+//
+// The engine initialises the Panorama frontend during UI start-up and maps the
+// module on its own schedule. That happens before the frame loop starts handing
+// us SteamAPI_RunCallbacks, so a per-frame hook is too late: by the time it first
+// runs, the frontend package has already been validated and rejected.
+//
+// Loading the module ourselves would settle the ordering, but panorama.dll lives
+// in bin/ and is not on the loader search path, so it cannot be pulled in directly.
+// The reliable option is to watch for the mapping from a thread of our own: the
+// module appears exactly once, we patch it at that moment, and the thread exits.
+// Watching costs one cheap module lookup per tick and stops for good on the first
+// hit or after the timeout.
+static constexpr int kPanoramaWatchIntervalMs = 2;
+static constexpr int kPanoramaWatchTimeoutMs = 120000;
+// How long to let the engine finish mapping the module's sections before we read
+// them. The module base appears before its code is necessarily readable.
+static constexpr int kPanoramaMappingSettleMs = 2;
+
+static DWORD WINAPI PanoramaWatchThread(LPVOID)
 {
-    enum class State
-    {
-        WaitingForModule,
-        Done,
-    };
+    const int iterations = kPanoramaWatchTimeoutMs / kPanoramaWatchIntervalMs;
 
-    static State state = State::WaitingForModule;
-
-    if (state == State::Done)
+    for (int i = 0; i < iterations; i++)
     {
-        return;
+        uint8_t *start = nullptr;
+        uint8_t *end = nullptr;
+        if (Platform::GetModuleImageRange("panorama", &start, &end))
+        {
+            Sleep(kPanoramaMappingSettleMs);
+
+            if (Panorama::Apply(/*verbose*/ false))
+            {
+                Platform::Print("Panorama: relaxed code.pbin signature check\n");
+            }
+            else
+            {
+                Platform::Print("Panorama: code.pbin check left untouched (unsupported build)\n");
+            }
+
+            return 0;
+        }
+
+        Sleep(kPanoramaWatchIntervalMs);
     }
 
+    return 0;
+}
+
+static void StartPanoramaWatch()
+{
     if (!GetConfig().m_allowUnsignedPanorama)
     {
-        state = State::Done;
         return;
     }
 
-    // Distinguish "not mapped yet" from "mapped but unrecognised": only the latter
-    // means there is nothing more to wait for.
-    uint8_t *start = nullptr;
-    uint8_t *end = nullptr;
-    if (!Platform::GetModuleImageRange("panorama", &start, &end))
+    static bool started = false;
+    if (started)
     {
         return;
     }
 
-    state = State::Done;
+    started = true;
 
-    if (Panorama::Apply(/*verbose*/ false))
+    HANDLE thread = CreateThread(nullptr, 0, PanoramaWatchThread, nullptr, 0, nullptr);
+    if (thread)
     {
-        Platform::Print("Panorama: relaxed code.pbin signature check\n");
+        CloseHandle(thread);
     }
     else
     {
-        Platform::Print("Panorama: code.pbin check left untouched (unsupported build)\n");
+        Platform::Print("Panorama: could not start the watch thread (error %lu)\n", GetLastError());
     }
 }
 
+
 static void Hk_SteamAPI_RunCallbacks()
 {
-    TryApplyPanoramaUnlock();
-
     const auto callbackPassStarted = std::chrono::steady_clock::now();
     std::optional<uint64_t> transactionToAuthorize;
 
@@ -2267,6 +2295,11 @@ void SteamHookInstall(bool dedicated)
     INLINE_HOOK(SteamGameServer_RunCallbacks);
 
     s_rconServer.Start();
+
+    // The frontend is set up during engine start-up, which can happen before the
+    // frame loop starts handing us SteamAPI_RunCallbacks, so this cannot wait for
+    // that hook. Start watching here, where we are still ahead of the UI.
+    StartPanoramaWatch();
 }
 
 // these are here for the networking code, just bounce off the trampolines
