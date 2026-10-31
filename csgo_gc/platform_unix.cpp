@@ -534,4 +534,71 @@ bool UpdateServerBrowserAppId(uint32_t appId)
     return false;
 }
 
+// The game names these modules per platform: panorama.dll on Windows,
+// panorama_client.so on Linux and panorama.dylib on macOS.
+static bool ResolveModuleNames(std::string_view moduleName, std::vector<std::string> &names)
+{
+    names.clear();
+
+#if defined(__APPLE__)
+    std::string dylib(moduleName);
+    dylib.append(".dylib");
+    names.push_back(std::move(dylib));
+#else
+    // client modules carry a _client suffix, server and tool modules do not
+    std::string client(moduleName);
+    client.append("_client.so");
+    names.push_back(std::move(client));
+
+    std::string plain(moduleName);
+    plain.append(".so");
+    names.push_back(std::move(plain));
+#endif
+
+    return !names.empty();
+}
+
+bool GetModuleCodeSection(std::string_view moduleName, uint8_t **start, uint8_t **end)
+{
+    std::vector<std::string> names;
+    if (!ResolveModuleNames(moduleName, names))
+    {
+        return false;
+    }
+
+    for (const std::string &name : names)
+    {
+        if (GetCodeSection(name.c_str(), start, end))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool GetModuleImageRange(std::string_view moduleName, uint8_t **start, uint8_t **end)
+{
+    std::vector<std::string> names;
+    if (!ResolveModuleNames(moduleName, names))
+    {
+        return false;
+    }
+
+    for (const std::string &name : names)
+    {
+        ModuleInfo info;
+        if (!GetModuleInfo(name, info))
+        {
+            continue;
+        }
+
+        *start = reinterpret_cast<uint8_t *>(info.baseAddress);
+        *end = *start + info.size;
+        return true;
+    }
+
+    return false;
+}
+
 } // namespace Platform

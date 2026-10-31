@@ -287,4 +287,42 @@ bool UpdateServerBrowserAppId(uint32_t appId)
     return false;
 }
 
+// Resolve a platform-agnostic module name ("panorama") to the loaded module.
+// The game loads most of these lazily, so a null result is expected before the
+// module is first used and is not an error by itself.
+static HMODULE GetLoadedModule(std::string_view moduleName)
+{
+    std::string name(moduleName);
+    name.append(".dll");
+    return GetModuleHandleA(name.c_str());
+}
+
+bool GetModuleCodeSection(std::string_view moduleName, uint8_t **start, uint8_t **end)
+{
+    HMODULE module = GetLoadedModule(moduleName);
+    if (!module)
+    {
+        return false;
+    }
+
+    return GetCodeSection(module, start, end);
+}
+
+bool GetModuleImageRange(std::string_view moduleName, uint8_t **start, uint8_t **end)
+{
+    HMODULE module = GetLoadedModule(moduleName);
+    if (!module)
+    {
+        return false;
+    }
+
+    uint8_t *base = reinterpret_cast<uint8_t *>(module);
+    PIMAGE_DOS_HEADER dosHeader = reinterpret_cast<PIMAGE_DOS_HEADER>(base);
+    PIMAGE_NT_HEADERS ntHeaders = reinterpret_cast<PIMAGE_NT_HEADERS>(base + dosHeader->e_lfanew);
+
+    *start = base;
+    *end = base + ntHeaders->OptionalHeader.SizeOfImage;
+    return true;
+}
+
 } // namespace Platform
