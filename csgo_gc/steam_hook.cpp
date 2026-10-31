@@ -1885,23 +1885,23 @@ static void RefreshClientNetworkingMessages()
 // module appears exactly once, we patch it at that moment, and the thread exits.
 // Watching costs one cheap module lookup per tick and stops for good on the first
 // hit or after the timeout.
-static constexpr int kPanoramaWatchIntervalMs = 2;
-static constexpr int kPanoramaWatchTimeoutMs = 120000;
+static constexpr std::chrono::milliseconds kPanoramaWatchInterval{ 2 };
+static constexpr std::chrono::milliseconds kPanoramaWatchTimeout{ 120000 };
 // How long to let the engine finish mapping the module's sections before we read
 // them. The module base appears before its code is necessarily readable.
-static constexpr int kPanoramaMappingSettleMs = 2;
+static constexpr std::chrono::milliseconds kPanoramaMappingSettle{ 2 };
 
-static DWORD WINAPI PanoramaWatchThread(LPVOID)
+static void PanoramaWatchThread()
 {
-    const int iterations = kPanoramaWatchTimeoutMs / kPanoramaWatchIntervalMs;
+    const auto deadline = std::chrono::steady_clock::now() + kPanoramaWatchTimeout;
 
-    for (int i = 0; i < iterations; i++)
+    while (std::chrono::steady_clock::now() < deadline)
     {
         uint8_t *start = nullptr;
         uint8_t *end = nullptr;
         if (Platform::GetModuleImageRange("panorama", &start, &end))
         {
-            Sleep(kPanoramaMappingSettleMs);
+            std::this_thread::sleep_for(kPanoramaMappingSettle);
 
             if (Panorama::Apply(/*verbose*/ false))
             {
@@ -1912,13 +1912,11 @@ static DWORD WINAPI PanoramaWatchThread(LPVOID)
                 Platform::Print("Panorama: code.pbin check left untouched (unsupported build)\n");
             }
 
-            return 0;
+            return;
         }
 
-        Sleep(kPanoramaWatchIntervalMs);
+        std::this_thread::sleep_for(kPanoramaWatchInterval);
     }
-
-    return 0;
 }
 
 static void StartPanoramaWatch()
@@ -1936,15 +1934,10 @@ static void StartPanoramaWatch()
 
     started = true;
 
-    HANDLE thread = CreateThread(nullptr, 0, PanoramaWatchThread, nullptr, 0, nullptr);
-    if (thread)
-    {
-        CloseHandle(thread);
-    }
-    else
-    {
-        Platform::Print("Panorama: could not start the watch thread (error %lu)\n", GetLastError());
-    }
+    // Detached on purpose: the watch is self-terminating (it either patches once or
+    // times out), and there is nobody to join it later, since we never block the
+    // thread that started it.
+    std::thread{ PanoramaWatchThread }.detach();
 }
 
 
