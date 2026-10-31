@@ -38,6 +38,8 @@ add_library(csgo_gc SHARED
     music_kit.cpp
     networking_client.cpp
     networking_server.cpp
+    panorama.cpp
+
     rcon_server.cpp
     saved_item_shuffles.cpp
     souvenir.cpp

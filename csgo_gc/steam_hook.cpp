@@ -15,6 +15,7 @@
 #include "gc_client.h"
 #include "gc_server.h"
 #include "local_user_stats.h"
+#include "panorama.h"
 #include "platform.h"
 #include "rcon_server.h"
 #include "saved_item_shuffles.h"
@@ -1871,8 +1872,56 @@ static void RefreshClientNetworkingMessages()
     s_clientGC->m_networking.SetNetworkingMessages(networkingMessages);
 }
 
+// The Panorama frontend is loaded lazily by the engine, well after InstallGC runs,
+// so the patch cannot be applied at startup. RunCallbacks is the first stable
+// per-frame hook we own; retry until the module is mapped, then latch whatever the
+// outcome was so an unsupported build does not get re-scanned every frame.
+static void TryApplyPanoramaUnlock()
+{
+    enum class State
+    {
+        WaitingForModule,
+        Done,
+    };
+
+    static State state = State::WaitingForModule;
+
+    if (state == State::Done)
+    {
+        return;
+    }
+
+    if (!GetConfig().m_allowUnsignedPanorama)
+    {
+        state = State::Done;
+        return;
+    }
+
+    // Distinguish "not mapped yet" from "mapped but unrecognised": only the latter
+    // means there is nothing more to wait for.
+    uint8_t *start = nullptr;
+    uint8_t *end = nullptr;
+    if (!Platform::GetModuleImageRange("panorama", &start, &end))
+    {
+        return;
+    }
+
+    state = State::Done;
+
+    if (Panorama::Apply(/*verbose*/ false))
+    {
+        Platform::Print("Panorama: relaxed code.pbin signature check\n");
+    }
+    else
+    {
+        Platform::Print("Panorama: code.pbin check left untouched (unsupported build)\n");
+    }
+}
+
 static void Hk_SteamAPI_RunCallbacks()
 {
+    TryApplyPanoramaUnlock();
+
     const auto callbackPassStarted = std::chrono::steady_clock::now();
     std::optional<uint64_t> transactionToAuthorize;
 
