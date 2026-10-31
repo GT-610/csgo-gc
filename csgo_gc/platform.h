@@ -1,5 +1,9 @@
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
+#include <string_view>
+
 namespace Platform
 {
 
@@ -35,6 +39,18 @@ void SetEnvVar(const char *name, const char *value);
 // safely write to memory that may be read-only, handles protection changes internally
 // set needsExecute to true when modifying code sections
 bool WriteToProtectedMemory(void *address, const void *data, size_t size, bool needsExecute);
+
+// Find the executable section of an already loaded game module.
+// The module name is given in a platform-agnostic format ("panorama" maps to
+// panorama.dll / panorama_client.so / panorama.dylib). Returns false when the
+// module is not loaded, which is the normal case for modules the game loads
+// lazily after startup.
+bool GetModuleCodeSection(std::string_view moduleName, uint8_t **start, uint8_t **end);
+
+// Find the whole mapped image of an already loaded game module.
+// This spans every section, not just the executable one, so callers that need to
+// read string constants can scan the data sections too.
+bool GetModuleImageRange(std::string_view moduleName, uint8_t **start, uint8_t **end);
 
 // update the graffiti public key in the specified module to get sprays working
 // the module name is given in a platform-agnostic format

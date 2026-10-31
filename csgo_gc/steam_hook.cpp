@@ -15,6 +15,7 @@
 #include "gc_client.h"
 #include "gc_server.h"
 #include "local_user_stats.h"
+#include "panorama.h"
 #include "platform.h"
 #include "rcon_server.h"
 #include "saved_item_shuffles.h"
@@ -1871,6 +1872,75 @@ static void RefreshClientNetworkingMessages()
     s_clientGC->m_networking.SetNetworkingMessages(networkingMessages);
 }
 
+// Applying the code.pbin bypass
+//
+// The engine initialises the Panorama frontend during UI start-up and maps the
+// module on its own schedule. That happens before the frame loop starts handing
+// us SteamAPI_RunCallbacks, so a per-frame hook is too late: by the time it first
+// runs, the frontend package has already been validated and rejected.
+//
+// Loading the module ourselves would settle the ordering, but panorama.dll lives
+// in bin/ and is not on the loader search path, so it cannot be pulled in directly.
+// The reliable option is to watch for the mapping from a thread of our own: the
+// module appears exactly once, we patch it at that moment, and the thread exits.
+// Watching costs one cheap module lookup per tick and stops for good on the first
+// hit or after the timeout.
+static constexpr std::chrono::milliseconds kPanoramaWatchInterval{ 2 };
+static constexpr std::chrono::milliseconds kPanoramaWatchTimeout{ 120000 };
+// How long to let the engine finish mapping the module's sections before we read
+// them. The module base appears before its code is necessarily readable.
+static constexpr std::chrono::milliseconds kPanoramaMappingSettle{ 2 };
+
+static void PanoramaWatchThread()
+{
+    const auto deadline = std::chrono::steady_clock::now() + kPanoramaWatchTimeout;
+
+    while (std::chrono::steady_clock::now() < deadline)
+    {
+        uint8_t *start = nullptr;
+        uint8_t *end = nullptr;
+        if (Platform::GetModuleImageRange("panorama", &start, &end))
+        {
+            std::this_thread::sleep_for(kPanoramaMappingSettle);
+
+            if (Panorama::Apply(/*verbose*/ false))
+            {
+                Platform::Print("Panorama: relaxed code.pbin signature check\n");
+            }
+            else
+            {
+                Platform::Print("Panorama: code.pbin check left untouched (unsupported build)\n");
+            }
+
+            return;
+        }
+
+        std::this_thread::sleep_for(kPanoramaWatchInterval);
+    }
+}
+
+static void StartPanoramaWatch()
+{
+    if (!GetConfig().m_allowUnsignedPanorama)
+    {
+        return;
+    }
+
+    static bool started = false;
+    if (started)
+    {
+        return;
+    }
+
+    started = true;
+
+    // Detached on purpose: the watch is self-terminating (it either patches once or
+    // times out), and there is nobody to join it later, since we never block the
+    // thread that started it.
+    std::thread{ PanoramaWatchThread }.detach();
+}
+
+
 static void Hk_SteamAPI_RunCallbacks()
 {
     const auto callbackPassStarted = std::chrono::steady_clock::now();
@@ -2218,6 +2288,11 @@ void SteamHookInstall(bool dedicated)
     INLINE_HOOK(SteamGameServer_RunCallbacks);
 
     s_rconServer.Start();
+
+    // The frontend is set up during engine start-up, which can happen before the
+    // frame loop starts handing us SteamAPI_RunCallbacks, so this cannot wait for
+    // that hook. Start watching here, where we are still ahead of the UI.
+    StartPanoramaWatch();
 }
 
 // these are here for the networking code, just bounce off the trampolines
