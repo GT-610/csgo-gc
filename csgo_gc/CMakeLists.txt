@@ -86,6 +86,7 @@ target_link_libraries(csgo_gc PRIVATE
     MbedTLS::mbedcrypto
     csgo_gc_protobufs
     funchook-static
+    distorm
     steam_api
     Threads::Threads)
 
