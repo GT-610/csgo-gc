@@ -72,23 +72,35 @@ struct ModuleRange
     size_t Size() const { return static_cast<size_t>(end - start); }
 };
 
-// Find a NUL-terminated string by content.
-uint8_t *FindString(const ModuleRange &range, const char *value)
+// Find a NUL-terminated string by content across readable intervals.
+//
+// The intervals are the module's real sections or loadable segments, so this never
+// touches the padding between them. That padding belongs to no section and is not
+// guaranteed to be mapped, so treating the whole image as one contiguous buffer
+// could fault on a module whose segments are separated by unmapped pages.
+uint8_t *FindString(const std::vector<std::pair<uint8_t *, uint8_t *>> &ranges, const char *value)
 {
     const size_t length = strlen(value) + 1;
-    if (length > range.Size())
-    {
-        return nullptr;
-    }
-
     const uint8_t *needle = reinterpret_cast<const uint8_t *>(value);
-    uint8_t *limit = range.end - length;
 
-    for (uint8_t *p = range.start; p <= limit; p++)
+    for (const auto &range : ranges)
     {
-        if (memcmp(p, needle, length) == 0)
+        uint8_t *start = range.first;
+        uint8_t *end = range.second;
+
+        if (static_cast<size_t>(end - start) < length)
         {
-            return p;
+            continue;
+        }
+
+        uint8_t *limit = end - length;
+
+        for (uint8_t *p = start; p <= limit; p++)
+        {
+            if (memcmp(p, needle, length) == 0)
+            {
+                return p;
+            }
         }
     }
 
@@ -176,7 +188,12 @@ struct DecodedInstruction
 // boundaries trustworthy. Decoding backwards from an arbitrary byte would happily
 // produce "instructions" that begin in the middle of a real one, and patching such
 // a location would corrupt the instruction it lands in.
-bool DecomposeCode(const ModuleRange &code, std::vector<DecodedInstruction> &out)
+//
+// The decode width has to match the module being read. Every shipped CS:GO
+// Panorama build is 32-bit, but guessing the width would silently mis-decode a
+// module of the other kind, so the caller states which architecture it is looking
+// at and this refuses to decode anything else.
+bool DecomposeCode(const ModuleRange &code, _DecodeType width, std::vector<DecodedInstruction> &out)
 {
     uint8_t *p = code.start;
 
@@ -187,7 +204,7 @@ bool DecomposeCode(const ModuleRange &code, std::vector<DecodedInstruction> &out
         info.codeOffset = static_cast<_OffsetType>(reinterpret_cast<uintptr_t>(p));
         info.code = reinterpret_cast<const unsigned char *>(p);
         info.codeLen = static_cast<int>(code.end - p);
-        info.dt = Decode32Bits;
+        info.dt = width;
         info.features = DF_NONE;
 
         _DInst instruction;
@@ -324,8 +341,8 @@ GuardingBranch FindGuardingBranch(const std::vector<DecodedInstruction> &decoded
 
 bool Apply(bool verbose)
 {
-    ModuleRange image;
-    if (!Platform::GetModuleImageRange(kModule, &image.start, &image.end))
+    std::vector<std::pair<uint8_t *, uint8_t *>> ranges;
+    if (!Platform::GetModuleReadableRanges(kModule, ranges))
     {
         if (verbose)
         {
@@ -344,7 +361,21 @@ bool Apply(bool verbose)
         return false;
     }
 
-    uint8_t *errorString = FindString(image, kInvalidDataError);
+    // The decode width has to match the module; a mismatch silently produces
+    // wrong instruction boundaries, which is worse than refusing.
+    const int bitness = Platform::GetModuleBitness(kModule);
+    if (bitness != 32 && bitness != 64)
+    {
+        if (verbose)
+        {
+            Platform::Print("panorama: unsupported module architecture (%d-bit)\n", bitness);
+        }
+        return false;
+    }
+
+    const _DecodeType decodeWidth = (bitness == 64) ? Decode64Bits : Decode32Bits;
+
+    uint8_t *errorString = FindString(ranges, kInvalidDataError);
     if (!errorString)
     {
         if (verbose)
@@ -371,7 +402,7 @@ bool Apply(bool verbose)
 
     // Decompose once; the guard search needs real instruction boundaries.
     std::vector<DecodedInstruction> decoded;
-    if (!DecomposeCode(code, decoded))
+    if (!DecomposeCode(code, decodeWidth, decoded))
     {
         if (verbose)
         {
@@ -409,18 +440,25 @@ bool Apply(bool verbose)
 
     if (branch.size == 2)
     {
-        // 0x7x rel8 -> EB rel8, keeping the same displacement.
+        // 0x7x rel8 -> EB rel8. Both forms end at the same address, so the
+        // displacement carries over unchanged.
         patch[0] = 0xEB;
         patch[1] = *(branch.address + 1);
         patchSize = 2;
     }
-    else if (branch.size >= 5)
+    else if (branch.size >= 5 && *(branch.address) == 0x0F
+        && (*(branch.address + 1) & 0xF0) == 0x80)
     {
-        // 0x0F 0x8x rel32 -> E9 rel32. The displacement stays identical because
-        // both forms end at the same place, and a truncated displacement would
-        // land somewhere unrelated.
+        // 0x0F 0x8x rel32 (6 bytes) -> E9 rel32 (5 bytes). The two forms do not end
+        // at the same address, so the displacement cannot be copied: it has to be
+        // recomputed against the shorter instruction, or the jump would land one
+        // byte before the intended target.
+        const int32_t original = *reinterpret_cast<const int32_t *>(branch.address + 2);
+        const uint8_t *target = branch.address + branch.size + original;
+        const int32_t adjusted = static_cast<int32_t>(target - (branch.address + 5));
+
         patch[0] = 0xE9;
-        memcpy(patch + 1, branch.address + branch.size - sizeof(int32_t), sizeof(int32_t));
+        memcpy(patch + 1, &adjusted, sizeof(adjusted));
         patchSize = 5;
     }
     else

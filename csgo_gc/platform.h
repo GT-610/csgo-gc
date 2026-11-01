@@ -3,6 +3,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 namespace Platform
 {
@@ -47,10 +49,22 @@ bool WriteToProtectedMemory(void *address, const void *data, size_t size, bool n
 // lazily after startup.
 bool GetModuleCodeSection(std::string_view moduleName, uint8_t **start, uint8_t **end);
 
-// Find the whole mapped image of an already loaded game module.
-// This spans every section, not just the executable one, so callers that need to
-// read string constants can scan the data sections too.
-bool GetModuleImageRange(std::string_view moduleName, uint8_t **start, uint8_t **end);
+// Number of bits in an already loaded module (32 or 64), or 0 when the module is
+// not loaded or its format is not recognised. Callers that decode instructions need
+// this because the decode width must match the module, and guessing it would
+// silently mis-decode a module of the other kind.
+int GetModuleBitness(std::string_view moduleName);
+
+// Readable byte ranges of an already loaded module, as [start, end) pairs, covering
+// the data sections as well as the code.
+//
+// The image as a whole is not one contiguous readable span: section alignment
+// leaves padding between sections, and that padding belongs to no section and is
+// not guaranteed to be mapped. Callers that scan for content must walk these
+// intervals rather than a single range, or they will fault on a module whose
+// segments are separated by unmapped pages.
+// Returns false when the module is not loaded.
+bool GetModuleReadableRanges(std::string_view moduleName, std::vector<std::pair<uint8_t *, uint8_t *>> &ranges);
 
 // update the graffiti public key in the specified module to get sprays working
 // the module name is given in a platform-agnostic format

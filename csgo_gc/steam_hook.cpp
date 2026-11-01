@@ -1897,9 +1897,9 @@ static void PanoramaWatchThread()
 
     while (std::chrono::steady_clock::now() < deadline)
     {
-        uint8_t *start = nullptr;
-        uint8_t *end = nullptr;
-        if (Platform::GetModuleImageRange("panorama", &start, &end))
+        // The module is usable once its headers are mapped and identify the
+        // architecture; Apply re-checks everything else it depends on.
+        if (Platform::GetModuleBitness("panorama") != 0)
         {
             std::this_thread::sleep_for(kPanoramaMappingSettle);
 
