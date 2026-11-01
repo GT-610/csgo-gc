@@ -287,4 +287,88 @@ bool UpdateServerBrowserAppId(uint32_t appId)
     return false;
 }
 
+// Resolve a platform-agnostic module name ("panorama") to the loaded module.
+// The game loads most of these lazily, so a null result is expected before the
+// module is first used and is not an error by itself.
+static HMODULE GetLoadedModule(std::string_view moduleName)
+{
+    std::string name(moduleName);
+    name.append(".dll");
+    return GetModuleHandleA(name.c_str());
+}
+
+bool GetModuleCodeSection(std::string_view moduleName, uint8_t **start, uint8_t **end)
+{
+    HMODULE module = GetLoadedModule(moduleName);
+    if (!module)
+    {
+        return false;
+    }
+
+    return GetCodeSection(module, start, end);
+}
+
+int GetModuleBitness(std::string_view moduleName)
+{
+    HMODULE module = GetLoadedModule(moduleName);
+    if (!module)
+    {
+        return 0;
+    }
+
+    uint8_t *base = reinterpret_cast<uint8_t *>(module);
+    PIMAGE_DOS_HEADER dosHeader = reinterpret_cast<PIMAGE_DOS_HEADER>(base);
+    PIMAGE_NT_HEADERS ntHeaders = reinterpret_cast<PIMAGE_NT_HEADERS>(base + dosHeader->e_lfanew);
+
+    switch (ntHeaders->FileHeader.Machine)
+    {
+    case IMAGE_FILE_MACHINE_I386:
+        return 32;
+    case IMAGE_FILE_MACHINE_AMD64:
+        return 64;
+    default:
+        return 0;
+    }
+}
+
+bool GetModuleReadableRanges(std::string_view moduleName, std::vector<std::pair<uint8_t *, uint8_t *>> &ranges)
+{
+    HMODULE module = GetLoadedModule(moduleName);
+    if (!module)
+    {
+        return false;
+    }
+
+    uint8_t *base = reinterpret_cast<uint8_t *>(module);
+    PIMAGE_DOS_HEADER dosHeader = reinterpret_cast<PIMAGE_DOS_HEADER>(base);
+    PIMAGE_NT_HEADERS ntHeaders = reinterpret_cast<PIMAGE_NT_HEADERS>(base + dosHeader->e_lfanew);
+    PIMAGE_SECTION_HEADER sectionHeader = IMAGE_FIRST_SECTION(ntHeaders);
+
+    // The headers are mapped and readable, so they form the first interval.
+    ranges.emplace_back(base, base + ntHeaders->OptionalHeader.SizeOfHeaders);
+
+    for (WORD i = 0; i < ntHeaders->FileHeader.NumberOfSections; i++)
+    {
+        const IMAGE_SECTION_HEADER &section = sectionHeader[i];
+
+        // Section alignment leaves padding between sections, and that padding is
+        // not part of any section, so only the sections themselves are reported.
+        DWORD span = section.Misc.VirtualSize;
+        if (span == 0)
+        {
+            span = section.SizeOfRawData;
+        }
+
+        if (span == 0)
+        {
+            continue;
+        }
+
+        uint8_t *sectionStart = base + section.VirtualAddress;
+        ranges.emplace_back(sectionStart, sectionStart + span);
+    }
+
+    return !ranges.empty();
+}
+
 } // namespace Platform

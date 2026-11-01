@@ -47,6 +47,13 @@
 // this enables the tab UI only; evidence download and verdict submission are not implemented
 "overwatch_enabled"	"0"
 
+// let the client load a Panorama frontend package (csgo/panorama/code.pbin) whose
+// RSA signature does not verify, so a repacked frontend with Matchmaking UI works.
+// this patches the loaded panorama module in memory; nothing on disk is modified.
+// client only, and only panic-free on a recognised build: if the module layout is
+// not the one this was written against, nothing is patched and a line is logged.
+"allow_unsigned_panorama"	"0"
+
 // local Source RCON. keep bind_address on localhost unless you use a password.
 // empty password accepts any Source RCON password.
 "rcon"

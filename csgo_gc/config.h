@@ -34,6 +34,12 @@ public:
     bool m_showCsgoGCServersOnly{ true };
     bool m_overwatchEnabled{ false };
     bool m_rconEnabled{ false };
+
+    // Relax the Panorama code.pbin signature check so a repacked frontend loads.
+    // Off by default: it patches the game's own frontend module, which only the
+    // client loads, and it is only useful once a modified code.pbin is in place.
+    bool m_allowUnsignedPanorama{ false };
+
     std::string m_rconBindAddress{ "127.0.0.1" };
     uint16_t m_rconPort{ 37016 };
     std::string m_rconPassword;
