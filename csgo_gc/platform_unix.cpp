@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <stdarg.h>
+#include <cstring>
 #include <sys/mman.h>
 
 #if defined(__APPLE__)
@@ -532,6 +533,241 @@ bool UpdateServerBrowserAppId(uint32_t appId)
     }
 
     return false;
+}
+
+// The game names these modules per platform: panorama.dll on Windows,
+// panorama_client.so on Linux and panorama.dylib on macOS.
+static bool ResolveModuleNames(std::string_view moduleName, std::vector<std::string> &names)
+{
+    names.clear();
+
+#if defined(__APPLE__)
+    std::string dylib(moduleName);
+    dylib.append(".dylib");
+    names.push_back(std::move(dylib));
+#else
+    // client modules carry a _client suffix, server and tool modules do not
+    std::string client(moduleName);
+    client.append("_client.so");
+    names.push_back(std::move(client));
+
+    std::string plain(moduleName);
+    plain.append(".so");
+    names.push_back(std::move(plain));
+#endif
+
+    return !names.empty();
+}
+
+bool GetModuleCodeSection(std::string_view moduleName, uint8_t **start, uint8_t **end)
+{
+    std::vector<std::string> names;
+    if (!ResolveModuleNames(moduleName, names))
+    {
+        return false;
+    }
+
+    for (const std::string &name : names)
+    {
+        if (GetCodeSection(name.c_str(), start, end))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool GetModuleReadableRanges(std::string_view moduleName, std::vector<std::pair<uint8_t *, uint8_t *>> &ranges)
+{
+    std::vector<std::string> names;
+    if (!ResolveModuleNames(moduleName, names))
+    {
+        return false;
+    }
+
+    std::string needle;
+
+    for (const std::string &name : names)
+    {
+        needle.assign("/");
+        needle.append(name);
+
+#if defined(__APPLE__)
+        const uint32_t imageCount = _dyld_image_count();
+        for (uint32_t i = 0; i < imageCount; i++)
+        {
+            const char *fullName = _dyld_get_image_name(i);
+            if (!fullName || !strstr(fullName, needle.c_str()))
+            {
+                continue;
+            }
+
+            mach_header_64 *header = reinterpret_cast<mach_header_64 *>(
+                const_cast<mach_header *>(_dyld_get_image_header(i)));
+            if (!header || header->magic != MH_MAGIC_64)
+            {
+                return false;
+            }
+
+            const intptr_t slide = _dyld_get_image_vmaddr_slide(i);
+            load_command *loadCommand = reinterpret_cast<load_command *>(header + 1);
+
+            for (uint32_t c = 0; c < header->ncmds; c++)
+            {
+                if (loadCommand->cmd == LC_SEGMENT_64)
+                {
+                    const segment_command_64 *segment = reinterpret_cast<const segment_command_64 *>(loadCommand);
+
+                    if (segment->vmsize != 0 && strcmp(segment->segname, SEG_PAGEZERO) != 0)
+                    {
+                        uint8_t *low = reinterpret_cast<uint8_t *>(segment->vmaddr + slide);
+                        ranges.emplace_back(low, low + segment->vmsize);
+                    }
+                }
+
+                loadCommand = reinterpret_cast<load_command *>(
+                    reinterpret_cast<uint8_t *>(loadCommand) + loadCommand->cmdsize);
+            }
+
+            return !ranges.empty();
+        }
+#else
+        struct Collector
+        {
+            const char *needle;
+            std::vector<std::pair<uint8_t *, uint8_t *>> *ranges;
+            bool found;
+        };
+
+        Collector collector{};
+        collector.needle = needle.c_str();
+        collector.ranges = &ranges;
+
+        auto callback = [](dl_phdr_info *info, size_t, void *data)
+        {
+            Collector *out = static_cast<Collector *>(data);
+
+            if (!strstr(info->dlpi_name, out->needle))
+            {
+                return 0;
+            }
+
+            for (int i = 0; i < info->dlpi_phnum; i++)
+            {
+                const ElfW(Phdr) &phdr = info->dlpi_phdr[i];
+
+                // Only loaded segments are mapped; the padding between two PT_LOAD
+                // entries is a real hole, and scanning it would fault.
+                if (phdr.p_type != PT_LOAD || phdr.p_memsz == 0)
+                {
+                    continue;
+                }
+
+                uint8_t *low = reinterpret_cast<uint8_t *>(info->dlpi_addr + phdr.p_vaddr);
+                out->ranges->emplace_back(low, low + phdr.p_memsz);
+            }
+
+            out->found = true;
+            return 1;
+        };
+
+        if (dl_iterate_phdr(callback, &collector) && collector.found && !ranges.empty())
+        {
+            return true;
+        }
+
+        ranges.clear();
+#endif
+    }
+
+    return false;
+}
+
+int GetModuleBitness(std::string_view moduleName)
+{
+    std::vector<std::string> names;
+    if (!ResolveModuleNames(moduleName, names))
+    {
+        return 0;
+    }
+
+    std::string needle;
+    needle.assign("/");
+
+    for (const std::string &name : names)
+    {
+        needle.assign("/");
+        needle.append(name);
+
+#if defined(__APPLE__)
+        const uint32_t imageCount = _dyld_image_count();
+        for (uint32_t i = 0; i < imageCount; i++)
+        {
+            const char *fullName = _dyld_get_image_name(i);
+            if (!fullName || !strstr(fullName, needle.c_str()))
+            {
+                continue;
+            }
+
+            const mach_header *header = _dyld_get_image_header(i);
+            if (!header)
+            {
+                return 0;
+            }
+
+            // The magic distinguishes the two Mach-O widths on 32-bit hosts too, so
+            // read it rather than trusting the host's pointer size.
+            switch (header->magic)
+            {
+            case MH_MAGIC:
+            case MH_CIGAM:
+                return 32;
+            case MH_MAGIC_64:
+            case MH_CIGAM_64:
+                return 64;
+            default:
+                return 0;
+            }
+        }
+#else
+        struct Bit { const char *needle; int bits; };
+
+        Bit out{};
+        out.needle = needle.c_str();
+
+        auto callback = [](dl_phdr_info *info, size_t, void *data)
+        {
+            Bit *bit = static_cast<Bit *>(data);
+
+            if (!strstr(info->dlpi_name, bit->needle))
+            {
+                return 0;
+            }
+
+            // ELF class lives in the header, which is mapped at the module base.
+            const ElfW(Ehdr) *header = reinterpret_cast<const ElfW(Ehdr) *>(info->dlpi_addr);
+
+            if (header->e_ident[EI_CLASS] == ELFCLASS32)
+            {
+                bit->bits = 32;
+            }
+            else if (header->e_ident[EI_CLASS] == ELFCLASS64)
+            {
+                bit->bits = 64;
+            }
+
+            return 1;
+        };
+
+        if (dl_iterate_phdr(callback, &out) && out.bits != 0)
+        {
+            return out.bits;
+        }
+#endif
+    }
+
+    return 0;
 }
 
 } // namespace Platform

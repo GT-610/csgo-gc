@@ -35,6 +35,7 @@ GCConfig::GCConfig()
     m_appIdOverride = config.GetNumber("appid_override", m_appIdOverride);
     m_showCsgoGCServersOnly = config.GetNumber("show_csgo_gc_servers_only", m_showCsgoGCServersOnly);
     m_overwatchEnabled = config.GetNumber("overwatch_enabled", m_overwatchEnabled);
+    m_allowUnsignedPanorama = config.GetNumber("allow_unsigned_panorama", m_allowUnsignedPanorama);
 
     const KeyValue *rcon = config.GetSubkey("rcon");
     if (rcon)
