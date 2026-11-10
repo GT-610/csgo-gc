@@ -36,6 +36,12 @@ GCConfig::GCConfig()
     m_showCsgoGCServersOnly = config.GetNumber("show_csgo_gc_servers_only", m_showCsgoGCServersOnly);
     m_overwatchEnabled = config.GetNumber("overwatch_enabled", m_overwatchEnabled);
     m_allowUnsignedPanorama = config.GetNumber("allow_unsigned_panorama", m_allowUnsignedPanorama);
+    m_mmProbe = config.GetNumber("mm_probe", m_mmProbe);
+
+    if (const KeyValue *gcmm = config.GetSubkey("gcmm"))
+    {
+        m_gcmmEnabled = gcmm->GetNumber("enabled", m_gcmmEnabled);
+    }
 
     const KeyValue *rcon = config.GetSubkey("rcon");
     if (rcon)

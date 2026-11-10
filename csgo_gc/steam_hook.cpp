@@ -15,6 +15,8 @@
 #include "gc_client.h"
 #include "gc_server.h"
 #include "local_user_stats.h"
+#include "mm_probe.h"
+#include "gcmm_native.h"
 #include "panorama.h"
 #include "platform.h"
 #include "rcon_server.h"
@@ -594,6 +596,7 @@ public:
 
             s_serverGC = new GCWrapper<ServerGC, NetworkingServer>{
                 networkingMessages, pipe, user };
+            s_rconServer.SetServerCommandHandler(GCMM::ExecuteCommand);
         }
         else
         {
@@ -616,6 +619,7 @@ public:
     {
         if (m_server)
         {
+            s_rconServer.SetServerCommandHandler({});
             delete s_serverGC;
             s_serverGC = nullptr;
 
@@ -642,6 +646,8 @@ public:
             // the result Steam uses when no GC is reachable instead of trapping.
             return k_EGCResultNotLoggedOn;
         }
+
+        MMProbe::Observe(m_server, true, unMsgType, pubData, cubData);
 
         if (m_server)
         {
@@ -699,6 +705,8 @@ public:
 
             return k_EGCResultNoMessage;
         }
+
+        MMProbe::Observe(m_server, false, *punMsgType, pubDest, *pcubMsgSize);
 
         return k_EGCResultOK;
     }
@@ -2060,6 +2068,8 @@ static void Hk_SteamGameServer_RunCallbacks()
         {
             return;
         }
+
+        GCMM::OnServerFrame(s_steamGameServer->GetSteamID().ConvertToUint64());
 
         std::vector<EventData> events;
         s_serverGC->m_gc.GetHostEvents(events);

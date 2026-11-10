@@ -579,6 +579,12 @@ bool RconServer::IsSourceRconPassword(std::string_view password) const
     return configuredPassword.empty() || password == configuredPassword;
 }
 
+void RconServer::SetServerCommandHandler(ServerCommandHandler handler)
+{
+    std::lock_guard lock{ m_mutex };
+    m_serverCommandHandler = std::move(handler);
+}
+
 std::string RconServer::ExecuteCommand(std::string command)
 {
     std::istringstream stream{ command };
@@ -595,10 +601,26 @@ std::string RconServer::ExecuteCommand(std::string command)
         return "OK pong";
     }
 
+    // A client process may also host a listen-server GC. Keep its endpoint
+    // assigned to the registered client; native server commands belong to a
+    // dedicated process with no ClientGC.
     ActiveClientCommand activeCommand{ *this };
     if (ClientGC *client = activeCommand.Client())
     {
         return client->RunRconCommand(std::move(command));
+    }
+
+    ServerCommandHandler serverHandler;
+    {
+        std::lock_guard lock{ m_mutex };
+        serverHandler = m_serverCommandHandler;
+    }
+    if (serverHandler)
+    {
+        if (auto response = serverHandler(command))
+        {
+            return *response;
+        }
     }
 
     if (name == "status")

@@ -2,9 +2,19 @@
 #include "gc_client.h"
 #include "gc_message.h"
 #include "keyvalue.h"
+#include "mm_probe.h"
 #include "networking_client.h"
 #include "networking_server.h"
+#include "rcon_server.h"
 #include "test_filesystem.h"
+
+struct RconServerTestAccess
+{
+    static std::string Execute(RconServer &server, std::string command)
+    {
+        return server.ExecuteCommand(std::move(command));
+    }
+};
 
 #include <cstring>
 #include <cstdio>
@@ -4629,8 +4639,391 @@ static bool SouvenirOpeningPublishesOnlyValidObjects()
     return valid;
 }
 
+// P0 matchmaking probe: the RCON injectors must put exactly the named fields on
+// the wire (Q-04 field subtraction depends on "not named" meaning "not sent"),
+// and the schema-less decoder must render what the proto would.
+static bool MatchmakingProbeInjectsOnlyNamedFields()
+{
+    constexpr uint64_t SteamId = 76561197960265729ull;
+    constexpr uint32_t AccountId = static_cast<uint32_t>(SteamId & 0xffffffffull);
+    bool valid = true;
+
+    uint32_t ip = 0;
+    valid &= MMProbe::ParseIPv4("203.0.113.20", ip) && ip == 0xcb007114u;
+    valid &= !MMProbe::ParseIPv4("192.168.1", ip) && !MMProbe::ParseIPv4("1.2.3.256", ip)
+        && !MMProbe::ParseIPv4("1.2.3.4.5", ip) && !MMProbe::ParseIPv4("", ip);
+    valid &= MMProbe::IsMatchmakingMessage(9107) && MMProbe::IsMatchmakingMessage(9104 | ProtobufMask)
+        && !MMProbe::IsMatchmakingMessage(9099) && !MMProbe::IsMatchmakingMessage(9200);
+
+    CMsgGCCStrike15_v2_MatchmakingGC2ClientReserve rejected;
+    valid &= MMProbe::BuildReserve({ "bogus=1" }, AccountId, rejected).rfind("ERR", 0) == 0;
+    valid &= MMProbe::BuildReserve({ "port=70000" }, AccountId, rejected).rfind("ERR", 0) == 0;
+    valid &= MMProbe::BuildReserve({ "noequals" }, AccountId, rejected).rfind("ERR", 0) == 0;
+
+    ClientGC gc{ SteamId };
+
+    // address only: no reservation submessage at all
+    valid &= gc.RunRconCommand("mm_reserve server_address=127.0.0.1:27015").rfind("OK sent 9107", 0) == 0;
+    EventData event;
+    CMsgGCCStrike15_v2_MatchmakingGC2ClientReserve reserve;
+    valid &= WaitForHostMessage(gc, k_EMsgGCCStrike15_v2_MatchmakingGC2ClientReserve, event)
+        && ParseHostProtobuf(event, reserve)
+        && reserve.server_address() == "127.0.0.1:27015"
+        && !reserve.has_reservation() && !reserve.has_serverid() && !reserve.has_reservationid()
+        && !reserve.has_direct_udp_ip() && !reserve.has_map();
+
+    // full set, including "self" and hex ids copied from a capture
+    valid &= gc.RunRconCommand("mm_reserve ip=10.0.0.5 port=27015 serverid=0x1122334455667788 "
+        "reservationid=42 map=de_dust2 accounts=self,99 game_type=520 match_id=7 server_version=13881")
+        .rfind("OK sent 9107", 0) == 0;
+    event = {};
+    reserve.Clear();
+    valid &= WaitForHostMessage(gc, k_EMsgGCCStrike15_v2_MatchmakingGC2ClientReserve, event)
+        && ParseHostProtobuf(event, reserve)
+        && reserve.direct_udp_ip() == 0x0a000005u && reserve.direct_udp_port() == 27015
+        && reserve.serverid() == 0x1122334455667788ull && reserve.reservationid() == 42
+        && reserve.map() == "de_dust2" && !reserve.has_server_address()
+        && reserve.reservation().account_ids_size() == 2
+        && reserve.reservation().account_ids(0) == AccountId
+        && reserve.reservation().account_ids(1) == 99
+        && reserve.reservation().game_type() == 520
+        && reserve.reservation().match_id() == 7
+        && reserve.reservation().server_version() == 13881;
+
+    valid &= gc.RunRconCommand("mm_update matchmaking=2 waiting=self error=probe").rfind("OK sent 9104", 0) == 0;
+    event = {};
+    CMsgGCCStrike15_v2_MatchmakingGC2ClientUpdate update;
+    valid &= WaitForHostMessage(gc, k_EMsgGCCStrike15_v2_MatchmakingGC2ClientUpdate, event)
+        && ParseHostProtobuf(event, update)
+        && update.matchmaking() == 2 && update.error() == "probe"
+        && update.waiting_account_id_sessions_size() == 1
+        && update.waiting_account_id_sessions(0) == AccountId
+        && update.ongoingmatch_account_id_sessions_size() == 0;
+
+    valid &= gc.RunRconCommand("mm_abandon account_id=self penalty_seconds=60").rfind("OK sent 9112", 0) == 0;
+    event = {};
+    CMsgGCCStrike15_v2_MatchmakingGC2ClientAbandon abandon;
+    valid &= WaitForHostMessage(gc, k_EMsgGCCStrike15_v2_MatchmakingGC2ClientAbandon, event)
+        && ParseHostProtobuf(event, abandon)
+        && abandon.account_id() == AccountId && abandon.penalty_seconds() == 60
+        && !abandon.has_penalty_reason();
+
+    valid &= gc.RunRconCommand("mm_reserve bogus=1").rfind("ERR unknown key", 0) == 0
+        && HostMessageNotReceived(gc, k_EMsgGCCStrike15_v2_MatchmakingGC2ClientReserve);
+
+    // decoder: framed message renders header, nested reservation and strings
+    CMsgGCCStrike15_v2_MatchmakingGC2ClientReserve sample;
+    sample.set_server_address("127.0.0.1:27015");
+    sample.mutable_reservation()->add_account_ids(AccountId);
+    sample.mutable_reservation()->set_match_id(0x100000000ull);
+    GCMessageWrite framed{ k_EMsgGCCStrike15_v2_MatchmakingGC2ClientReserve, sample };
+    std::string text = MMProbe::FormatMessage(false, false, framed.TypeMasked(), framed.Data(), framed.Size());
+    valid &= text.find("client gc->game 9107 k_EMsgGCCStrike15_v2_MatchmakingGC2ClientReserve") == 0
+        && text.find("7: \"127.0.0.1:27015\"") != std::string::npos
+        && text.find("5: {") != std::string::npos
+        && text.find("1: " + std::to_string(AccountId)) != std::string::npos
+        && text.find("3: 4294967296 (0x100000000)") != std::string::npos
+        && text.find("  hex: ") != std::string::npos;
+
+    // decoder: truncated body is reported, not crashed on
+    constexpr uint8_t Truncated[] = { 0x0a, 0x10, 0x41 };
+    std::string partial;
+    valid &= !MMProbe::DecodeProtobuf(Truncated, sizeof(Truncated), 0, partial);
+
+    return valid;
+}
+
+static bool MatchmakingOngoingProbePreservesHelloAndClears()
+{
+    constexpr uint64_t SteamId = 76561197960265729ull;
+    constexpr uint32_t AccountId = static_cast<uint32_t>(SteamId);
+    ClientGC gc{ SteamId };
+    const std::string command = "mm_ongoing ip=203.0.113.121 port=27016 "
+        "server_address=203.0.113.121:27016 serverid=1001 "
+        "reservationid=0x1122334455667788 match_id=0x0a0b0c0d "
+        "accounts=self map=de_dust2 game_type=4104 server_version=13881";
+
+    auto refreshHello = [&](CMsgGCCStrike15_v2_MatchmakingGC2ClientHello &hello) {
+        CMsgClientHello request;
+        SendGCProtobuf(gc, k_EMsgGCClientHello, request);
+        // This command runs behind OnClientHello on the GC worker, so both the
+        // welcome and standalone Hello have been queued before we drain them.
+        if (gc.RunRconCommand("ping") != "OK pong")
+        {
+            return false;
+        }
+        std::vector<EventData> events;
+        gc.GetHostEvents(events);
+        CMsgGCCStrike15_v2_MatchmakingGC2ClientHello embedded;
+        bool sawWelcome = false, sawHello = false;
+        for (const EventData &event : events)
+        {
+            if (event.type != static_cast<int>(HostEvent::Message)) continue;
+            const uint32_t type = static_cast<uint32_t>(event.id) & ~ProtobufMask;
+            if (type == k_EMsgGCCStrike15_v2_MatchmakingGC2ClientHello)
+            {
+                sawHello = ParseHostProtobuf(event, hello);
+            }
+            else if (type == k_EMsgGCClientWelcome)
+            {
+                CMsgClientWelcome welcome;
+                sawWelcome = ParseHostProtobuf(event, welcome)
+                    && embedded.ParseFromString(welcome.game_data2());
+            }
+        }
+        return sawWelcome && sawHello && embedded.SerializeAsString() == hello.SerializeAsString();
+    };
+    auto receiveHello = [&](CMsgGCCStrike15_v2_MatchmakingGC2ClientHello &hello) {
+        EventData event;
+        return WaitForHostMessage(gc, k_EMsgGCCStrike15_v2_MatchmakingGC2ClientHello, event)
+            && ParseHostProtobuf(event, hello);
+    };
+    auto noProbeMessage = [&] {
+        std::vector<EventData> events;
+        gc.GetHostEvents(events);
+        for (const EventData &event : events)
+        {
+            if (event.type != static_cast<int>(HostEvent::Message)
+                && event.type != static_cast<int>(HostEvent::NetMessage)) continue;
+            const uint32_t type = static_cast<uint32_t>(event.id) & ~ProtobufMask;
+            if (type == k_EMsgGCCStrike15_v2_MatchmakingGC2ClientHello
+                || type == k_EMsgGCCStrike15_v2_MatchmakingGC2ClientReserve
+                || type == k_EMsgGCCStrike15_v2_MatchmakingGC2ClientAbandon) return false;
+        }
+        return true;
+    };
+
+    CMsgGCCStrike15_v2_MatchmakingGC2ClientHello baseline;
+    if (!refreshHello(baseline)) return false;
+    bool valid = !baseline.has_ongoingmatch() && baseline.account_id() == AccountId
+        && baseline.has_global_stats() && baseline.has_ranking() && baseline.has_commendation()
+        && baseline.has_player_level() && baseline.has_player_cur_xp();
+    const std::string profile = baseline.SerializeAsString();
+
+    valid &= gc.RunRconCommand(command).rfind("OK sent 9110 ongoing=1", 0) == 0;
+    CMsgGCCStrike15_v2_MatchmakingGC2ClientHello injected;
+    if (!receiveHello(injected) || !injected.has_ongoingmatch()) return false;
+    const auto &reserve = injected.ongoingmatch();
+    valid &= reserve.direct_udp_ip() == 0xcb007179u && reserve.direct_udp_port() == 27016
+        && reserve.server_address() == "203.0.113.121:27016"
+        && reserve.serverid() == 1001ull
+        && reserve.reservationid() == 0x1122334455667788ull && reserve.map() == "de_dust2"
+        && reserve.reservation().account_ids_size() == 1
+        && reserve.reservation().account_ids(0) == AccountId
+        && reserve.reservation().match_id() == 0x0a0b0c0dull
+        && reserve.reservation().game_type() == 4104
+        && reserve.reservation().server_version() == 13881;
+    const std::string ongoing = reserve.SerializeAsString();
+    injected.clear_ongoingmatch();
+    valid &= injected.SerializeAsString() == profile;
+
+    // Reject invalid/incomplete input without sending or replacing the active probe.
+    for (const std::string &invalid : std::vector<std::string>{
+        "mm_ongoing", "mm_ongoing clear=0", "mm_ongoing clear=1 accounts=self",
+        "mm_ongoing ip=203.0.113.121 port=27016 match_id=1 accounts=self",
+        "mm_ongoing ip=203.0.113.121 port=27016 reservationid=1 accounts=self",
+        "mm_ongoing ip=203.0.113.121 port=27016 reservationid=1 match_id=1",
+        "mm_ongoing reservationid=1 match_id=1 accounts=self",
+        command + " reservationid=0", command + " match_id=0", command + " port=0",
+        command + " port=70000", command + " ip=0.0.0.0", command + " ip=224.0.0.1",
+        command + " ip=255.255.255.255", command + " server_address=203.0.113.121:27015",
+        "mm_ongoing ip=203.0.113.121 port=27016 reservationid=1 match_id=1 accounts=0",
+        "mm_ongoing ip=203.0.113.121 port=27016 reservationid=1 match_id=1 accounts=99",
+        "mm_ongoing ip=203.0.113.121 port=27016 reservationid=1 match_id=1 accounts=self,99",
+        "mm_ongoing ip=203.0.113.121 port=27016 reservationid=1 match_id=1 accounts=4294967297",
+        command + " stage=2", "mm_abandon bogus=1" })
+    {
+        valid &= gc.RunRconCommand(invalid).rfind("ERR", 0) == 0 && noProbeMessage();
+    }
+    CMsgGCCStrike15_v2_MatchmakingGC2ClientHello refreshed;
+    valid &= refreshHello(refreshed) && refreshed.has_ongoingmatch()
+        && refreshed.ongoingmatch().SerializeAsString() == ongoing;
+    refreshed.clear_ongoingmatch();
+    valid &= refreshed.SerializeAsString() == profile;
+
+    valid &= gc.RunRconCommand("mm_ongoing clear=1").rfind("OK sent 9110 ongoing=0", 0) == 0
+        && receiveHello(refreshed) && !refreshed.has_ongoingmatch()
+        && refreshed.SerializeAsString() == profile;
+    valid &= refreshHello(refreshed) && !refreshed.has_ongoingmatch()
+        && refreshed.SerializeAsString() == profile;
+
+    // Both numeric local-account input and ip/port without server_address work.
+    valid &= gc.RunRconCommand("mm_ongoing ip=127.0.0.1 port=27016 reservationid=42 "
+        "match_id=7 accounts=" + std::to_string(AccountId)).rfind("OK sent 9110 ongoing=1", 0) == 0
+        && receiveHello(refreshed) && refreshed.has_ongoingmatch()
+        && !refreshed.ongoingmatch().has_server_address();
+    valid &= gc.RunRconCommand("mm_abandon account_id=self").rfind("OK sent 9112", 0) == 0;
+    EventData event;
+    CMsgGCCStrike15_v2_MatchmakingGC2ClientAbandon abandon;
+    valid &= WaitForHostMessage(gc, k_EMsgGCCStrike15_v2_MatchmakingGC2ClientAbandon, event)
+        && ParseHostProtobuf(event, abandon) && abandon.account_id() == AccountId;
+    valid &= refreshHello(refreshed) && !refreshed.has_ongoingmatch()
+        && refreshed.SerializeAsString() == profile;
+    return valid;
+}
+
+static bool GCMMClientLifecycle()
+{
+    constexpr uint64_t SteamId = 76561197960265729ull;
+    constexpr uint32_t AccountId = static_cast<uint32_t>(SteamId);
+    ClientGC gc{ SteamId };
+    RconServer endpoint;
+    int serverCalls = 0;
+    endpoint.SetServerCommandHandler([&](std::string_view) -> std::optional<std::string> {
+        ++serverCalls;
+        return "OK server-role";
+    });
+    bool routing = RconServerTestAccess::Execute(endpoint, "gcmm_status") == "OK server-role";
+    endpoint.RegisterClient(&gc);
+    for (const char *command : {"gcmm_status", "gcmm_reserve", "gcmm_commit", "gcmm_cancel"})
+        routing &= RconServerTestAccess::Execute(endpoint, command) == gc.RunRconCommand(command);
+    routing &= serverCalls == 1;
+    endpoint.UnregisterClient(&gc);
+    routing &= RconServerTestAccess::Execute(endpoint, "gcmm_status") == "OK server-role" && serverCalls == 2;
+    auto status = [&] { return gc.RunRconCommand("gcmm_status"); };
+    auto contains = [](const std::string &text, const char *value) { return text.find(value) != std::string::npos; };
+    auto drain = [&] { std::vector<EventData> events; gc.GetHostEvents(events); return events; };
+    auto start = [&] {
+        CMsgGCCStrike15_v2_MatchmakingStart request;
+        request.add_account_ids(AccountId);
+        request.add_account_ids(99);
+        request.set_game_type(462552584);
+        request.set_client_version(13881);
+        SendGCProtobuf(gc, k_EMsgGCCStrike15_v2_MatchmakingStart, request);
+        return status(); // Runs behind the native message on the GC worker.
+    };
+    const std::string reserve = "gcmm_reserve search_id=1 reservationid=0x1122334455667788 "
+        "match_id=0xa0b0c0d accounts=" + std::to_string(AccountId)
+        + ",99 ip=203.0.113.121 port=27016 serverid=1001 map=de_dust2 game_type=4104";
+    const std::string commit = "gcmm_commit search_id=1 reservationid=0x1122334455667788 match_id=0xa0b0c0d";
+    bool valid = routing && contains(status(), "\"protocol\":\"gcmm/1\"")
+        && contains(status(), "\"phase\":\"idle\"")
+        && gc.RunRconCommand("gcmm_status extra=1").rfind("ERR invalid_argument", 0) == 0;
+    if (!GetConfig().m_gcmmEnabled)
+    {
+        valid &= contains(start(), "\"search_id\":\"0\"") && contains(status(), "\"enabled\":false");
+        for (const auto &command : {reserve, commit, std::string{"gcmm_cancel search_id=1"}})
+            valid &= gc.RunRconCommand(command).rfind("ERR disabled", 0) == 0;
+        return valid && drain().empty();
+    }
+    valid &= contains(start(), "\"search_id\":\"1\"") && contains(status(), "\"phase\":\"searching\"")
+        && contains(status(), "\"client_version\":13881");
+    for (const auto &invalid : std::vector<std::string>{
+        reserve + " stage=2", reserve + " port=27016", reserve + " unexpected=1",
+        "gcmm_reserve search_id=1", "gcmm_cancel", "gcmm_cancel search_id=0",
+        "gcmm_cancel search_id=18446744073709551616", "gcmm_cancel search_id=2",
+        commit, "gcmm_commit search_id=1 reservationid=0 match_id=1"})
+        valid &= gc.RunRconCommand(invalid).rfind("ERR", 0) == 0 && drain().empty();
+    auto replace = [](std::string command, const std::string &from, const std::string &to) {
+        command.replace(command.find(from), from.size(), to); return command;
+    };
+    for (const auto &invalid : std::vector<std::string>{
+        replace(reserve, ",99", ""), replace(reserve, "accounts=" + std::to_string(AccountId), "accounts=98"),
+        replace(reserve, ",99", ",99,99"), replace(reserve, "203.0.113.121", "224.1.1.1"),
+        replace(reserve, "port=27016", "port=0"), replace(reserve, "game_type=4104", "game_type=0"),
+        replace(reserve, "de_dust2", "de_dust2;quit"), reserve + " server_version=1",
+        reserve + " server_address=203.0.113.121:27015"})
+        valid &= gc.RunRconCommand(invalid).rfind("ERR", 0) == 0 && drain().empty();
+    valid &= contains(gc.RunRconCommand(reserve), "\"phase\":\"reserved\"");
+    const auto prepared = drain();
+    valid &= prepared.size() == 3;
+    CMsgGCCStrike15_v2_MatchmakingGC2ClientReserve offer;
+    if (prepared.size() == 3)
+    {
+        CMsgGCCStrike15_v2_MatchmakingGC2ClientUpdate joined, confirmed;
+        valid &= (prepared[0].id & ~ProtobufMask) == k_EMsgGCCStrike15_v2_MatchmakingGC2ClientUpdate
+            && ParseHostProtobuf(prepared[0], joined) && joined.matchmaking() == 1
+            && ParseHostProtobuf(prepared[1], confirmed) && confirmed.matchmaking() == 4
+            && (prepared[2].id & ~ProtobufMask) == k_EMsgGCCStrike15_v2_MatchmakingGC2ClientReserve
+            && ParseHostProtobuf(prepared[2], offer) && offer.reservation().account_ids_size() == 2
+            && offer.reservation().server_version() == 13881;
+    }
+    valid &= contains(gc.RunRconCommand(reserve), "\"phase\":\"reserved\"") && drain().empty();
+    valid &= gc.RunRconCommand(replace(reserve, "0xa0b0c0d", "7")).rfind("ERR conflict", 0) == 0
+        && gc.RunRconCommand(replace(commit, "0xa0b0c0d", "7")).rfind("ERR stale_reservation", 0) == 0
+        && drain().empty();
+    valid &= contains(gc.RunRconCommand(commit), "\"phase\":\"committed\"");
+    auto committed = drain();
+    CMsgGCCStrike15_v2_MatchmakingGC2ClientHello hello;
+    valid &= committed.size() == 1 && ParseHostProtobuf(committed.front(), hello)
+        && hello.has_ongoingmatch() && hello.ongoingmatch().SerializeAsString() == offer.SerializeAsString()
+        && hello.has_ranking() && hello.has_player_level() && hello.account_id() == AccountId;
+    const std::string fullHello = hello.SerializeAsString();
+    valid &= contains(gc.RunRconCommand(commit), "\"phase\":\"committed\"") && drain().empty();
+    CMsgGCCStrike15_v2_MatchmakingStop stop;
+    SendGCProtobuf(gc, k_EMsgGCCStrike15_v2_MatchmakingStop, stop);
+    valid &= contains(status(), "\"phase\":\"committed\"") && drain().empty();
+    CMsgClientHello refresh;
+    SendGCProtobuf(gc, k_EMsgGCClientHello, refresh);
+    gc.RunRconCommand("ping");
+    bool sawRefresh = false;
+    for (const auto &event : drain())
+        if ((event.id & ~ProtobufMask) == k_EMsgGCCStrike15_v2_MatchmakingGC2ClientHello)
+            sawRefresh = ParseHostProtobuf(event, hello) && hello.SerializeAsString() == fullHello;
+    valid &= sawRefresh;
+    valid &= contains(gc.RunRconCommand("gcmm_cancel search_id=1"), "\"phase\":\"idle\"");
+    auto cancelled = drain();
+    valid &= cancelled.size() == 2 && ParseHostProtobuf(cancelled.back(), hello) && !hello.has_ongoingmatch();
+    valid &= contains(gc.RunRconCommand("gcmm_cancel search_id=1"), "\"phase\":\"idle\"") && drain().empty();
+    valid &= contains(start(), "\"search_id\":\"2\"")
+        && gc.RunRconCommand(reserve).rfind("ERR stale_search", 0) == 0 && drain().empty();
+    valid &= contains(gc.RunRconCommand(replace(reserve, "search_id=1", "search_id=2")), "\"phase\":\"reserved\"");
+    drain();
+    SendGCProtobuf(gc, k_EMsgGCCStrike15_v2_MatchmakingStop, stop);
+    valid &= contains(status(), "\"phase\":\"idle\"")
+        && gc.RunRconCommand(replace(commit, "search_id=1", "search_id=2")).rfind("ERR stale_reservation", 0) == 0;
+    // Malformed, duplicate and foreign rosters cannot create a new search owner.
+    CMsgGCCStrike15_v2_MatchmakingStart bad;
+    bad.add_account_ids(99);
+    SendGCProtobuf(gc, k_EMsgGCCStrike15_v2_MatchmakingStart, bad);
+    bad.add_account_ids(AccountId); bad.add_account_ids(AccountId);
+    SendGCProtobuf(gc, k_EMsgGCCStrike15_v2_MatchmakingStart, bad);
+    valid &= contains(status(), "\"search_id\":\"2\"") && drain().empty();
+    valid &= contains(start(), "\"search_id\":\"3\"");
+    gc.RunRconCommand(replace(reserve, "search_id=1", "search_id=3"));
+    drain();
+    valid &= contains(gc.RunRconCommand(replace(commit, "search_id=1", "search_id=3")), "\"phase\":\"committed\"");
+    drain();
+    stop.set_abandon(1);
+    SendGCProtobuf(gc, k_EMsgGCCStrike15_v2_MatchmakingStop, stop);
+    valid &= contains(status(), "\"phase\":\"idle\"") && contains(status(), "\"reservation\":null");
+    auto abandoned = drain();
+    valid &= abandoned.size() == 1 && ParseHostProtobuf(abandoned.front(), hello) && !hello.has_ongoingmatch();
+    SendGCProtobuf(gc, k_EMsgGCClientHello, refresh);
+    gc.RunRconCommand("ping");
+    for (const auto &event : drain())
+        if ((event.id & ~ProtobufMask) == k_EMsgGCCStrike15_v2_MatchmakingGC2ClientHello)
+            valid &= ParseHostProtobuf(event, hello) && !hello.has_ongoingmatch();
+    CMsgGCCStrike15_v2_MatchmakingStart largest;
+    largest.set_game_type(462552584); largest.set_client_version(13881);
+    std::string roster = std::to_string(AccountId);
+    largest.add_account_ids(AccountId);
+    for (uint32_t index = 0; index < 63; ++index)
+    {
+        const uint32_t account = 4000000000u + index;
+        largest.add_account_ids(account);
+        roster += ',' + std::to_string(account);
+    }
+    SendGCProtobuf(gc, k_EMsgGCCStrike15_v2_MatchmakingStart, largest);
+    valid &= contains(status(), "\"search_id\":\"4\"");
+    std::string maximum = replace(reserve, "search_id=1", "search_id=4");
+    maximum = replace(maximum, "accounts=" + std::to_string(AccountId) + ",99", "accounts=" + roster);
+    maximum = replace(maximum, "de_dust2", std::string(128, 'x'));
+    const std::string maximumReply = gc.RunRconCommand(maximum);
+    valid &= contains(maximumReply, "\"phase\":\"reserved\"") && maximumReply.size() <= 4086
+        && maximumReply.back() == '}';
+    drain();
+    return valid;
+}
+
 int main(int argc, char **argv)
 {
+    if (argc > 1 && std::string_view{ argv[1] } == "--gcmm")
+    {
+        const bool valid = GCMMClientLifecycle();
+        std::printf("GCMMClientLifecycle: %s\n", valid ? "PASS" : "FAIL");
+        return valid ? 0 : 1;
+    }
     if (argc > 1 && std::string_view{ argv[1] } == "--souvenir-output")
     {
         const bool valid = SouvenirOpeningPublishesOnlyValidObjects();
@@ -4708,6 +5101,10 @@ int main(int argc, char **argv)
             EventFavoritesPersistAndPreserveRequestJobs },
         { "OfflineGCRequestsReceiveMinimalResponses",
             OfflineGCRequestsReceiveMinimalResponses },
+        { "MatchmakingProbeInjectsOnlyNamedFields",
+            MatchmakingProbeInjectsOnlyNamedFields },
+        { "MatchmakingOngoingProbePreservesHelloAndClears",
+            MatchmakingOngoingProbePreservesHelloAndClears },
     };
 
     bool allPassed = true;

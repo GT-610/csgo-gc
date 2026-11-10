@@ -40,6 +40,16 @@ public:
     // client loads, and it is only useful once a modified code.pbin is in place.
     bool m_allowUnsignedPanorama{ false };
 
+    // Matchmaking diagnostics. When enabled, every
+    // matchmaking-range GC message (9100..9199) crossing the Steam GC boundary
+    // is logged in both directions with a decoded protobuf field dump. Off by
+    // default: it is a diagnostic aid, not runtime behavior.
+    bool m_mmProbe{ false };
+
+    // GC Matchmaking Protocol native-control profile. Requires an external
+    // coordinator through the separately configured Source RCON listener.
+    bool m_gcmmEnabled{ false };
+
     std::string m_rconBindAddress{ "127.0.0.1" };
     uint16_t m_rconPort{ 37016 };
     std::string m_rconPassword;

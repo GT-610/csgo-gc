@@ -64,6 +64,16 @@ private:
     std::string RconRemoveItem(const RconRequest &request);
     std::string RconRefreshInventory(const RconRequest &request);
     std::string RconSaveInventory(const RconRequest &request);
+    // P0 matchmaking probe: inject GC->client matchmaking messages (mm_probe.h)
+    std::string RconMatchmakingUpdate(const RconRequest &request);
+    std::string RconMatchmakingReserve(const RconRequest &request);
+    std::string RconMatchmakingOngoing(const RconRequest &request);
+    std::string RconMatchmakingAbandon(const RconRequest &request);
+    std::string RconGCMMStatus(const RconRequest &request);
+    std::string RconGCMMReserve(const RconRequest &request);
+    std::string RconGCMMCommit(const RconRequest &request);
+    std::string RconGCMMCancel(const RconRequest &request);
+    void PublishGCMMHello();
     void PublishItemRemoval(const CMsgSOSingleObject &itemDestroy,
         const CMsgSOSingleObject &recurringSubscriptionDestroy);
 
@@ -99,8 +109,8 @@ private:
     void StoreGetUserData(GCMessageRead &messageRead);
     void StorePurchaseInit(GCMessageRead &messageRead);
     void StorePurchaseFinalize(GCMessageRead &messageRead);
-    void IgnoreMatchmakingStart(GCMessageRead &messageRead);
-    void IgnoreMatchmakingStop(GCMessageRead &messageRead);
+    void HandleMatchmakingStart(GCMessageRead &messageRead);
+    void HandleMatchmakingStop(GCMessageRead &messageRead);
     void HandlePartyRegister(GCMessageRead &messageRead);
     void IgnorePartyUnregister(GCMessageRead &messageRead);
     void HandlePartySearch(GCMessageRead &messageRead);
@@ -139,6 +149,15 @@ private:
 
     const uint64_t m_steamId;
     const uint32_t m_buildYear;
+
+    // Opt-in probe state only; retained across Hello refreshes until explicit clear or abandon.
+    std::optional<CMsgGCCStrike15_v2_MatchmakingGC2ClientReserve> m_probeOngoingMatch;
+
+    enum class GCMMPhase { Idle, Searching, Reserved, Committed };
+    GCMMPhase m_gcmmPhase{ GCMMPhase::Idle };
+    uint64_t m_gcmmSearchId{};
+    CMsgGCCStrike15_v2_MatchmakingStart m_gcmmRequest;
+    std::optional<CMsgGCCStrike15_v2_MatchmakingGC2ClientReserve> m_gcmmReservation;
 
     Inventory m_inventory;
     std::unordered_set<uint64_t> m_gameServerEquippedItems;

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <functional>
+
 class ClientGC;
 
 class RconServer
@@ -14,7 +16,12 @@ public:
     void RegisterClient(ClientGC *client);
     void UnregisterClient(ClientGC *client);
 
+    using ServerCommandHandler = std::function<std::optional<std::string>(std::string_view)>;
+    void SetServerCommandHandler(ServerCommandHandler handler);
+
 private:
+    friend struct RconServerTestAccess;
+
     enum class ListenerState
     {
         NotStarted,
@@ -39,6 +46,7 @@ private:
     std::mutex m_mutex;
     std::condition_variable m_clientIdle;
     ClientGC *m_client{};
+    ServerCommandHandler m_serverCommandHandler;
     size_t m_activeClientCommands{};
     std::thread m_thread;
     std::vector<std::thread> m_connectionThreads;

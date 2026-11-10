@@ -25,6 +25,10 @@ add_library(csgo_gc SHARED
     config.cpp
     game_types.cpp
     gc_client.cpp
+    gcmm_client.cpp
+    gcmm_reservation.cpp
+    mm_probe.cpp
+    gcmm_native.cpp
     gc_message.cpp
     gc_server.cpp
     gc_shared.cpp
@@ -107,14 +111,35 @@ if (OUTDIR)
 endif()
 
 if (BUILD_TESTING)
+    add_executable(gcmm_native_tests gcmm_native_tests.cpp gcmm_reservation.cpp config.cpp keyvalue.cpp)
+    target_precompile_headers(gcmm_native_tests PRIVATE stdafx.h)
+    target_link_libraries(gcmm_native_tests PRIVATE MbedTLS::mbedcrypto csgo_gc_protobufs Threads::Threads)
+    if (MSVC)
+        target_compile_definitions(gcmm_native_tests PRIVATE _CRT_SECURE_NO_WARNINGS)
+    endif()
+    set(gcmm_native_workdir "${CMAKE_CURRENT_BINARY_DIR}/gcmm_native_test")
+    file(MAKE_DIRECTORY "${gcmm_native_workdir}/csgo_gc")
+    file(WRITE "${gcmm_native_workdir}/csgo_gc/config.txt" "\"gcmm\" { \"enabled\" \"1\" }\n")
+    add_test(NAME gcmm_native_tests COMMAND gcmm_native_tests)
+    set_tests_properties(gcmm_native_tests PROPERTIES WORKING_DIRECTORY "${gcmm_native_workdir}" TIMEOUT 10)
+
+    add_executable(gcmm_reservation_tests
+        gcmm_reservation.cpp
+        gcmm_reservation_tests.cpp)
+    add_test(NAME gcmm_reservation_tests COMMAND gcmm_reservation_tests)
+
     add_executable(gc_message_tests
         appid.cpp
         case_opening.cpp
         config.cpp
         gc_client.cpp
+        gcmm_client.cpp
+        gcmm_reservation.cpp
+        mm_probe.cpp
         gc_shared.cpp
         graffiti.cpp
         gc_message_tests.cpp
+        rcon_server.cpp
         gc_message.cpp
         inventory.cpp
         music_kit.cpp
@@ -140,7 +165,18 @@ if (BUILD_TESTING)
         target_compile_options(gc_message_tests PRIVATE -Wall -Wextra)
     endif()
 
+    if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
+        target_link_libraries(gc_message_tests PRIVATE ws2_32)
+    endif()
+
     add_test(NAME gc_message_tests COMMAND gc_message_tests)
+    foreach(enabled IN ITEMS 0 1)
+        set(gcmm_workdir "${CMAKE_CURRENT_BINARY_DIR}/gcmm_client_test_${enabled}")
+        file(MAKE_DIRECTORY "${gcmm_workdir}/csgo_gc")
+        file(WRITE "${gcmm_workdir}/csgo_gc/config.txt" "\"gcmm\" { \"enabled\" \"${enabled}\" }\n")
+        add_test(NAME gcmm_client_${enabled} COMMAND gc_message_tests --gcmm)
+        set_tests_properties(gcmm_client_${enabled} PROPERTIES WORKING_DIRECTORY "${gcmm_workdir}" TIMEOUT 20)
+    endforeach()
 
     set(souvenir_workdir "${CMAKE_CURRENT_BINARY_DIR}/souvenir_keep_items_test")
     file(MAKE_DIRECTORY "${souvenir_workdir}/csgo_gc")
@@ -185,6 +221,9 @@ if (BUILD_TESTING)
         case_opening.cpp
         config.cpp
         gc_client.cpp
+        gcmm_client.cpp
+        gcmm_reservation.cpp
+        mm_probe.cpp
         gc_shared.cpp
         graffiti.cpp
         gc_message.cpp
@@ -225,6 +264,9 @@ if (BUILD_TESTING)
         case_opening.cpp
         config.cpp
         gc_client.cpp
+        gcmm_client.cpp
+        gcmm_reservation.cpp
+        mm_probe.cpp
         gc_shared.cpp
         gc_message_non_prime_tests.cpp
         gc_message.cpp

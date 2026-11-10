@@ -5,6 +5,7 @@
 #include "graffiti.h"
 #include "item_utils.h"
 #include "keyvalue.h"
+#include "mm_probe.h"
 #include "music_kit.h"
 #include "networking_shared.h"
 #include "random.h"
@@ -543,6 +544,20 @@ const ClientGC::RconCommandDef *ClientGC::RconCommands(size_t &count)
         { "remove_item", "remove_item <itemid>", &ClientGC::RconRemoveItem },
         { "refresh_inventory", "refresh_inventory", &ClientGC::RconRefreshInventory },
         { "save_inventory", "save_inventory", &ClientGC::RconSaveInventory },
+        { "gcmm_status", "gcmm_status", &ClientGC::RconGCMMStatus },
+        { "gcmm_reserve", "gcmm_reserve search_id=N reservationid=N match_id=N accounts=ids ip=a.b.c.d port=N serverid=N map=name game_type=N", &ClientGC::RconGCMMReserve },
+        { "gcmm_commit", "gcmm_commit search_id=N reservationid=N match_id=N", &ClientGC::RconGCMMCommit },
+        { "gcmm_cancel", "gcmm_cancel search_id=N", &ClientGC::RconGCMMCancel },
+        { "mm_update", "mm_update [matchmaking=N] [waiting=ids] [ongoing=ids] [error=text] ...",
+            &ClientGC::RconMatchmakingUpdate },
+        { "mm_reserve", "mm_reserve [server_address=ip:port] [ip=a.b.c.d] [port=N] [serverid=N] "
+            "[reservationid=N] [map=name] [accounts=ids] [game_type=N] [match_id=N] [server_version=N] ...",
+            &ClientGC::RconMatchmakingReserve },
+        { "mm_ongoing", "mm_ongoing ip=a.b.c.d port=N reservationid=N match_id=N accounts=self "
+            "[server_address=ip:port] [map=name] [game_type=N] ... | mm_ongoing clear=1",
+            &ClientGC::RconMatchmakingOngoing },
+        { "mm_abandon", "mm_abandon [account_id=N] [penalty_seconds=N] [penalty_reason=N]",
+            &ClientGC::RconMatchmakingAbandon },
     };
 
     count = sizeof(Commands) / sizeof(Commands[0]);
@@ -1034,6 +1049,118 @@ std::string ClientGC::RconSaveInventory(const RconRequest &request)
     return m_inventory.Save() ? "OK saved" : "ERR save failed";
 }
 
+std::string ClientGC::RconMatchmakingUpdate(const RconRequest &request)
+{
+    CMsgGCCStrike15_v2_MatchmakingGC2ClientUpdate message;
+    std::string error = MMProbe::BuildUpdate(request.args, AccountId(), message);
+    if (!error.empty())
+    {
+        return error;
+    }
+
+    SendMessageToGame(false, k_EMsgGCCStrike15_v2_MatchmakingGC2ClientUpdate, message);
+    return "OK sent 9104 bytes=" + std::to_string(message.ByteSizeLong());
+}
+
+std::string ClientGC::RconMatchmakingReserve(const RconRequest &request)
+{
+    CMsgGCCStrike15_v2_MatchmakingGC2ClientReserve message;
+    std::string error = MMProbe::BuildReserve(request.args, AccountId(), message);
+    if (!error.empty())
+    {
+        return error;
+    }
+
+    SendMessageToGame(false, k_EMsgGCCStrike15_v2_MatchmakingGC2ClientReserve, message);
+    return "OK sent 9107 bytes=" + std::to_string(message.ByteSizeLong());
+}
+
+std::string ClientGC::RconMatchmakingOngoing(const RconRequest &request)
+{
+    if (request.args.size() == 1 && request.args[0] == "clear=1")
+    {
+        m_probeOngoingMatch.reset();
+    }
+    else
+    {
+        CMsgGCCStrike15_v2_MatchmakingGC2ClientReserve reserve;
+        std::string error = MMProbe::BuildReserve(request.args, AccountId(), reserve);
+        if (!error.empty())
+        {
+            return error;
+        }
+        if (!reserve.has_reservationid() || !reserve.reservationid())
+        {
+            return "ERR mm_ongoing requires a nonzero reservationid";
+        }
+        if (!reserve.has_reservation() || !reserve.reservation().has_match_id()
+            || !reserve.reservation().match_id())
+        {
+            return "ERR mm_ongoing requires a nonzero match_id";
+        }
+        const uint32_t ip = reserve.direct_udp_ip();
+        if (!reserve.has_direct_udp_ip() || !(ip >> 24) || (ip >> 24) >= 224
+            || !reserve.has_direct_udp_port() || !reserve.direct_udp_port())
+        {
+            return "ERR mm_ongoing requires a unicast ip and a nonzero port";
+        }
+        const std::string address = std::to_string(ip >> 24) + "."
+            + std::to_string((ip >> 16) & 255) + "." + std::to_string((ip >> 8) & 255)
+            + "." + std::to_string(ip & 255) + ":" + std::to_string(reserve.direct_udp_port());
+        if (reserve.has_server_address() && reserve.server_address() != address)
+        {
+            return "ERR mm_ongoing server_address must match ip:port";
+        }
+        if (!AccountId() || reserve.reservation().account_ids_size() != 1
+            || reserve.reservation().account_ids(0) != AccountId())
+        {
+            return "ERR mm_ongoing requires exactly the local account (accounts=self)";
+        }
+        // BuildReserve intentionally permits 64-bit account input for field probes;
+        // reject truncation to our account in this stricter single-account command.
+        for (const std::string &arg : request.args)
+        {
+            constexpr std::string_view Prefix = "accounts=";
+            if (arg.compare(0, Prefix.size(), Prefix) == 0)
+            {
+                const std::string_view account = std::string_view{ arg }.substr(Prefix.size());
+                uint32_t parsed;
+                if (account != "self" && (!TryParseNumber(account, parsed) || parsed != AccountId()))
+                {
+                    return "ERR mm_ongoing requires exactly the local account (accounts=self)";
+                }
+            }
+        }
+
+        // The external test controller must observe the real server's matching
+        // cookie/roster at stage >= 2 before issuing this command. Arguments are
+        // not proof of readiness, and this command does not advance any stage.
+        m_probeOngoingMatch = std::move(reserve);
+    }
+
+    CMsgGCCStrike15_v2_MatchmakingGC2ClientHello message;
+    BuildMatchmakingHello(message);
+    SendMessageToGame(false, k_EMsgGCCStrike15_v2_MatchmakingGC2ClientHello, message);
+    return "OK sent 9110 ongoing=" + std::to_string(message.has_ongoingmatch() ? 1 : 0)
+        + " bytes=" + std::to_string(message.ByteSizeLong());
+}
+
+std::string ClientGC::RconMatchmakingAbandon(const RconRequest &request)
+{
+    CMsgGCCStrike15_v2_MatchmakingGC2ClientAbandon message;
+    std::string error = MMProbe::BuildAbandon(request.args, AccountId(), message);
+    if (!error.empty())
+    {
+        return error;
+    }
+
+    m_probeOngoingMatch.reset();
+    m_gcmmReservation.reset();
+    m_gcmmPhase = GCMMPhase::Idle;
+    SendMessageToGame(false, k_EMsgGCCStrike15_v2_MatchmakingGC2ClientAbandon, message);
+    return "OK sent 9112 bytes=" + std::to_string(message.ByteSizeLong());
+}
+
 void ClientGC::HandleMessage(uint32_t type, const void *data, uint32_t size)
 {
     GCMessageRead messageRead{ type, data, size };
@@ -1149,11 +1276,11 @@ void ClientGC::HandleMessage(uint32_t type, const void *data, uint32_t size)
             break;
 
         case k_EMsgGCCStrike15_v2_MatchmakingStart:
-            IgnoreMatchmakingStart(messageRead);
+            HandleMatchmakingStart(messageRead);
             break;
 
         case k_EMsgGCCStrike15_v2_MatchmakingStop:
-            IgnoreMatchmakingStop(messageRead);
+            HandleMatchmakingStop(messageRead);
             break;
 
         case k_EMsgGCCStrike15_v2_Party_Register:
@@ -1231,18 +1358,6 @@ void ClientGC::HandleMessage(uint32_t type, const void *data, uint32_t size)
             break;
         }
     }
-}
-
-void ClientGC::IgnoreMatchmakingStart(GCMessageRead &messageRead)
-{
-    CMsgGCCStrike15_v2_MatchmakingStart request;
-    (void)messageRead.ReadProtobuf(request);
-}
-
-void ClientGC::IgnoreMatchmakingStop(GCMessageRead &messageRead)
-{
-    CMsgGCCStrike15_v2_MatchmakingStop request;
-    (void)messageRead.ReadProtobuf(request);
 }
 
 void ClientGC::HandlePartyRegister(GCMessageRead &messageRead)
@@ -1783,6 +1898,14 @@ static void BuildCSWelcome(CMsgCStrike15Welcome &message)
 void ClientGC::BuildMatchmakingHello(CMsgGCCStrike15_v2_MatchmakingGC2ClientHello &message)
 {
     message.set_account_id(AccountId());
+    if (m_gcmmPhase == GCMMPhase::Committed && m_gcmmReservation)
+    {
+        message.mutable_ongoingmatch()->CopyFrom(*m_gcmmReservation);
+    }
+    else if (m_probeOngoingMatch)
+    {
+        message.mutable_ongoingmatch()->CopyFrom(*m_probeOngoingMatch);
+    }
 
     // this is the state of csgo matchmaking in 2024
     message.mutable_global_stats()->set_players_online(0);

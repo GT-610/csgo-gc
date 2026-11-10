@@ -54,6 +54,19 @@
 // not the one this was written against, nothing is patched and a line is logged.
 "allow_unsigned_panorama"	"0"
 
+// GC Matchmaking (GCMM) Protocol, controlled by an external coordinator over RCON.
+// Enable on each client and the supported Windows x86 build 1575 server.
+// See examples/gcmm/README.md for setup and the reference coordinator.
+"gcmm"
+{
+	"enabled"	"0"
+}
+
+// matchmaking protocol probe (developer diagnostics). logs every matchmaking GC
+// message (9100-9199) in both directions to csgo_gc/mm_probe.log with a decoded
+// field dump. the mm_update / mm_reserve / mm_abandon RCON commands work either way.
+"mm_probe"	"0"
+
 // local Source RCON. keep bind_address on localhost unless you use a password.
 // empty password accepts any Source RCON password.
 "rcon"
