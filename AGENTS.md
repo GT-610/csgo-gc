@@ -161,12 +161,11 @@ transaction.
 
 ## Documentation Repository
 
-The documentation site is maintained in the separate `csgo-gc-docs`
-repository. This repository currently links to the site but does not contain a
-`.gitmodules` entry or a documentation gitlink. Verify the actual checkout
-topology before attempting a submodule pointer update. Keep English and Chinese
-pages aligned, and commit and push documentation-repository changes before
-committing related README or agent-guidance changes here.
+The documentation site is maintained in the separate `csgo-gc-docs` repository
+and is checked out at `docs/` as a git submodule. `.gitmodules` records its URL
+and the parent repository tracks a gitlink for it. Keep English and Chinese pages
+aligned, and commit and push documentation-repository changes before committing
+the related gitlink or README and agent-guidance changes here.
 
 ## Reverse Engineering Notes
 
