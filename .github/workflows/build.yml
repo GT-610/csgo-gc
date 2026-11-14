@@ -156,8 +156,7 @@ jobs:
         #
         # macOS is the opposite: a runner update does change the Xcode/SDK and
         # the libraries must be rebuilt, so keep the image version there.
-        key: vcpkg-${{ matrix.platform || steps.runner-image.outputs.version }}-${{ matrix.container_digest || 'host-image' }}-${{ steps.toolchain.outputs.id }}-${{ steps.vcpkg-commit.outputs.sha }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'overlays/**') }}
-        restore-keys: |
+        key: vcpkg-${{ matrix.os }}-${{ steps.runner-image.outputs.version }}-${{ steps.vcpkg-commit.outputs.sha }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'overlays/**', 'triplets/**') }}
           vcpkg-${{ matrix.platform || steps.runner-image.outputs.version }}-${{ matrix.container_digest || 'host-image' }}-${{ steps.toolchain.outputs.id }}-${{ steps.vcpkg-commit.outputs.sha }}-
 
     # Run the Linux build inside the pinned Ubuntu 22.04 container so the
@@ -217,9 +216,17 @@ jobs:
       name: Build macOS
       run: |
         mkdir ${{ github.workspace }}/release
-        cmake -B ${{ github.workspace }}/build -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -S ${{ github.workspace }} -DCMAKE_OSX_ARCHITECTURES=x86_64 -DFUNCHOOK_CPU=x86 -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DOUTDIR=${{ github.workspace }}/release -DCMAKE_TOOLCHAIN_FILE=${{ env.VCPKG_ROOT }}/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET=x64-osx -DBUILD_TESTING=ON
+        cmake -B ${{ github.workspace }}/build -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -S ${{ github.workspace }} -DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 -DFUNCHOOK_CPU=x86 -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DOUTDIR=${{ github.workspace }}/release -DCMAKE_TOOLCHAIN_FILE=${{ env.VCPKG_ROOT }}/scripts/buildsystems/vcpkg.cmake -DVCPKG_OVERLAY_TRIPLETS=${{ github.workspace }}/triplets -DVCPKG_TARGET_TRIPLET=x64-osx-bigsur -DBUILD_TESTING=ON
         cmake --build ${{ github.workspace }}/build --config ${{ matrix.build_type }}
         ctest --test-dir ${{ github.workspace }}/build --build-config ${{ matrix.build_type }} --output-on-failure
+    
+    - if: matrix.os == 'macos-15'
+      name: Verify deployment target
+      run: |
+        for f in $(find ${{ github.workspace }}/release -name '*.dylib'); do
+          echo "== $f"
+          otool -l "$f" | grep -A4 -E 'LC_BUILD_VERSION|LC_VERSION_MIN_MACOSX'
+        done
 
     - if: matrix.os == 'windows-latest'
       name: Build Windows
@@ -304,7 +311,7 @@ jobs:
             )
             ;;
           macos-15)
-            VCPKG_SHARES=("$GITHUB_WORKSPACE/build/vcpkg_installed/x64-osx/share")
+            VCPKG_SHARES=("$GITHUB_WORKSPACE/build/vcpkg_installed/x64-osx-bigsur/share")
             ;;
           windows-latest)
             VCPKG_SHARES=("$GITHUB_WORKSPACE/build/vcpkg_installed/x86-windows-static/share")
