@@ -415,6 +415,33 @@ class CoordinatorTests(unittest.TestCase):
         self.assertEqual(len(self.server.releases), 1)
         self.assertEqual(self.server.releases[0], (tx.cookie, tx.match))
 
+    def test_cleanup_recovers_a_reservation_a_long_pause_hid_from_readiness(self):
+        # Frames pause past the snapshot freshness limit while the acknowledged
+        # reserve is still queued. Readiness must stay unusable, but cleanup has
+        # to keep reading: once sampling resumes the reservation applies, and
+        # only then can the release target the owner that actually holds it.
+        tx = gcmm.Transaction([gcmm.Candidate(self.clients[0], self.clients[0].account, 1)],
+                              0x1122334455667788, 0x0A0B0C0D)
+        tx.native_requested = True
+        tx.request = 7
+        self.server.request = 7
+        self.server.defer_reserve = True
+        self.server.pending_reserve = True
+        self.server.stale = True
+        def resume_frames():
+            if self.clock.sleeps == 3:
+                self.server.stale = False  # Sampling resumed; reserve still queued.
+            elif self.clock.sleeps == 5 and self.server.pending_reserve:
+                self.server.cookie, self.server.match = tx.cookie, tx.match
+                self.server.roster = {self.clients[0].account: 0}
+                self.server.active = self.server.last_result = True
+                self.server.pending_reserve = False
+        self.clock.on_sleep = resume_frames
+        self.coordinator().cleanup(tx)
+        self.assertFalse(self.server.pending_reserve)
+        self.assertEqual(self.server.releases, [(tx.cookie, tx.match)])
+        self.assertEqual(self.server.cookie, 0)
+
     def test_foreign_owner_after_the_commit_batch_fails_the_transaction(self):
         original_check = gcmm.Coordinator._check_clients
         def steal_after_commits(coordinator, tx, phase="reserved"):
@@ -427,6 +454,24 @@ class CoordinatorTests(unittest.TestCase):
         try:
             self.clock.on_sleep = self.accept_all
             with self.assertRaises(gcmm.StaleOwner):
+                self.coordinator().run_once(search_timeout=1)
+        finally:
+            gcmm.Coordinator._check_clients = original_check
+
+    def test_foreign_nonzero_owner_after_commit_fails_even_when_inactive(self):
+        original_check = gcmm.Coordinator._check_clients
+        def steal_expired_after_commits(coordinator, tx, phase="reserved"):
+            original_check(coordinator, tx, phase)
+            if phase == "committed":
+                # A foreign reservation whose expiry already lapsed keeps its
+                # nonzero cookie/match while reporting active false.
+                self.server.cookie += 1
+                self.server.active = False
+                self.server.last_result = True
+        gcmm.Coordinator._check_clients = steal_expired_after_commits
+        try:
+            self.clock.on_sleep = self.accept_all
+            with self.assertRaisesRegex(gcmm.StaleOwner, "after the commit batch"):
                 self.coordinator().run_once(search_timeout=1)
         finally:
             gcmm.Coordinator._check_clients = original_check

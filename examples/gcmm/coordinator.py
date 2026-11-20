@@ -277,6 +277,24 @@ class Coordinator:
             raise StaleOwner(f"{endpoint.label}: status snapshot is stale; refusing to trust cached readiness")
         return result
 
+    def _status_settling(self, endpoint: Endpoint, deadline: float) -> dict:
+        """Read a status, retrying while the snapshot freshness window has expired.
+
+        Readiness must never be trusted from a stale snapshot, but cleanup must
+        not inherit that refusal: a pause longer than the freshness window is
+        exactly when a queued native reserve can still apply, so aborting the
+        read would leave that reservation owned and unused. Retrying stays honest
+        because the owner check still runs on the fresh result afterwards.
+        """
+        while True:
+            try:
+                return self._status(endpoint)
+            except StaleOwner:
+                if self.clock() >= deadline:
+                    raise
+                LOG.debug("Retrying %s read; snapshot sampling is paused", endpoint.label)
+                self.sleep(self.poll_interval)
+
     def discover(self) -> list[Candidate]:
         server = self._status(self.server)
         if server.get("active") is True:
@@ -450,14 +468,15 @@ class Coordinator:
         After an accepted match the native reservation is consumed by the client
         connections, so ``active`` legitimately becomes false; requiring it here
         would reject the validated success path. What must still hold is that no
-        *different* owner replaced ours during the batch.
+        *different* owner replaced ours during the batch, and readiness cannot
+        stand in for that: a foreign reservation whose ``expiry`` already lapsed
+        reports ``active`` false while keeping its nonzero ``cookie``/``match_id``.
         """
         status = self._status(self.server)
         cookie = identifier(status.get("cookie"), "cookie", hexadecimal=True, allow_zero=True)
         match = identifier(status.get("match_id"), "match_id", hexadecimal=True, allow_zero=True)
         if (cookie, match) != (0, 0) and (cookie, match) != (tx.cookie, tx.match):
-            if status.get("active") is True:
-                raise StaleOwner("server owner changed after the commit batch")
+            raise StaleOwner("server owner changed after the commit batch")
         request = identifier(status.get("request_id"), "request_id", allow_zero=True)
         if tx.request is not None and request > tx.request and status.get("active") is True:
             raise StaleOwner("server request owner changed after the commit batch")
@@ -490,30 +509,28 @@ class Coordinator:
         if tx.attempted:
             self._parallel(tx.attempted, cancel_client)
         if tx.native_requested:
+            deadline = self.clock() + self.prepare_timeout
             try:
                 try:
-                    status = self._status(self.server)
+                    status = self._status_settling(self.server, deadline)
                 except Exception as error:
                     LOG.warning("Cannot read server during cleanup: %s", error)
                     status = None
                 if status is not None:
                     cookie = identifier(status.get("cookie"), "cookie", hexadecimal=True, allow_zero=True)
                     match = identifier(status.get("match_id"), "match_id", hexadecimal=True, allow_zero=True)
-                    if (cookie, match) != (tx.cookie, tx.match):
-                        if self._reserve_pending(tx, status):
-                            # The reservation is still queued; wait for it to
-                            # apply so the following release targets the real
-                            # owner instead of silently skipping it.
-                            LOG.warning("Waiting for the pending native reserve before release")
-                            deadline = self.clock() + self.prepare_timeout
-                            while self._reserve_pending(tx, status):
-                                if self.clock() >= deadline:
-                                    raise GCMMError(
-                                        "native reserve still pending; cleanup incomplete")
-                                self.sleep(self.poll_interval)
-                                status = self._status(self.server)
-                            cookie = identifier(status.get("cookie"), "cookie", hexadecimal=True, allow_zero=True)
-                            match = identifier(status.get("match_id"), "match_id", hexadecimal=True, allow_zero=True)
+                    if (cookie, match) != (tx.cookie, tx.match) and self._reserve_pending(tx, status):
+                        # The reservation is still queued; wait for it to apply
+                        # so the following release targets the real owner instead
+                        # of silently skipping it.
+                        LOG.warning("Waiting for the pending native reserve before release")
+                        while self._reserve_pending(tx, status):
+                            if self.clock() >= deadline:
+                                raise GCMMError("native reserve still pending; cleanup incomplete")
+                            self.sleep(self.poll_interval)
+                            status = self._status_settling(self.server, deadline)
+                        cookie = identifier(status.get("cookie"), "cookie", hexadecimal=True, allow_zero=True)
+                        match = identifier(status.get("match_id"), "match_id", hexadecimal=True, allow_zero=True)
                     if (cookie, match) != (tx.cookie, tx.match):
                         LOG.warning("Skip release: server no longer holds this transaction")
                         return
@@ -523,7 +540,7 @@ class Coordinator:
                 release_request = identifier(release_response.get("request_id"), "request_id")
                 deadline = self.clock() + self.prepare_timeout
                 while True:
-                    status = self._status(self.server)
+                    status = self._status_settling(self.server, deadline)
                     cookie = identifier(status.get("cookie"), "cookie", hexadecimal=True, allow_zero=True)
                     match = identifier(status.get("match_id"), "match_id", hexadecimal=True, allow_zero=True)
                     if (cookie, match) != (tx.cookie, tx.match):
