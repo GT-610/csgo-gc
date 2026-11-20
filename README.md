@@ -40,6 +40,7 @@ While it's still possible to connect CS:GO to CS2's GC by spoofing the version n
 - Functional server browser (only shows csgo_gc servers by default)
 - Networking using Steam's P2P interface
 - Matchmaking UI in the local client, so the official Matchmaking screens can be inspected
+- GCMM (`gcmm/1`), an opt-in RCON control profile for community matchmaking with the game's native ACCEPT dialog and automatic server connection
 
 ## Planned features
 - More validation and polish for edge-case inventory operations
@@ -48,9 +49,11 @@ While it's still possible to connect CS:GO to CS2's GC by spoofing the version n
 I'm still looking for the **full** CS:GO Item Schema. If you have a relatively recent copy of it and are willing to share it, let me know!
 
 ## Currently not planned
-- Matchmaking itself (can't be implemented without a centralized server, possibly will be considered in the future)
+- Valve's own official matchmaking service (a centralized backend this project does not replace)
 
-The Matchmaking screens are a separate matter. The client still ships the full frontend for them and only the menu entry was disabled, so the screens can be brought back. Queueing still needs Valve's own matchmaking backend and does not work, so treat them as something to inspect rather than a way to find games. See [Matchmaking UI](https://csgo-gc.gt610.dpdns.org/user/matchmaking-ui).
+The Matchmaking screens are a separate matter. The client still ships the full frontend for them and only the menu entry was disabled, so the screens can be brought back. See [Matchmaking UI](https://csgo-gc.gt610.dpdns.org/user/matchmaking-ui).
+
+Community matchmaking is available separately through GCMM, which is disabled by default and needs an external coordinator. It runs the client's own ACCEPT dialog, readiness checks and automatic connection against a dedicated server you configure. It does not restore the official Valve queue. See [GC Matchmaking](https://csgo-gc.gt610.dpdns.org/user/gcmm). The reference coordinator in [examples/gcmm](examples/gcmm/README.md) is validated with one real account; ten real clients have not been validated.
 
 ## Installation
 See [User Guide](https://csgo-gc.gt610.dpdns.org/user/).
