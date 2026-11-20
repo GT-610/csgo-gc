@@ -6,6 +6,28 @@
 #include <cstdarg>
 #include <cstdio>
 
+// Test-only access to the connection-worker bookkeeping.
+struct RconServerTests
+{
+    static void AddWorker(RconServer &server, bool finished)
+    {
+        auto flag = std::make_shared<std::atomic<bool>>(finished);
+        std::lock_guard lock{ server.m_mutex };
+        server.m_connectionThreads.push_back(RconServer::ConnectionWorker{
+            std::thread{ [] {} }, flag });
+    }
+
+    static size_t WorkerCount(RconServer &server)
+    {
+        std::lock_guard lock{ server.m_mutex };
+        return server.m_connectionThreads.size();
+    }
+
+    static void Reap(RconServer &server) { server.ReapFinishedConnectionThreads(); }
+
+    static void ReleaseAll(RconServer &server) { server.JoinConnectionThreads(); }
+};
+
 namespace
 {
 
@@ -80,6 +102,27 @@ bool ListenerFailureDisablesRconWithoutRetrying()
         && CountLogs("RCON: disabled for this process after listener failure") == 1;
 }
 
+bool FinishedConnectionThreadsAreReapedWithoutBlocking()
+{
+    RconServer server;
+    RconServerTests::AddWorker(server, true);
+    const size_t before = RconServerTests::WorkerCount(server);
+    // Reaping a finished worker joins it and drops it from the live list.
+    const auto started = std::chrono::steady_clock::now();
+    RconServerTests::Reap(server);
+    const auto elapsed = std::chrono::steady_clock::now() - started;
+    const size_t after = RconServerTests::WorkerCount(server);
+    if (before != 1 || after != 0) return false;
+    if (elapsed > std::chrono::seconds{ 2 }) return false;
+
+    // A worker that never sets its flag must be kept, not joined or dropped.
+    RconServerTests::AddWorker(server, false);
+    RconServerTests::Reap(server);
+    const bool kept = RconServerTests::WorkerCount(server) == 1;
+    RconServerTests::ReleaseAll(server);
+    return kept;
+}
+
 } // namespace
 
 namespace Platform
@@ -115,6 +158,7 @@ std::string ClientGC::RconCommandUsageList()
 int main()
 {
     bool success = ListenerFailureDisablesRconWithoutRetrying();
+    success &= FinishedConnectionThreadsAreReapedWithoutBlocking();
 
     TestFilesystem::RemoveFile("csgo_gc/config.txt");
     TestFilesystem::RemoveDirectory("csgo_gc");

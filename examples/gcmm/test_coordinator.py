@@ -53,6 +53,8 @@ class Server:
         self.lose_reserve_reply = False
         self.initialized = self.enabled = True
         self.defer_release = self.pending_release = False
+        self.defer_reserve = self.pending_reserve = False
+        self.stale = False
         self.before_status = lambda: None
 
     def command(self, command):
@@ -70,6 +72,7 @@ class Server:
                           minimum_stage=min(stages, default=0), accepted=sum(s >= 2 for s in stages),
                           matches_request=self.active, active=self.active,
                           all_accepted=self.lie_all_accepted or bool(stages) and all(s >= 2 for s in stages),
+                          stale=getattr(self, "stale", False), sample_age_ms=5,
                           roster=[{"account_id": account, "stage": stage}
                                   for account, stage in self.roster.items()])
             if name == "gcmm_reserve":
@@ -78,6 +81,13 @@ class Server:
                 self.active = self.last_result = True
                 self.request += 1
                 self.reserves.append(copy.deepcopy(args))
+                if self.defer_reserve:
+                    # Acknowledged but not applied yet: the engine has not run it.
+                    self.pending_reserve = True
+                    self.cookie = self.match = 0
+                    self.roster = {}
+                    self.active = self.last_result = False
+                    return ok("server", request_id=str(self.request), queued=True)
                 if self.lose_reserve_reply:
                     raise gcmm.GCMMError("lost reserve response after native mutation")
                 return ok("server", request_id=str(self.request))
@@ -379,6 +389,71 @@ class CoordinatorTests(unittest.TestCase):
         self.assertFalse(self.server.active)
         self.assertNotEqual(self.server.cookie, 0)
         self.assertEqual(self.clock.sleeps, 1)
+
+    def test_releases_reservation_that_applies_after_a_paused_snapshot(self):
+        # Simulate cleanup running while the queued reserve has not been applied
+        # yet: the coordinator must wait for it, then release the real owner.
+        tx = gcmm.Transaction([gcmm.Candidate(self.clients[0], self.clients[0].account, 1)],
+                              0x1122334455667788, 0x0A0B0C0D)
+        tx.native_requested = True
+        tx.request = 7
+        self.server.request = 7
+        self.server.defer_reserve = True
+        self.server.pending_reserve = True
+        self.server.cookie = self.server.match = 0
+        self.server.reserves.append({"reservationid": hex(tx.cookie), "match_id": hex(tx.match),
+                                     "accounts": str(self.clients[0].account)})
+        def apply_reserve():
+            if self.server.pending_reserve:
+                self.server.cookie, self.server.match = tx.cookie, tx.match
+                self.server.roster = {self.clients[0].account: 0}
+                self.server.active = self.server.last_result = True
+                self.server.pending_reserve = False
+        self.clock.on_sleep = apply_reserve
+        self.coordinator().cleanup(tx)
+        self.assertFalse(self.server.pending_reserve)
+        self.assertEqual(len(self.server.releases), 1)
+        self.assertEqual(self.server.releases[0], (tx.cookie, tx.match))
+
+    def test_foreign_owner_after_the_commit_batch_fails_the_transaction(self):
+        original_check = gcmm.Coordinator._check_clients
+        def steal_after_commits(coordinator, tx, phase="reserved"):
+            original_check(coordinator, tx, phase)
+            if phase == "committed":
+                # Another owner appears only after our whole batch committed.
+                self.server.cookie += 1
+                self.server.active = self.server.last_result = True
+        gcmm.Coordinator._check_clients = steal_after_commits
+        try:
+            self.clock.on_sleep = self.accept_all
+            with self.assertRaises(gcmm.StaleOwner):
+                self.coordinator().run_once(search_timeout=1)
+        finally:
+            gcmm.Coordinator._check_clients = original_check
+
+    def test_consumed_reservation_after_commit_is_not_a_failure(self):
+        original_check = gcmm.Coordinator._check_clients
+        def consume_after_commits(coordinator, tx, phase="reserved"):
+            original_check(coordinator, tx, phase)
+            if phase == "committed":
+                # An accepted match is consumed by the client connections, so
+                # active legitimately becomes false while the owner is ours.
+                self.server.active = False
+                self.server.last_result = True
+        gcmm.Coordinator._check_clients = consume_after_commits
+        try:
+            self.clock.on_sleep = self.accept_all
+            transaction = self.coordinator().run_once(search_timeout=1)
+        finally:
+            gcmm.Coordinator._check_clients = original_check
+        self.assertTrue(all(client.phase == "committed" for client in self.clients))
+        self.assertIsNotNone(transaction)
+
+    def test_stale_server_snapshot_is_refused(self):
+        self.server.stale = True
+        with self.assertRaisesRegex(gcmm.StaleOwner, "stale"):
+            self.coordinator().discover()
+        self.assertEqual(self.server.reserves, [])
 
     def test_invalid_map_and_nonfinite_timeouts_fail_before_network(self):
         for options in [dict(map_name="de_dust2.bsp"), dict(map_name="a" * 129),

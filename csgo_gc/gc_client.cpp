@@ -1153,6 +1153,12 @@ std::string ClientGC::RconMatchmakingAbandon(const RconRequest &request)
     {
         return error;
     }
+    // Only the local account's abandon may clear local match state. A foreign
+    // account would otherwise drop a reservation this client still holds.
+    if (message.has_account_id() && message.account_id() != AccountId())
+    {
+        return "ERR mm_abandon account_id must be the local account";
+    }
 
     m_probeOngoingMatch.reset();
     m_gcmmReservation.reset();
@@ -1902,7 +1908,7 @@ void ClientGC::BuildMatchmakingHello(CMsgGCCStrike15_v2_MatchmakingGC2ClientHell
     {
         message.mutable_ongoingmatch()->CopyFrom(*m_gcmmReservation);
     }
-    else if (m_probeOngoingMatch)
+    else if (m_probeOngoingMatch && m_gcmmPhase == GCMMPhase::Idle)
     {
         message.mutable_ongoingmatch()->CopyFrom(*m_probeOngoingMatch);
     }

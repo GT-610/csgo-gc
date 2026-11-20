@@ -34,10 +34,20 @@ int main()
     s_lastSnapshot.expectedHumans = 2;
     s_lastSnapshot.netTime = 1; s_lastSnapshot.expiry = 20;
     s_lastSnapshot.roster = {{3, 2}, {4, 1}};
+    s_snapshotTaken = std::chrono::steady_clock::now();
+    s_snapshotTakenValid = true;
     auto status = command("gcmm_status");
-    valid &= has(status, "\"active\":true") && has(status, "\"all_accepted\":false");
+    valid &= has(status, "\"active\":true") && has(status, "\"all_accepted\":false")
+        && has(status, "\"stale\":false");
     s_lastSnapshot.roster[1].second = 2;
     valid &= has(command("gcmm_status"), "\"all_accepted\":true");
+
+    // A frozen sample must not keep advertising a live reservation.
+    s_snapshotTaken = std::chrono::steady_clock::now() - std::chrono::seconds{30};
+    auto stale = command("gcmm_status");
+    valid &= has(stale, "\"stale\":true") && has(stale, "\"active\":false")
+        && has(stale, "\"all_accepted\":false") && !has(stale, "\"active\":true");
+    s_snapshotTaken = std::chrono::steady_clock::now();
     valid &= !has(command("gcmm_reserve reservationid=1 match_id=2 accounts=3,4"), "\"queued\":true")
         && !s_pending && s_nextRequest == 1;
     valid &= command("gcmm_reserve reservationid=5 match_id=6 accounts=3,4").starts_with("ERR conflict")

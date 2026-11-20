@@ -5,6 +5,7 @@
 
 #include <cstdio>
 #include <ctime>
+#include <limits>
 
 namespace MMProbe
 {
@@ -86,7 +87,8 @@ bool ParseNumberList(std::string_view text, uint32_t selfAccountId, std::vector<
         {
             uint64_t value;
             auto result = std::from_chars(item.data(), item.data() + item.size(), value);
-            if (item.empty() || result.ec != std::errc{} || result.ptr != item.data() + item.size())
+            if (item.empty() || result.ec != std::errc{} || result.ptr != item.data() + item.size()
+                || value > std::numeric_limits<uint32_t>::max())
             {
                 return false;
             }

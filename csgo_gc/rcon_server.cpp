@@ -403,8 +403,14 @@ void RconServer::ThreadMain()
             break;
         }
 
-        std::lock_guard lock{ m_mutex };
-        m_connectionThreads.emplace_back(&RconServer::HandleConnection, this, ToHandle(clientSocket));
+        {
+            std::lock_guard lock{ m_mutex };
+            auto finished = std::make_shared<std::atomic<bool>>(false);
+            m_connectionThreads.push_back(ConnectionWorker{
+                std::thread{&RconServer::HandleConnection, this, ToHandle(clientSocket), finished},
+                finished });
+        }
+        ReapFinishedConnectionThreads();
     }
 
     {
@@ -433,7 +439,7 @@ void RconServer::MarkListenerFailed()
     }
 }
 
-void RconServer::HandleConnection(uintptr_t socketHandle)
+void RconServer::HandleConnection(uintptr_t socketHandle, std::shared_ptr<std::atomic<bool>> finished)
 {
     SocketType socket = FromHandle(socketHandle);
 
@@ -488,6 +494,7 @@ void RconServer::HandleConnection(uintptr_t socketHandle)
     }
 
     CloseSocket(socket);
+    if (finished) finished->store(true, std::memory_order_release);
 }
 
 bool RconServer::HandlePacketBuffer(uintptr_t socketHandle, std::string &buffer, bool &authenticated)
@@ -641,19 +648,43 @@ std::string RconServer::ExecuteCommand(std::string command)
     return "ERR no client gc";
 }
 
-void RconServer::JoinConnectionThreads()
+void RconServer::ReapFinishedConnectionThreads()
 {
-    std::vector<std::thread> threads;
+    // Join only workers that already returned, so the accept loop never blocks
+    // on an active connection. Joining a finished thread releases its handle.
+    std::vector<ConnectionWorker> finished;
     {
         std::lock_guard lock{ m_mutex };
-        threads.swap(m_connectionThreads);
+        auto &workers = m_connectionThreads;
+        auto done = std::stable_partition(workers.begin(), workers.end(),
+            [](const ConnectionWorker &worker) {
+                return !worker.finished || !worker.finished->load(std::memory_order_acquire);
+            });
+        finished.assign(std::make_move_iterator(done), std::make_move_iterator(workers.end()));
+        workers.erase(done, workers.end());
+    }
+    for (ConnectionWorker &worker : finished)
+    {
+        if (worker.thread.joinable())
+        {
+            worker.thread.join();
+        }
+    }
+}
+
+void RconServer::JoinConnectionThreads()
+{
+    std::vector<ConnectionWorker> workers;
+    {
+        std::lock_guard lock{ m_mutex };
+        workers.swap(m_connectionThreads);
     }
 
-    for (std::thread &thread : threads)
+    for (ConnectionWorker &worker : workers)
     {
-        if (thread.joinable())
+        if (worker.thread.joinable())
         {
-            thread.join();
+            worker.thread.join();
         }
     }
 }

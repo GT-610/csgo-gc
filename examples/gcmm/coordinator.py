@@ -273,6 +273,8 @@ class Coordinator:
             raise GCMMError(f"{endpoint.label}: enable gcmm and RCON independently")
         if endpoint.role == "server" and result.get("initialized") is not True:
             raise GCMMError(f"{endpoint.label}: native adapter unavailable: {result.get('error', 'unsupported build')}")
+        if result.get("stale") is True:
+            raise StaleOwner(f"{endpoint.label}: status snapshot is stale; refusing to trust cached readiness")
         return result
 
     def discover(self) -> list[Candidate]:
@@ -328,6 +330,19 @@ class Coordinator:
             raise GCMMError("server last_result must be a JSON boolean")
         return (status["last_result"] is True and status.get("matches_request") is True
                 and status.get("active") is True)
+
+    @staticmethod
+    def _reserve_pending(tx: Transaction, status: dict) -> bool:
+        """True while the queued reserve has not yet been applied by the engine.
+
+        Acknowledging a native reserve and executing it are separate steps: if
+        server frames pause after the acknowledgement, the cookie can still be
+        the previous (or zero) value even though our reservation is in flight.
+        """
+        return (tx.request is not None
+                and identifier(status.get("request_id"), "request_id", allow_zero=True) == tx.request
+                and status.get("last_result") is False
+                and status.get("active") is not True)
 
     @staticmethod
     def _same_reservation(tx: Transaction, status: dict) -> bool:
@@ -422,11 +437,30 @@ class Coordinator:
             self._parallel(chosen, lambda client: client.endpoint.command(
                 f"gcmm_commit search_id={client.search} {tx.owner_arguments}"))
             self._check_clients(tx, "committed")
+            self._check_post_commit_owner(tx)
             LOG.info("Committed match=0x%016x for %d real client(s); native clients now own connection", tx.match, len(chosen))
             return tx
         except BaseException:
             self.cleanup(tx)
             raise
+
+    def _check_post_commit_owner(self, tx: Transaction) -> None:
+        """Confirm the commit batch did not land on a foreign reservation.
+
+        After an accepted match the native reservation is consumed by the client
+        connections, so ``active`` legitimately becomes false; requiring it here
+        would reject the validated success path. What must still hold is that no
+        *different* owner replaced ours during the batch.
+        """
+        status = self._status(self.server)
+        cookie = identifier(status.get("cookie"), "cookie", hexadecimal=True, allow_zero=True)
+        match = identifier(status.get("match_id"), "match_id", hexadecimal=True, allow_zero=True)
+        if (cookie, match) != (0, 0) and (cookie, match) != (tx.cookie, tx.match):
+            if status.get("active") is True:
+                raise StaleOwner("server owner changed after the commit batch")
+        request = identifier(status.get("request_id"), "request_id", allow_zero=True)
+        if tx.request is not None and request > tx.request and status.get("active") is True:
+            raise StaleOwner("server request owner changed after the commit batch")
 
     def cleanup(self, tx: Transaction) -> None:
         LOG.warning("Aborting owned match=0x%016x; cancelling prepared searches and releasing its server owner", tx.match)
@@ -465,6 +499,21 @@ class Coordinator:
                 if status is not None:
                     cookie = identifier(status.get("cookie"), "cookie", hexadecimal=True, allow_zero=True)
                     match = identifier(status.get("match_id"), "match_id", hexadecimal=True, allow_zero=True)
+                    if (cookie, match) != (tx.cookie, tx.match):
+                        if self._reserve_pending(tx, status):
+                            # The reservation is still queued; wait for it to
+                            # apply so the following release targets the real
+                            # owner instead of silently skipping it.
+                            LOG.warning("Waiting for the pending native reserve before release")
+                            deadline = self.clock() + self.prepare_timeout
+                            while self._reserve_pending(tx, status):
+                                if self.clock() >= deadline:
+                                    raise GCMMError(
+                                        "native reserve still pending; cleanup incomplete")
+                                self.sleep(self.poll_interval)
+                                status = self._status(self.server)
+                            cookie = identifier(status.get("cookie"), "cookie", hexadecimal=True, allow_zero=True)
+                            match = identifier(status.get("match_id"), "match_id", hexadecimal=True, allow_zero=True)
                     if (cookie, match) != (tx.cookie, tx.match):
                         LOG.warning("Skip release: server no longer holds this transaction")
                         return

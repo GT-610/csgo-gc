@@ -66,6 +66,13 @@ bool s_haveSnapshot{};
 std::string s_lastPublished;
 auto s_nextSample = std::chrono::steady_clock::time_point{};
 
+// A status snapshot is only trustworthy while the engine thread keeps sampling.
+// Beyond this age the cached net_time/expiry comparison is meaningless, so the
+// reservation must not be advertised as active.
+constexpr auto SnapshotMaxAge = std::chrono::milliseconds{2000};
+auto s_snapshotTaken = std::chrono::steady_clock::time_point{};
+bool s_snapshotTakenValid{};
+
 #if defined(_WIN32) && defined(_M_IX86)
 // Exact supported installed 1575 engine. These data-layout RVAs are never used
 // unless its on-disk SHA-256 and the public interface's actual slot match.
@@ -235,7 +242,9 @@ std::string StatusJson(uint64_t serverSteamId, bool enabled, bool initialized,
         if (owned && std::find(owned->accounts.begin(), owned->accounts.end(), account) == owned->accounts.end())
             matches = false;
     }
-    const bool active = snapshot.readable && snapshot.cookie != 0 && std::isfinite(snapshot.expiry)
+    const bool fresh = s_snapshotTakenValid
+        && std::chrono::steady_clock::now() - s_snapshotTaken <= SnapshotMaxAge;
+    const bool active = fresh && snapshot.readable && snapshot.cookie != 0 && std::isfinite(snapshot.expiry)
         && std::isfinite(snapshot.netTime) && snapshot.expiry > snapshot.netTime;
     std::ostringstream output;
     output << "OK {\"protocol\":\"gcmm/1\",\"role\":\"server\",\"enabled\":"
@@ -249,6 +258,12 @@ std::string StatusJson(uint64_t serverSteamId, bool enabled, bool initialized,
         << ",\"matches_request\":" << (matches ? "true" : "false") << ",\"active\":"
         << (active ? "true" : "false") << ",\"all_accepted\":"
         << (matches && active && !snapshot.roster.empty() && minimumStage >= 2 ? "true" : "false")
+        << ",\"stale\":" << (fresh ? "false" : "true")
+        << ",\"sample_age_ms\":"
+        << (s_snapshotTakenValid
+                ? std::chrono::duration_cast<std::chrono::milliseconds>(
+                      std::chrono::steady_clock::now() - s_snapshotTaken).count()
+                : -1)
         << ",\"roster\":[";
     for (size_t index = 0; index < snapshot.roster.size(); ++index)
     {
@@ -588,6 +603,8 @@ void OnServerFrame(uint64_t serverSteamId)
         s_serverSteamId = serverSteamId;
         s_lastSnapshot = snapshot;
         s_haveSnapshot = true;
+        s_snapshotTaken = now;
+        s_snapshotTakenValid = true;
         if (request) s_inflight = false;
         status = BoundedResponse(StatusJson(serverSteamId, true, true, s_lastError, snapshot, s_owned));
         s_status = status;

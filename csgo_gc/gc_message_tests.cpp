@@ -4659,6 +4659,14 @@ static bool MatchmakingProbeInjectsOnlyNamedFields()
     valid &= MMProbe::BuildReserve({ "bogus=1" }, AccountId, rejected).rfind("ERR", 0) == 0;
     valid &= MMProbe::BuildReserve({ "port=70000" }, AccountId, rejected).rfind("ERR", 0) == 0;
     valid &= MMProbe::BuildReserve({ "noequals" }, AccountId, rejected).rfind("ERR", 0) == 0;
+    // A value that does not fit the uint32 account fields must not be truncated.
+    valid &= MMProbe::BuildReserve({ "accounts=4294967297" }, AccountId, rejected).rfind("ERR", 0) == 0
+        && MMProbe::BuildReserve({ "accounts=self,4294967296" }, AccountId, rejected).rfind("ERR", 0) == 0
+        && MMProbe::BuildReserve({ "party_ids=4294967297" }, AccountId, rejected).rfind("ERR", 0) == 0
+        && MMProbe::BuildReserve({ "accounts=self,99" }, AccountId, rejected).empty()
+        && rejected.reservation().account_ids_size() == 2;
+    CMsgGCCStrike15_v2_MatchmakingGC2ClientUpdate oversizedUpdate;
+    valid &= MMProbe::BuildUpdate({ "waiting=4294967297" }, AccountId, oversizedUpdate).rfind("ERR", 0) == 0;
 
     ClientGC gc{ SteamId };
 
@@ -4859,14 +4867,31 @@ static bool MatchmakingOngoingProbePreservesHelloAndClears()
         && ParseHostProtobuf(event, abandon) && abandon.account_id() == AccountId;
     valid &= refreshHello(refreshed) && !refreshed.has_ongoingmatch()
         && refreshed.SerializeAsString() == profile;
+
+    // A foreign account's abandon must not clear local state or emit 9112.
+    valid &= gc.RunRconCommand("mm_ongoing ip=127.0.0.1 port=27016 reservationid=42 "
+        "match_id=7 accounts=self").rfind("OK sent 9110 ongoing=1", 0) == 0
+        && receiveHello(refreshed) && refreshed.has_ongoingmatch();
+    valid &= gc.RunRconCommand("mm_abandon account_id=99").rfind("ERR", 0) == 0;
+    valid &= refreshHello(refreshed) && refreshed.has_ongoingmatch();
+    valid &= gc.RunRconCommand("mm_abandon account_id=self").rfind("OK sent 9112", 0) == 0
+        && refreshHello(refreshed) && !refreshed.has_ongoingmatch();
     return valid;
 }
 
-static bool GCMMClientLifecycle()
+static bool GCMMClientLifecycle(bool expectedEnabled)
 {
     constexpr uint64_t SteamId = 76561197960265729ull;
     constexpr uint32_t AccountId = static_cast<uint32_t>(SteamId);
     ClientGC gc{ SteamId };
+    // Fail loudly if the CTest registration and the loaded config disagree;
+    // otherwise the disabled branch would mask an unloaded enabled config.
+    if (GetConfig().m_gcmmEnabled != expectedEnabled)
+    {
+        std::printf("GCMMClientLifecycle: config enabled=%d, expected=%d\n",
+            GetConfig().m_gcmmEnabled ? 1 : 0, expectedEnabled ? 1 : 0);
+        return false;
+    }
     RconServer endpoint;
     int serverCalls = 0;
     endpoint.SetServerCommandHandler([&](std::string_view) -> std::optional<std::string> {
@@ -4991,9 +5016,11 @@ static bool GCMMClientLifecycle()
     valid &= abandoned.size() == 1 && ParseHostProtobuf(abandoned.front(), hello) && !hello.has_ongoingmatch();
     SendGCProtobuf(gc, k_EMsgGCClientHello, refresh);
     gc.RunRconCommand("ping");
+    bool sawAbandonedRefresh = false;
     for (const auto &event : drain())
         if ((event.id & ~ProtobufMask) == k_EMsgGCCStrike15_v2_MatchmakingGC2ClientHello)
-            valid &= ParseHostProtobuf(event, hello) && !hello.has_ongoingmatch();
+            sawAbandonedRefresh = ParseHostProtobuf(event, hello) && !hello.has_ongoingmatch();
+    valid &= sawAbandonedRefresh;
     CMsgGCCStrike15_v2_MatchmakingStart largest;
     largest.set_game_type(462552584); largest.set_client_version(13881);
     std::string roster = std::to_string(AccountId);
@@ -5018,10 +5045,16 @@ static bool GCMMClientLifecycle()
 
 int main(int argc, char **argv)
 {
-    if (argc > 1 && std::string_view{ argv[1] } == "--gcmm")
+    if (argc > 2 && std::string_view{ argv[1] } == "--gcmm")
     {
-        const bool valid = GCMMClientLifecycle();
-        std::printf("GCMMClientLifecycle: %s\n", valid ? "PASS" : "FAIL");
+        const std::string_view mode{ argv[2] };
+        if (mode != "enabled" && mode != "disabled")
+        {
+            std::printf("usage: gc_message_tests --gcmm enabled|disabled\n");
+            return 2;
+        }
+        const bool valid = GCMMClientLifecycle(mode == "enabled");
+        std::printf("GCMMClientLifecycle(%s): %s\n", argv[2], valid ? "PASS" : "FAIL");
         return valid ? 0 : 1;
     }
     if (argc > 1 && std::string_view{ argv[1] } == "--souvenir-output")
