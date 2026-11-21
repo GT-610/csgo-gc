@@ -361,12 +361,20 @@ public:
     }
 };
 
+static std::mutex s_serverGCLifecycleMutex;
+
 class ServerRoundMVPEventListener final : public IGameEventListener2
 {
 public:
     void FireGameEvent(IGameEvent *event) override
     {
-        if (!event || !s_serverGC || strcmp(event->GetName(), "round_mvp"))
+        if (!event || strcmp(event->GetName(), "round_mvp"))
+        {
+            return;
+        }
+
+        std::lock_guard lifecycleLock{ s_serverGCLifecycleMutex };
+        if (!s_serverGC)
         {
             return;
         }
@@ -397,6 +405,7 @@ public:
 
 static ClientGameEventListener s_clientGameEventListener;
 static ServerRoundMVPEventListener s_serverRoundMVPEventListener;
+static std::mutex s_gameEventListenerMutex;
 static bool s_clientRoundMVPListenerRegistered = false;
 static bool s_clientRoundStartListenerRegistered = false;
 static bool s_serverRoundMVPListenerRegistered = false;
@@ -419,8 +428,9 @@ static void InitializeClientGameInterfaces()
     s_engineClient = reinterpret_cast<IVEngineClient *>(s_engineFactory(VEngineClientVersion, nullptr));
 }
 
-static void UpdateGameEventListeners()
+static void UpdateClientGameEventListeners()
 {
+    std::lock_guard lock{ s_gameEventListenerMutex };
     InitializeClientGameInterfaces();
 
     if (!s_gameEventManager)
@@ -458,25 +468,52 @@ static void UpdateGameEventListeners()
             }
         }
     }
-    else
+    else if (s_clientRoundMVPListenerRegistered || s_clientRoundStartListenerRegistered)
     {
-        if (s_clientRoundMVPListenerRegistered || s_clientRoundStartListenerRegistered)
+        s_gameEventManager->RemoveListener(&s_clientGameEventListener);
+        if (s_clientRoundMVPListenerRegistered)
         {
-            s_gameEventManager->RemoveListener(&s_clientGameEventListener);
-            if (s_clientRoundMVPListenerRegistered)
-            {
-                Platform::Print("Unregistered round_mvp listener\n");
-            }
-            if (s_clientRoundStartListenerRegistered)
-            {
-                Platform::Print("Unregistered round_start listener\n");
-            }
-            s_clientRoundMVPListenerRegistered = false;
-            s_clientRoundStartListenerRegistered = false;
+            Platform::Print("Unregistered round_mvp listener\n");
         }
+        if (s_clientRoundStartListenerRegistered)
+        {
+            Platform::Print("Unregistered round_start listener\n");
+        }
+        s_clientRoundMVPListenerRegistered = false;
+        s_clientRoundStartListenerRegistered = false;
+    }
+}
+
+static void UnregisterServerGameEventListener()
+{
+    std::lock_guard lock{ s_gameEventListenerMutex };
+    if (!s_gameEventManager || !s_serverRoundMVPListenerRegistered)
+    {
+        return;
     }
 
-    if (s_serverGC && !s_serverRoundMVPListenerRegistered)
+    s_gameEventManager->RemoveListener(&s_serverRoundMVPEventListener);
+    s_serverRoundMVPListenerRegistered = false;
+    Platform::Print("Unregistered server-side round_mvp listener\n");
+}
+
+static void UpdateServerGameEventListener()
+{
+    std::lock_guard lock{ s_gameEventListenerMutex };
+    InitializeClientGameInterfaces();
+
+    if (!s_gameEventManager)
+    {
+        return;
+    }
+
+    bool serverGCLive;
+    {
+        std::lock_guard lifecycleLock{ s_serverGCLifecycleMutex };
+        serverGCLive = s_serverGC != nullptr;
+    }
+
+    if (serverGCLive && !s_serverRoundMVPListenerRegistered)
     {
         if (s_gameEventManager->AddListener(&s_serverRoundMVPEventListener, "round_mvp", true))
         {
@@ -488,7 +525,7 @@ static void UpdateGameEventListeners()
             Platform::Print("Failed to register server-side round_mvp listener\n");
         }
     }
-    else if (!s_serverGC && s_serverRoundMVPListenerRegistered)
+    else if (!serverGCLive && s_serverRoundMVPListenerRegistered)
     {
         s_gameEventManager->RemoveListener(&s_serverRoundMVPEventListener);
         s_serverRoundMVPListenerRegistered = false;
@@ -594,8 +631,14 @@ public:
                 return;
             }
 
-            s_serverGC = new GCWrapper<ServerGC, NetworkingServer>{
+            auto *serverGC = new GCWrapper<ServerGC, NetworkingServer>{
                 networkingMessages, pipe, user };
+            {
+                std::lock_guard lifecycleLock{ s_serverGCLifecycleMutex };
+                // Publish the pointer only after the wrapper is fully constructed;
+                // the listener update path uses the same lock while observing it.
+                s_serverGC = serverGC;
+            }
             s_rconServer.SetServerCommandHandler(GCMM::ExecuteCommand);
         }
         else
@@ -620,8 +663,12 @@ public:
         if (m_server)
         {
             s_rconServer.SetServerCommandHandler({});
-            delete s_serverGC;
-            s_serverGC = nullptr;
+            UnregisterServerGameEventListener();
+            {
+                std::lock_guard lifecycleLock{ s_serverGCLifecycleMutex };
+                delete s_serverGC;
+                s_serverGC = nullptr;
+            }
 
             s_steamGameServer = nullptr;
         }
@@ -1968,7 +2015,7 @@ static void Hk_SteamAPI_RunCallbacks()
 
     Og_SteamAPI_RunCallbacks();
 
-    UpdateGameEventListeners();
+    UpdateClientGameEventListeners();
 
     if (s_clientGC)
     {
@@ -2058,7 +2105,7 @@ static void Hk_SteamGameServer_RunCallbacks()
 {
     Og_SteamGameServer_RunCallbacks();
 
-    UpdateGameEventListeners();
+    UpdateServerGameEventListener();
 
     if (s_serverGC)
     {
