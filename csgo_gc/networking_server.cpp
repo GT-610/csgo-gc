@@ -10,6 +10,13 @@ constexpr uint32_t MaxConnectAttempts = 6;
 constexpr std::chrono::seconds ConnectRetryBaseDelay{ 2 };
 constexpr std::chrono::seconds ConnectRetryMaxDelay{ 30 };
 
+// Once the burst above is spent the handshake does not stop: it keeps probing at this
+// slow rate for as long as the client stays on the list. A client that was not ready
+// during the burst window (its csgo_gc not loaded yet, a map load swallowing the
+// messages, the GC starting after the client joined) would otherwise sit without a
+// session for the rest of the map and show an empty inventory until it reconnected.
+constexpr std::chrono::seconds ConnectRetryIdleDelay{ 60 };
+
 static std::chrono::seconds ConnectRetryDelay(uint32_t attempts)
 {
     // attempts is the number of connect messages sent so far
@@ -119,14 +126,22 @@ void NetworkingServer::SendConnectMessage(uint64_t steamId, ClientSession &sessi
     }
 
     session.connectAttempts++;
-    session.nextConnect = now + ConnectRetryDelay(session.connectAttempts);
+
+    // The burst covers the window where the client is expected to be ready; past it the
+    // handshake keeps probing slowly instead of giving up, so a client that missed the
+    // burst still recovers without reconnecting.
+    session.nextConnect = now + (session.connectAttempts >= MaxConnectAttempts
+        ? ConnectRetryIdleDelay
+        : ConnectRetryDelay(session.connectAttempts));
 
     if (session.connectAttempts == MaxConnectAttempts)
     {
-        Platform::Print("NetworkingServer: giving up the connect handshake with %llu after %u attempts\n",
-            steamId, session.connectAttempts);
+        Platform::Print("NetworkingServer: connect handshake with %llu used its %u fast attempts, "
+            "continuing at one probe every %llds\n",
+            steamId, session.connectAttempts,
+            static_cast<long long>(ConnectRetryIdleDelay.count()));
     }
-    else if (session.connectAttempts > 1)
+    else if (session.connectAttempts > 1 && session.connectAttempts < MaxConnectAttempts)
     {
         Platform::Print("NetworkingServer: connect handshake with %llu, attempt %u/%u%s\n",
             steamId, session.connectAttempts, MaxConnectAttempts,
@@ -138,8 +153,7 @@ void NetworkingServer::Update(std::chrono::steady_clock::time_point now)
 {
     for (auto &[steamId, session] : m_clients)
     {
-        if (session.hasSOCache || session.connectAttempts >= MaxConnectAttempts
-            || now < session.nextConnect)
+        if (session.hasSOCache || now < session.nextConnect)
         {
             continue;
         }
@@ -259,13 +273,14 @@ void NetworkingServer::HandleSessionRequest(uint64_t steamId)
         Platform::Print("AcceptSessionWithUser with %llu failed???\n", steamId);
     }
 
-    if (it->second.hasSOCache || it->second.connectAttempts >= MaxConnectAttempts)
+    if (it->second.hasSOCache)
     {
         return;
     }
 
     // The client is reaching out right now, so the path is up. No reason to wait for
-    // the next retry slot.
+    // the next retry slot, and the spent burst budget is no reason to stay silent: a
+    // peer that asks for a session is worth another connect message at any point.
     SendConnectMessage(steamId, it->second, std::chrono::steady_clock::now());
 }
 
@@ -278,16 +293,10 @@ void NetworkingServer::HandleSessionFailed(uint64_t steamId)
     }
 
     // Whatever the client told us may have been lost with the session, so the socache
-    // has to be asked for again instead of trusting the previous handshake.
-    if (it->second.hasSOCache)
-    {
-        // The handshake did succeed, so its attempt budget is spent history. Give the
-        // re-handshake a fresh budget; otherwise a client that only answered on the
-        // last allowed attempt could never be reached again. A session that was never
-        // acknowledged keeps its count, so a broken path does not buy extra attempts.
-        it->second.connectAttempts = 0;
-    }
-
+    // has to be asked for again instead of trusting the previous handshake. The failure
+    // also means the path just went down and may come back, so the handshake starts a
+    // fresh fast burst rather than waiting out the idle probe interval.
+    it->second.connectAttempts = 0;
     it->second.hasSOCache = false;
     it->second.nextConnect = std::chrono::steady_clock::now();
 }

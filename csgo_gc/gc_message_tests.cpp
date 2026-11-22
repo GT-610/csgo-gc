@@ -458,7 +458,23 @@ static bool NetworkingServerRetriesHandshakeAfterSessionFailure()
     return valid;
 }
 
-static bool NetworkingServerGivesUpAfterMaxConnectAttempts()
+// Drives the handshake past its fast burst: 2s, 4s, 8s, 16s, 30s doubling delays put the
+// sixth connect message at 60s, so 119 seconds of one-second steps lands right after the
+// burst is spent and before the first idle probe.
+static std::chrono::steady_clock::time_point ExhaustConnectBurst(
+    NetworkingServer &networking, std::chrono::steady_clock::time_point connected)
+{
+    auto time = connected;
+    for (int i = 0; i < 119; i++)
+    {
+        time += std::chrono::seconds{ 1 };
+        networking.Update(time);
+    }
+
+    return time;
+}
+
+static bool NetworkingServerKeepsProbingAfterFastBurst()
 {
     TestSteamNetworkingMessages messages;
     NetworkingServer networking{ &messages };
@@ -466,82 +482,115 @@ static bool NetworkingServerGivesUpAfterMaxConnectAttempts()
     constexpr uint64_t SteamId = 76561198083722517ull;
     constexpr uint8_t Ticket = 1;
     networking.ClientConnected(SteamId, &Ticket, sizeof(Ticket));
+    const auto connected = std::chrono::steady_clock::now();
 
-    auto time = std::chrono::steady_clock::now();
-    for (int i = 0; i < 10; i++)
-    {
-        time += std::chrono::seconds{ 60 };
-        networking.Update(time);
-    }
-
+    const auto burstEnd = ExhaustConnectBurst(networking, connected);
     bool valid = messages.sentPayloads.size() == 6;
 
-    // A session request is a reason to send early, not a reason to exceed the budget.
-    networking.HandleSessionRequest(SteamId);
-    valid &= messages.sentPayloads.size() == 6;
+    // The burst is spent, but the handshake keeps probing: a client that was not ready
+    // during the burst has to be able to recover without reconnecting.
+    networking.Update(burstEnd + std::chrono::seconds{ 1 });
+    valid &= messages.sentPayloads.size() == 7;
+
+    networking.Update(burstEnd + std::chrono::seconds{ 60 });
+    valid &= messages.sentPayloads.size() == 7;
+
+    networking.Update(burstEnd + std::chrono::seconds{ 61 });
+    valid &= messages.sentPayloads.size() == 8;
+
+    // The probe stops as soon as the socache answers it.
+    const std::vector<uint8_t> socache = BuildServerSocacheMessage(SteamId);
+    networking.HandleIncomingMessage(SteamId, socache.data(), static_cast<uint32_t>(socache.size()));
+
+    networking.Update(burstEnd + std::chrono::seconds{ 600 });
+    valid &= messages.sentPayloads.size() == 8;
 
     return valid;
 }
 
-static bool NetworkingServerReArmsBudgetAfterAcknowledgedSessionFailure()
+static bool NetworkingServerRetriesHandshakeOnSessionRequestAfterBurst()
+{
+    TestSteamNetworkingMessages messages;
+    NetworkingServer networking{ &messages };
+
+    constexpr uint64_t SteamId = 76561198083722517ull;
+    constexpr uint8_t Ticket = 1;
+    networking.ClientConnected(SteamId, &Ticket, sizeof(Ticket));
+    const auto connected = std::chrono::steady_clock::now();
+
+    ExhaustConnectBurst(networking, connected);
+    if (messages.sentPayloads.size() != 6)
+    {
+        return false;
+    }
+
+    // A session request means the path is up right now, so it is worth a connect
+    // message even though the fast burst is spent.
+    networking.HandleSessionRequest(SteamId);
+    bool valid = messages.sentPayloads.size() == 7
+        && messages.acceptedSteamIds.size() == 1
+        && messages.acceptedSteamIds.back() == SteamId;
+
+    // A session that already answered does not get another connect message.
+    const std::vector<uint8_t> socache = BuildServerSocacheMessage(SteamId);
+    networking.HandleIncomingMessage(SteamId, socache.data(), static_cast<uint32_t>(socache.size()));
+    networking.HandleSessionRequest(SteamId);
+    valid &= messages.sentPayloads.size() == 7;
+
+    return valid;
+}
+
+static bool NetworkingServerReArmsBurstAfterSessionFailure()
 {
     constexpr uint64_t SteamId = 76561198083722517ull;
     constexpr uint8_t Ticket = 1;
 
-    auto exhaustBudget = [&](TestSteamNetworkingMessages &messages, NetworkingServer &networking)
+    // A lost session means the path may come back at any moment, so the handshake goes
+    // back to its fast schedule instead of waiting out the slow idle probe. Without the
+    // re-arm the client would sit without a session for up to a minute longer.
+    auto failuresReArmBurst = [&](bool acknowledgedFirst)
     {
+        TestSteamNetworkingMessages messages;
+        NetworkingServer networking{ &messages };
         networking.ClientConnected(SteamId, &Ticket, sizeof(Ticket));
-        auto time = std::chrono::steady_clock::now();
-        for (int i = 0; i < 10; i++)
-        {
-            time += std::chrono::seconds{ 60 };
-            networking.Update(time);
-        }
-        return messages.sentPayloads.size();
-    };
+        const auto connected = std::chrono::steady_clock::now();
 
-    // Acknowledged on the last allowed attempt: losing the session afterwards must
-    // let the handshake start over, or that client could never be reached again.
-    {
-        TestSteamNetworkingMessages messages;
-        NetworkingServer networking{ &messages };
-        if (exhaustBudget(messages, networking) != 6)
-        {
-            return false;
-        }
-
-        const std::vector<uint8_t> socache = BuildServerSocacheMessage(SteamId);
-        networking.HandleIncomingMessage(SteamId, socache.data(), static_cast<uint32_t>(socache.size()));
-
-        networking.HandleSessionFailed(SteamId);
-        networking.Update(std::chrono::steady_clock::now() + std::chrono::milliseconds{ 1 });
-
-        if (messages.sentPayloads.size() != 7)
-        {
-            return false;
-        }
-    }
-
-    // A session that never acknowledged keeps its exhausted budget, so a broken path
-    // does not buy extra attempts.
-    {
-        TestSteamNetworkingMessages messages;
-        NetworkingServer networking{ &messages };
-        if (exhaustBudget(messages, networking) != 6)
-        {
-            return false;
-        }
-
-        networking.HandleSessionFailed(SteamId);
-        networking.Update(std::chrono::steady_clock::now() + std::chrono::milliseconds{ 1 });
-
+        ExhaustConnectBurst(networking, connected);
         if (messages.sentPayloads.size() != 6)
         {
             return false;
         }
-    }
 
-    return true;
+        if (acknowledgedFirst)
+        {
+            const std::vector<uint8_t> socache = BuildServerSocacheMessage(SteamId);
+            networking.HandleIncomingMessage(SteamId, socache.data(),
+                static_cast<uint32_t>(socache.size()));
+        }
+
+        networking.HandleSessionFailed(SteamId);
+
+        // Due straight away, because the failure just proved the path was in use.
+        const auto failed = std::chrono::steady_clock::now();
+        networking.Update(failed + std::chrono::milliseconds{ 1 });
+        if (messages.sentPayloads.size() != 7)
+        {
+            return false;
+        }
+
+        // And the retry after that is on the 2 second fast delay, not the 60 second idle
+        // one: at +2s nothing is due yet, at +3s the next connect goes out.
+        networking.Update(failed + std::chrono::seconds{ 2 });
+        if (messages.sentPayloads.size() != 7)
+        {
+            return false;
+        }
+
+        networking.Update(failed + std::chrono::seconds{ 3 });
+        return messages.sentPayloads.size() == 8;
+    };
+
+    return failuresReArmBurst(true) && failuresReArmBurst(false);
 }
 
 static bool NetworkingServerRetriesOrdinarySendAfterClosingSession()
@@ -5089,10 +5138,12 @@ int main(int argc, char **argv)
             NetworkingServerRetriesHandshakeOnSessionRequest },
         { "NetworkingServerRetriesHandshakeAfterSessionFailure",
             NetworkingServerRetriesHandshakeAfterSessionFailure },
-        { "NetworkingServerGivesUpAfterMaxConnectAttempts",
-            NetworkingServerGivesUpAfterMaxConnectAttempts },
-        { "NetworkingServerReArmsBudgetAfterAcknowledgedSessionFailure",
-            NetworkingServerReArmsBudgetAfterAcknowledgedSessionFailure },
+        { "NetworkingServerKeepsProbingAfterFastBurst",
+            NetworkingServerKeepsProbingAfterFastBurst },
+        { "NetworkingServerRetriesHandshakeOnSessionRequestAfterBurst",
+            NetworkingServerRetriesHandshakeOnSessionRequestAfterBurst },
+        { "NetworkingServerReArmsBurstAfterSessionFailure",
+            NetworkingServerReArmsBurstAfterSessionFailure },
         { "NetworkingServerRetriesOrdinarySendAfterClosingSession",
             NetworkingServerRetriesOrdinarySendAfterClosingSession },
         { "NetworkingServerForgetsClientOnDisconnect",
