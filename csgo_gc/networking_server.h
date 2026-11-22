@@ -38,8 +38,8 @@ private:
         std::vector<uint8_t> ticket;
 
         // Number of connect messages sent for this session, and when the next one is
-        // due. The handshake stops once the client's socache arrives or the attempts
-        // run out.
+        // due. The handshake runs a fast burst first and then keeps probing at the idle
+        // interval until the client's socache arrives; the count only selects the delay.
         uint32_t connectAttempts{};
         std::chrono::steady_clock::time_point nextConnect{};
 
