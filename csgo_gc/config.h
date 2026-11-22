@@ -46,6 +46,18 @@ public:
     // default: it is a diagnostic aid, not runtime behavior.
     bool m_mmProbe{ false };
 
+    // Watch page passthrough. When enabled, the client hello and the tournament
+    // match list requests are forwarded to the real Valve GC while everything
+    // else keeps going to the local ClientGC. Off by default: it needs the app
+    // the game is logged on to to still have a live CS:GO GC, and the replies it
+    // folds back are whatever that backend still has.
+    bool m_watchPassthrough{ false };
+
+    // Client build advertised in the forwarded hello. 0 forwards the client's
+    // own version. The real GC gates tournament data on the client build, so a
+    // high value is what makes it answer at all.
+    uint32_t m_watchPassthroughHelloVersion{ 0 };
+
     // GC Matchmaking Protocol native-control profile. Requires an external
     // coordinator through the separately configured Source RCON listener.
     bool m_gcmmEnabled{ false };

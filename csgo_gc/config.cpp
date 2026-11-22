@@ -38,6 +38,13 @@ GCConfig::GCConfig()
     m_allowUnsignedPanorama = config.GetNumber("allow_unsigned_panorama", m_allowUnsignedPanorama);
     m_mmProbe = config.GetNumber("mm_probe", m_mmProbe);
 
+    if (const KeyValue *watch = config.GetSubkey("watch_passthrough"))
+    {
+        m_watchPassthrough = watch->GetNumber("enabled", m_watchPassthrough);
+        m_watchPassthroughHelloVersion =
+            watch->GetNumber("hello_version", m_watchPassthroughHelloVersion);
+    }
+
     if (const KeyValue *gcmm = config.GetSubkey("gcmm"))
     {
         m_gcmmEnabled = gcmm->GetNumber("enabled", m_gcmmEnabled);
@@ -115,6 +122,13 @@ void GCConfig::PrintDiagnostics() const
     {
         Platform::Print("config: unknown music_kit_stattrak value '%s', using competitive\n",
             m_unknownMusicKitStatTrak.c_str());
+    }
+
+    if (m_watchPassthrough)
+    {
+        Platform::Print("config: watch_passthrough enabled, advertising client version %u in the "
+                        "forwarded hello\n",
+            m_watchPassthroughHelloVersion);
     }
 }
 

@@ -16,6 +16,7 @@
 #include "gc_server.h"
 #include "local_user_stats.h"
 #include "mm_probe.h"
+#include "watch_passthrough.h"
 #include "gcmm_native.h"
 #include "panorama.h"
 #include "platform.h"
@@ -598,10 +599,81 @@ class SteamGameCoordinatorProxy final
 {
     const bool m_server;
 
+    // Set once each entry point has published its trampoline. The coordinator
+    // entry points are called every frame, and rebuilding the closures there would
+    // allocate for no reason.
+    bool m_sendInstalled{ false };
+    bool m_availableInstalled{ false };
+    bool m_retrieveInstalled{ false };
+
     // False when this side had no usable Steam interfaces at construction time.
     bool HasGC() const
     {
         return m_server ? s_serverGC != nullptr : s_clientGC != nullptr;
+    }
+
+    // Hands the original coordinator interface to the passthrough module so it can
+    // both forward requests and drain the replies the real GC queues up. Each entry
+    // point installs its own trampoline, because the original is only callable
+    // through the trampoline matching its own signature. Repeating this is free:
+    // the module keeps the trampolines until they are detached.
+    template<typename Orig>
+    void InstallSend(Orig original)
+    {
+        if (m_sendInstalled)
+        {
+            return;
+        }
+
+        m_sendInstalled = true;
+        WatchPassthrough::AttachSend(original.self,
+            [original](uint32_t type, const void *data, uint32_t size) {
+                return static_cast<int>(original(type, data, size));
+            });
+    }
+
+    template<typename Orig>
+    void InstallAvailable(Orig original)
+    {
+        if (m_availableInstalled)
+        {
+            return;
+        }
+
+        m_availableInstalled = true;
+        WatchPassthrough::AttachAvailable(original.self, [original](uint32_t *size) {
+            return original(size);
+        });
+    }
+
+    template<typename Orig>
+    void InstallRetrieve(Orig original)
+    {
+        if (m_retrieveInstalled)
+        {
+            return;
+        }
+
+        m_retrieveInstalled = true;
+        WatchPassthrough::AttachRetrieve(original.self,
+            [original](uint32_t *type, void *dest, uint32_t destSize, uint32_t *size) {
+                return static_cast<int>(original(type, dest, destSize, size));
+            });
+    }
+
+    // Watches only. The hello is forwarded so the real GC considers this client
+    // connected, but the local GC still answers it: the game's welcome, inventory
+    // and everything else stays with us.
+    bool ForwardHello(uint32_t type, const void *data, uint32_t size)
+    {
+        return WatchPassthrough::Forward(type, data, size);
+    }
+
+    // Returns true when the request now belongs to the real GC, in which case the
+    // local GC must not answer it as well.
+    bool ForwardRequest(uint32_t type, const void *data, uint32_t size)
+    {
+        return WatchPassthrough::Forwards(type) && WatchPassthrough::Forward(type, data, size);
     }
 
 public:
@@ -679,13 +751,15 @@ public:
                 s_rconServer.UnregisterClient(&s_clientGC->m_gc);
             }
 
+            WatchPassthrough::DetachAll();
+
             delete s_clientGC;
             s_clientGC = nullptr;
             s_pendingMicroTransactionAuthorization.reset();
         }
     }
 
-    EGCResults SendMessage(auto, uint32 unMsgType, const void *pubData, uint32 cubData)
+    EGCResults SendMessage(auto original, uint32 unMsgType, const void *pubData, uint32 cubData)
     {
         if (!HasGC())
         {
@@ -695,6 +769,30 @@ public:
         }
 
         MMProbe::Observe(m_server, true, unMsgType, pubData, cubData);
+
+        if (!m_server && WatchPassthrough::IsEnabled())
+        {
+            InstallSend(original);
+
+            if (WatchPassthrough::IsHello(unMsgType))
+            {
+                ForwardHello(unMsgType, pubData, cubData);
+            }
+            else if (WatchPassthrough::Forwards(unMsgType))
+            {
+                if (ForwardRequest(unMsgType, pubData, cubData))
+                {
+                    // The real GC owns this job now; answering it here as well
+                    // would deliver a second, empty reply for the same job id.
+                    return k_EGCResultOK;
+                }
+
+                // No upstream session (or the Steam call failed), so the game
+                // gets the same empty answer it would get without the option.
+                Platform::Print("watch passthrough: could not forward %s, answering locally\n",
+                    MessageName(unMsgType & ~ProtobufMask));
+            }
+        }
 
         if (m_server)
         {
@@ -708,11 +806,16 @@ public:
         return k_EGCResultOK;
     }
 
-    bool IsMessageAvailable(auto, uint32 *pcubMsgSize)
+    bool IsMessageAvailable(auto original, uint32 *pcubMsgSize)
     {
         if (!HasGC())
         {
             return false;
+        }
+
+        if (!m_server && WatchPassthrough::IsEnabled())
+        {
+            InstallAvailable(original);
         }
 
         if (m_server)
@@ -725,11 +828,16 @@ public:
         }
     }
 
-    EGCResults RetrieveMessage(auto, uint32 *punMsgType, void *pubDest, uint32 cubDest, uint32 *pcubMsgSize)
+    EGCResults RetrieveMessage(auto original, uint32 *punMsgType, void *pubDest, uint32 cubDest, uint32 *pcubMsgSize)
     {
         if (!HasGC())
         {
             return k_EGCResultNoMessage;
+        }
+
+        if (!m_server && WatchPassthrough::IsEnabled())
+        {
+            InstallRetrieve(original);
         }
 
         bool result;
@@ -2058,6 +2166,29 @@ static void Hk_SteamAPI_RunCallbacks()
 
         // poll networking
         s_clientGC->m_networking.Update(&s_clientGC->m_gc);
+
+        // Fold the tournament replies the real GC produced into the same queue,
+        // so the game picks them up on this pass. Nothing else is kept: the local
+        // GC owns the rest of the conversation.
+        if (WatchPassthrough::IsEnabled())
+        {
+            std::vector<std::pair<uint32_t, std::vector<uint8_t>>> replies;
+            std::vector<uint32_t> droppedTypes;
+            WatchPassthrough::Pump(replies, droppedTypes);
+
+            for (auto &[type, buffer] : replies)
+            {
+                Platform::Print("watch passthrough: delivering %s (%u bytes)\n",
+                    MessageName(type & ~ProtobufMask), static_cast<uint32_t>(buffer.size()));
+                s_clientGC->m_messageQueue.AddMessage(type, std::move(buffer));
+            }
+
+            for (uint32_t type : droppedTypes)
+            {
+                Platform::Print("watch passthrough: dropping upstream %s\n",
+                    MessageName(type & ~ProtobufMask));
+            }
+        }
 
         // run client gc callbacks
         uint32_t messageSize;
