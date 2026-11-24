@@ -1,9 +1,81 @@
 // Exercise the native adapter's command queue without loading or calling the engine.
 #include "gcmm_native.cpp"
+#include <cstdarg>
 
 namespace Platform
 {
-void Print(const char *, ...) {}
+static std::vector<std::string> s_testLogs;
+void Print(const char *format, ...)
+{
+    char buffer[8192];
+    va_list args;
+    va_start(args, format);
+    std::vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+    s_testLogs.emplace_back(buffer);
+}
+}
+
+static bool StatusLoggingIgnoresSampleAge()
+{
+    using namespace GCMM;
+    using Clock = std::chrono::steady_clock;
+    const auto savedTaken = s_snapshotTaken;
+    const bool savedValid = s_snapshotTakenValid;
+    const auto epoch = Clock::time_point{} + std::chrono::seconds{ 10 };
+    s_lastPublished.clear();
+    const size_t before = Platform::s_testLogs.size();
+    SnapshotData snapshot;
+    snapshot.readable = true;
+    auto publish = [&](Clock::time_point now)
+    {
+        PublishStatusIfChanged(BoundedResponse(StatusJson(1001, true, true, "", snapshot, std::nullopt, false, now)));
+    };
+    for (int i = 0; i < 1000; ++i)
+    {
+        const auto now = epoch + std::chrono::milliseconds{ i * 100 };
+        s_snapshotTaken = now - std::chrono::milliseconds{ i % 7 };
+        s_snapshotTakenValid = true;
+        publish(now);
+    }
+    bool valid = Platform::s_testLogs.size() == before + 1
+        && Platform::s_testLogs.back().find("sample_age_ms") == std::string::npos;
+    s_snapshotTaken = epoch;
+    auto diagnostic2 = StatusJson(1001, true, true, "", snapshot, std::nullopt, true,
+        epoch + std::chrono::milliseconds{ 2 });
+    auto diagnostic3 = StatusJson(1001, true, true, "", snapshot, std::nullopt, true,
+        epoch + std::chrono::milliseconds{ 3 });
+    valid &= diagnostic2.find("\"sample_age_ms\":2") != std::string::npos
+        && diagnostic3.find("\"sample_age_ms\":3") != std::string::npos
+        && diagnostic2 != diagnostic3;
+
+    // Real state changes must remain observable without periodic log spam.
+    snapshot.cookie = 1;
+    snapshot.matchId = 2;
+    snapshot.expectedHumans = 1;
+    snapshot.expiry = 20;
+    snapshot.netTime = 1;
+    snapshot.roster = {{3, 1}};
+    publish(epoch);
+    publish(epoch);
+    valid &= Platform::s_testLogs.size() == before + 2;
+    snapshot.roster[0].second = 2;
+    publish(epoch);
+    valid &= Platform::s_testLogs.size() == before + 3;
+    snapshot.netTime = 2; // Time advancing alone does not change the active state.
+    publish(epoch);
+    valid &= Platform::s_testLogs.size() == before + 3;
+    snapshot.netTime = 21;
+    publish(epoch);
+    valid &= Platform::s_testLogs.size() == before + 4;
+    publish(epoch + std::chrono::seconds{ 3 });
+    valid &= Platform::s_testLogs.size() == before + 5
+        && Platform::s_testLogs.back().find("\"stale\":true") != std::string::npos;
+
+    s_snapshotTaken = savedTaken;
+    s_snapshotTakenValid = savedValid;
+    s_lastPublished.clear();
+    return valid;
 }
 
 int main()
@@ -72,6 +144,8 @@ int main()
     valid &= has(command("gcmm_status"), "\"initialized\":false")
         && command("gcmm_reserve reservationid=1 match_id=2 accounts=3").starts_with("ERR unsupported");
 #endif
+    const bool loggingValid = StatusLoggingIgnoresSampleAge();
+    std::printf("GCMMNativeStatusLogging: %s\n", loggingValid ? "PASS" : "FAIL");
     std::printf("GCMMNativeCommandQueue: %s\n", valid ? "PASS" : "FAIL");
-    return valid ? 0 : 1;
+    return valid && loggingValid ? 0 : 1;
 }
