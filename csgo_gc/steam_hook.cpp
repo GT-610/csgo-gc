@@ -192,6 +192,12 @@ struct PendingMicroTransactionAuthorization
 static std::optional<PendingMicroTransactionAuthorization> s_pendingMicroTransactionAuthorization;
 constexpr auto MicroTransactionAuthorizationDelay = std::chrono::milliseconds{ 150 };
 
+// The game hides/grabs the mouse while it waits for the overlay checkout. Restoring
+// right as the purchase finalizes can be undone by the game's own post-purchase UI
+// handling, so wait a moment first.
+static std::optional<std::chrono::steady_clock::time_point> s_pendingCursorRestore;
+constexpr auto CursorRestoreDelay = std::chrono::milliseconds{ 500 };
+
 struct PlayerInfo
 {
     uint64_t version;
@@ -682,6 +688,7 @@ public:
             delete s_clientGC;
             s_clientGC = nullptr;
             s_pendingMicroTransactionAuthorization.reset();
+            s_pendingCursorRestore.reset();
         }
     }
 
@@ -2050,10 +2057,20 @@ static void Hk_SteamAPI_RunCallbacks()
                     event.id);
                 break;
 
+            case HostEvent::RestoreMouseCursor:
+                s_pendingCursorRestore = callbackPassStarted + CursorRestoreDelay;
+                break;
+
             default:
                 assert(false);
                 break;
             }
+        }
+
+        if (s_pendingCursorRestore && *s_pendingCursorRestore <= callbackPassStarted)
+        {
+            s_pendingCursorRestore.reset();
+            Platform::RestoreMouseCursor();
         }
 
         // poll networking

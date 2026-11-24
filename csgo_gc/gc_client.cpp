@@ -2715,6 +2715,10 @@ void ClientGC::StorePurchaseFinalize(GCMessageRead &messageRead)
         SendStatsSubscriptionStatus();
     }
 
+    // the game hides the cursor while it waits for the overlay checkout, which
+    // never really happens here
+    PostToHost(HostEvent::RestoreMouseCursor, 0, nullptr, 0);
+
     // done with this one
     m_transactionId = 0;
     m_transactionLineItems.clear();
