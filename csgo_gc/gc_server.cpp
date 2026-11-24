@@ -8,6 +8,7 @@
 #include "item_schema.h"
 #include "music_kit.h"
 #include "networking_shared.h"
+#include "inventory_sync.h"
 
 // yuck!! needed for CSteamID (construct full id from account id)
 #include "steam/steamclientpublic.h"
@@ -135,6 +136,7 @@ void ServerGC::TrackMusicKitFromItem(uint64_t steamId, const CSOEconItem &item)
 
 void ServerGC::TrackMusicKitFromCache(uint64_t steamId, const CMsgSOCacheSubscribed &message)
 {
+    bool hasStatTrakMusicKit = false;
     for (const CMsgSOCacheSubscribed_SubscribedType &object : message.objects())
     {
         if (object.type_id() != SOTypeItem)
@@ -147,9 +149,16 @@ void ServerGC::TrackMusicKitFromCache(uint64_t steamId, const CMsgSOCacheSubscri
             CSOEconItem item;
             if (item.ParseFromString(objectData))
             {
+                hasStatTrakMusicKit |= MusicKit::IsEquippedMusicKit(item, ItemSchema::LoadoutSlotMusicKit)
+                    && MusicKit::IsStatTrak(MusicKit::ReadAttributeValues(item));
                 TrackMusicKitFromItem(steamId, item);
             }
         }
+    }
+    if (!hasStatTrakMusicKit)
+    {
+        std::lock_guard<std::mutex> lock{ m_musicKitMVPStateMutex };
+        ForgetMusicKitStateLocked(steamId);
     }
 }
 
@@ -239,6 +248,10 @@ void ServerGC::HandleEvent(GCEvent type, uint64_t id, const std::vector<uint8_t>
         HandleClientSOCacheUnsubscribe(id);
         break;
 
+    case GCEvent::NetMessageCommitted:
+        TrackMusicKitFromNetMessage(id, buffer.data(), static_cast<uint32_t>(buffer.size()));
+        break;
+
     default:
         Platform::Print("ServerGC::HandleEvent: unknown event type %d\n", static_cast<int>(type));
         break;
@@ -259,8 +272,18 @@ void ServerGC::HandleMessage(uint32_t type, const void *data, uint32_t size)
         switch (messageRead.TypeUnmasked())
         {
         case k_EMsgGCServerHello:
+            if (m_sentWelcome) PostToHost(HostEvent::ResetSOCaches, 0, nullptr, 0);
             SendServerWelcome();
             break;
+
+        case k_ESOMsg_CacheSubscriptionRefresh:
+        {
+            CMsgSOCacheSubscriptionRefresh refresh;
+            if (messageRead.ReadProtobuf(refresh)
+                && refresh.owner_soid().type() == SoIdTypeSteamId && refresh.owner_soid().id())
+                PostToHost(HostEvent::ResetSOCaches, refresh.owner_soid().id(), nullptr, 0);
+            break;
+        }
 
         case k_EMsgGCCStrike15_v2_Server2GCClientValidate:
             // server doesn't want a response so ignore
@@ -387,83 +410,111 @@ bool ValidateMessageOwnerSOID<CMsgSOCacheSubscribed>(GCMessageRead &messageRead,
     return true;
 }
 
-void ServerGC::HandleNetMessage(uint64_t steamId, const void *data, uint32_t size)
+static bool ValidateNetPayload(uint64_t steamId, GCMessageRead &message,
+    std::optional<GCMessageWrite> &sanitized)
 {
-    Platform::Print("HandleNetMessage: %llu, %u bytes\n", steamId, size);
-
-    GCMessageRead validate{ 0, data, size };
-    if (!validate.IsValid())
-    {
-        assert(false);
-        return;
-    }
-
-    if (!validate.IsProtobuf())
-    {
-        if (validate.TypeUnmasked() == k_EMsgNetworkMusicKitMVPState)
-        {
-            UpdateMusicKitMVPState(steamId, validate);
-            return;
-        }
-
-        Platform::Print("ServerGC: ignoring non protobuf message %u from %llu\n",
-            validate.TypeUnmasked(), steamId);
-        return;
-    }
-
-    // validate the type and contents
-    bool isValid = false;
-    std::optional<GCMessageWrite> sanitized;
-
-    switch (validate.TypeUnmasked())
+    if (!message.IsValid() || !message.IsProtobuf()) return false;
+    switch (message.TypeUnmasked())
     {
     case k_ESOMsg_Create:
     case k_ESOMsg_Update:
     case k_ESOMsg_Destroy:
-        isValid = ValidateMessageOwnerSOID<CMsgSOSingleObject>(validate, steamId, sanitized);
-        break;
-
+        return ValidateMessageOwnerSOID<CMsgSOSingleObject>(message, steamId, sanitized);
     case k_ESOMsg_CacheSubscribed:
-        isValid = ValidateMessageOwnerSOID<CMsgSOCacheSubscribed>(validate, steamId, sanitized);
-        break;
-
+        return ValidateMessageOwnerSOID<CMsgSOCacheSubscribed>(message, steamId, sanitized);
     case k_ESOMsg_UpdateMultiple:
-        isValid = ValidateMessageOwnerSOID<CMsgSOMultipleObjects>(validate, steamId, sanitized);
-        break;
-
+        return ValidateMessageOwnerSOID<CMsgSOMultipleObjects>(message, steamId, sanitized);
     case k_EMsgGCItemAcknowledged:
-        isValid = true;
-        break;
+        return true;
+    default:
+        return false;
     }
+}
 
-    if (!isValid)
+static bool ValidateSyncObject(int type, const std::string &data)
+{
+    switch (type)
     {
-        Platform::Print("ServerGC: ignoring net message %u from %llu\n",
-            validate.TypeUnmasked(), steamId);
+    case SOTypeItem:
+    {
+        CSOEconItem item;
+        return item.ParseFromString(data) && item.has_id() && item.id();
+    }
+    case SOTypePersonaDataPublic:
+        return CSOPersonaDataPublic{}.ParseFromString(data);
+    case SOTypeAccountSeasonalOperation:
+        return CSOAccountSeasonalOperation{}.ParseFromString(data);
+    case SOTypeDefaultEquippedDefinitionInstanceClient:
+        return CSOEconDefaultEquippedDefinitionInstanceClient{}.ParseFromString(data);
+    case SOTypeGameAccountClient:
+        return CSOEconGameAccountClient{}.ParseFromString(data);
+    case SOTypeAccountRecurringSubscription:
+        return CSOAccountRecurringSubscription{}.ParseFromString(data);
+    default:
+        return false;
+    }
+}
+
+static bool ValidateSyncObjects(const std::vector<uint8_t> &payload)
+{
+    GCMessageRead read{ 0, payload.data(), static_cast<uint32_t>(payload.size()) };
+    if (read.TypeUnmasked() == k_ESOMsg_CacheSubscribed)
+    {
+        CMsgSOCacheSubscribed message;
+        if (!read.ReadProtobuf(message) || !message.has_version()) return false;
+        for (const auto &type : message.objects())
+            for (const auto &object : type.object_data())
+                if (!ValidateSyncObject(type.type_id(), object)) return false;
+        return true;
+    }
+    if (read.TypeUnmasked() == k_ESOMsg_UpdateMultiple)
+    {
+        CMsgSOMultipleObjects message;
+        if (!read.ReadProtobuf(message) || !message.has_version() || !message.objects_modified_size()) return false;
+        for (const auto &object : message.objects_modified())
+            if (!ValidateSyncObject(object.type_id(), object.object_data())) return false;
+        return true;
+    }
+    CMsgSOSingleObject message;
+    return read.ReadProtobuf(message) && message.has_version()
+        && ValidateSyncObject(message.type_id(), message.object_data());
+}
+
+void ServerGC::HandleNetMessage(uint64_t steamId, const void *data, uint32_t size)
+{
+    GCMessageRead message{ 0, data, size };
+    if (!message.IsValid() || size > InventorySync::MaxPacketBytes) return;
+    if (!message.IsProtobuf())
+    {
+        if (message.TypeUnmasked() == k_EMsgNetworkMusicKitMVPState)
+            UpdateMusicKitMVPState(steamId, message);
+        else if (message.TypeUnmasked() == k_EMsgNetworkInventoryBatch)
+        {
+            InventorySync::Batch batch;
+            if (!InventorySync::ReadBatch(message, batch)) return;
+            for (const auto &payload : batch.messages)
+            {
+                GCMessageRead inner{ 0, payload.data(), static_cast<uint32_t>(payload.size()) };
+                std::optional<GCMessageWrite> sanitized;
+                if (!ValidateNetPayload(steamId, inner, sanitized) || sanitized.has_value()
+                    || !ValidateSyncObjects(payload))
+                {
+                    PostToHost(HostEvent::InventorySyncRejected, steamId, nullptr, 0, EventGeneration());
+                    return;
+                }
+            }
+            if (!m_sentWelcome) SendServerWelcome();
+            PostToHost(HostEvent::ValidatedNetMessage, steamId, data, size, EventGeneration());
+        }
         return;
     }
-
-    // The validated message is parsed again here so the music kit counter can be
-    // tracked from the client's own inventory, which is its authoritative copy.
-    TrackMusicKitFromNetMessage(steamId, data, size);
-
-    if (!m_sentWelcome)
-    {
-        // FIXME: ideally we'd sent this on steam logon, instead of on demand...
-        Platform::Print("Sending server welcome due to net message\n");
-        SendServerWelcome();
-    }
-
+    std::optional<GCMessageWrite> sanitized;
+    if (!ValidateNetPayload(steamId, message, sanitized)) return;
+    if (!m_sentWelcome) SendServerWelcome();
     if (sanitized.has_value())
-    {
-        // pass the sanitized message
-        PostToHost(HostEvent::Message, sanitized->TypeMasked(), sanitized->Data(), sanitized->Size());
-    }
+        PostToHost(HostEvent::ValidatedNetMessage, steamId, sanitized->Data(), sanitized->Size(), EventGeneration());
     else
-    {
-        // otherwise the old message was fine
-        PostToHost(HostEvent::Message, validate.TypeMasked(), data, size);
-    }
+        PostToHost(HostEvent::ValidatedNetMessage, steamId, data, size, EventGeneration());
 }
 
 void ServerGC::UpdateMusicKitMVPState(uint64_t steamId, GCMessageRead &messageRead)

@@ -160,6 +160,8 @@ private:
     std::optional<CMsgGCCStrike15_v2_MatchmakingGC2ClientReserve> m_gcmmReservation;
 
     Inventory m_inventory;
+    uint64_t m_serverPeer{};
+    uint64_t m_serverGeneration{};
     std::unordered_set<uint64_t> m_gameServerEquippedItems;
     std::atomic<int32_t> m_localUserId{};
     std::atomic<int32_t> m_cachedMusicKitMVPs{ -1 };

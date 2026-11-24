@@ -140,6 +140,7 @@ if (BUILD_TESTING)
         gc_shared.cpp
         graffiti.cpp
         gc_message_tests.cpp
+        gc_server.cpp
         rcon_server.cpp
         gc_message.cpp
         inventory.cpp

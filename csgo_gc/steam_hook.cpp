@@ -136,11 +136,19 @@ public:
         return true;
     }
 
-    void AddMessage(uint32_t type, std::vector<uint8_t> &&buffer)
+    void AddMessage(uint32_t type, std::vector<uint8_t> &&buffer, uint64_t peer = 0, uint64_t generation = 0)
     {
         Message &dest = m_messages.emplace();
         dest.type = type;
         dest.buffer = std::move(buffer);
+        dest.peer = peer;
+        dest.generation = generation;
+    }
+
+    void DiscardStale(const std::function<bool(uint64_t, uint64_t)> &current)
+    {
+        while (!m_messages.empty() && m_messages.front().generation
+            && !current(m_messages.front().peer, m_messages.front().generation)) m_messages.pop();
     }
 
 private:
@@ -148,6 +156,8 @@ private:
     {
         uint32_t type{};
         std::vector<uint8_t> buffer;
+        uint64_t peer{};
+        uint64_t generation{};
     };
 
     std::queue<Message> m_messages;
@@ -182,6 +192,7 @@ public:
 // client connect/disconnect notifications
 static GCWrapper<ClientGC, NetworkingClient> *s_clientGC;
 static GCWrapper<ServerGC, NetworkingServer> *s_serverGC;
+static std::atomic<bool> s_serverSOCacheResetPending{};
 static RconServer s_rconServer;
 
 struct PendingMicroTransactionAuthorization
@@ -369,6 +380,11 @@ class ServerRoundMVPEventListener final : public IGameEventListener2
 public:
     void FireGameEvent(IGameEvent *event) override
     {
+        if (event && !strcmp(event->GetName(), "server_spawn"))
+        {
+            s_serverSOCacheResetPending.store(true);
+            return;
+        }
         if (!event || strcmp(event->GetName(), "round_mvp"))
         {
             return;
@@ -410,6 +426,7 @@ static std::mutex s_gameEventListenerMutex;
 static bool s_clientRoundMVPListenerRegistered = false;
 static bool s_clientRoundStartListenerRegistered = false;
 static bool s_serverRoundMVPListenerRegistered = false;
+static bool s_serverSpawnListenerRegistered = false;
 
 static void InitializeClientGameInterfaces()
 {
@@ -488,13 +505,15 @@ static void UpdateClientGameEventListeners()
 static void UnregisterServerGameEventListener()
 {
     std::lock_guard lock{ s_gameEventListenerMutex };
-    if (!s_gameEventManager || !s_serverRoundMVPListenerRegistered)
+    if (!s_gameEventManager || (!s_serverRoundMVPListenerRegistered && !s_serverSpawnListenerRegistered))
     {
         return;
     }
 
     s_gameEventManager->RemoveListener(&s_serverRoundMVPEventListener);
     s_serverRoundMVPListenerRegistered = false;
+    s_serverSpawnListenerRegistered = false;
+    s_serverSOCacheResetPending.store(false);
     Platform::Print("Unregistered server-side round_mvp listener\n");
 }
 
@@ -526,10 +545,17 @@ static void UpdateServerGameEventListener()
             Platform::Print("Failed to register server-side round_mvp listener\n");
         }
     }
-    else if (!serverGCLive && s_serverRoundMVPListenerRegistered)
+    if (serverGCLive && !s_serverSpawnListenerRegistered)
+    {
+        s_serverSpawnListenerRegistered = s_gameEventManager->AddListener(
+            &s_serverRoundMVPEventListener, "server_spawn", true);
+    }
+    if (!serverGCLive && (s_serverRoundMVPListenerRegistered || s_serverSpawnListenerRegistered))
     {
         s_gameEventManager->RemoveListener(&s_serverRoundMVPEventListener);
         s_serverRoundMVPListenerRegistered = false;
+        s_serverSpawnListenerRegistered = false;
+        s_serverSOCacheResetPending.store(false);
         Platform::Print("Unregistered server-side round_mvp listener\n");
     }
 }
@@ -820,6 +846,8 @@ public:
 
         if (m_server)
         {
+            s_serverGC->m_messageQueue.DiscardStale([](uint64_t peer, uint64_t generation)
+                { return s_serverGC->m_networking.Generation(peer) == generation; });
             return s_serverGC->m_messageQueue.IsMessageAvailable(*pcubMsgSize);
         }
         else
@@ -844,6 +872,8 @@ public:
 
         if (m_server)
         {
+            s_serverGC->m_messageQueue.DiscardStale([](uint64_t peer, uint64_t generation)
+                { return s_serverGC->m_networking.Generation(peer) == generation; });
             result = s_serverGC->m_messageQueue.RetrieveMessage(*punMsgType, pubDest, cubDest, *pcubMsgSize);
         }
         else
@@ -2142,7 +2172,7 @@ static void Hk_SteamAPI_RunCallbacks()
                 break;
 
             case HostEvent::NetMessage:
-                s_clientGC->m_networking.SendMessage(event.buffer.data(), static_cast<uint32_t>(event.buffer.size()));
+                s_clientGC->m_networking.SendHostEvent(event);
                 break;
 
             case HostEvent::MicroTransactionResponse:
@@ -2247,6 +2277,7 @@ static void Hk_SteamGameServer_RunCallbacks()
             return;
         }
 
+        if (s_serverSOCacheResetPending.exchange(false)) s_serverGC->m_networking.ResetSOCache();
         GCMM::OnServerFrame(s_steamGameServer->GetSteamID().ConvertToUint64());
 
         std::vector<EventData> events;
@@ -2265,6 +2296,24 @@ static void Hk_SteamGameServer_RunCallbacks()
                 s_serverGC->m_networking.SendHostEvent(event);
                 break;
 
+            case HostEvent::ValidatedNetMessage:
+                s_serverGC->m_networking.DeliverValidatedEvent(event,
+                    [&event](uint32_t type, std::vector<uint8_t> &&payload)
+                    {
+                        s_serverGC->m_gc.PostToGC(GCEvent::NetMessageCommitted, event.id,
+                            payload.data(), static_cast<uint32_t>(payload.size()), event.generation);
+                        s_serverGC->m_messageQueue.AddMessage(type, std::move(payload), event.id, event.generation);
+                    });
+                break;
+
+            case HostEvent::InventorySyncRejected:
+                s_serverGC->m_networking.RejectSync(event);
+                break;
+
+            case HostEvent::ResetSOCaches:
+                s_serverGC->m_networking.ResetSOCache(event.id);
+                break;
+
             default:
                 assert(false);
                 break;
@@ -2272,6 +2321,8 @@ static void Hk_SteamGameServer_RunCallbacks()
         }
 
         // run server gc callbacks
+        s_serverGC->m_messageQueue.DiscardStale([](uint64_t peer, uint64_t generation)
+            { return s_serverGC->m_networking.Generation(peer) == generation; });
         uint32_t messageSize;
         if (s_serverGC->m_messageQueue.IsMessageAvailable(messageSize))
         {
@@ -2283,7 +2334,9 @@ static void Hk_SteamGameServer_RunCallbacks()
         SteamNetworkingMessage_t *message;
         while (s_serverGC->m_networking.ReceiveMessage(message))
         {
-            s_serverGC->m_gc.PostToGC(GCEvent::NetMessage, message->m_identityPeer.GetSteamID64(), message->GetData(), message->GetSize());
+            const uint64_t peer = message->m_identityPeer.GetSteamID64();
+            s_serverGC->m_gc.PostToGC(GCEvent::NetMessage, peer, message->GetData(), message->GetSize(),
+                s_serverGC->m_networking.Generation(peer));
             message->Release();
         }
 
