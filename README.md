@@ -1,13 +1,10 @@
-# csgo_gc_legacy
+# csgo_gc
 
 > [!CAUTION]
 > This project is under active development and is approaching stability, but issues may still exist. Back up your game files before installation.
 
 > [!NOTE]
 > Docs are at https://csgo-gc.gt610.dpdns.org/.
-
-## Why?
-Steam and CS:GO still work on macOS 10.15+ (Catalina), but upstream only compiles builds for macOS 15+ (Sequoia). This fork automatically builds csgo_gc for macOS 11.0+ (Big Sur).
 
 ## What is this?
 In Valve games, the Game Coordinator (GC) is a backend service most notably responsible for matchmaking and inventory management (like loadouts and skins). This project redirects the GC traffic to a custom, in-process implementation.
