@@ -19,4 +19,7 @@ enum ENetworkMsg : uint32_t
     k_EMsgNetworkConnect = (1u << 31) - 1,
     // sent by the client to server to keep round_mvp musickitmvps injectable
     k_EMsgNetworkMusicKitMVPState = (1u << 31) - 2,
+    k_EMsgNetworkInventoryBatch = (1u << 31) - 3,
+    k_EMsgNetworkInventoryStatus = (1u << 31) - 4,
+    k_EMsgNetworkInventoryResync = (1u << 31) - 5,
 };
