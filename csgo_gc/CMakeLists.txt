@@ -47,7 +47,8 @@ add_library(csgo_gc SHARED
     rcon_server.cpp
     saved_item_shuffles.cpp
     souvenir.cpp
-    steam_hook.cpp)
+    steam_hook.cpp
+    watch_passthrough.cpp)
 
 if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
     target_sources(csgo_gc PRIVATE platform_windows.cpp)
@@ -139,6 +140,7 @@ if (BUILD_TESTING)
         gc_shared.cpp
         graffiti.cpp
         gc_message_tests.cpp
+        gc_server.cpp
         rcon_server.cpp
         gc_message.cpp
         inventory.cpp
@@ -465,4 +467,40 @@ if (BUILD_TESTING)
     endif()
 
     add_test(NAME music_kit_tests COMMAND music_kit_tests)
+
+    # Watch page passthrough (issue #152). Config-driven, so each case gets its
+    # own working directory with the config.txt it expects.
+    add_executable(watch_passthrough_tests
+        config.cpp
+        keyvalue.cpp
+        watch_passthrough.cpp
+        watch_passthrough_tests.cpp)
+
+    target_precompile_headers(watch_passthrough_tests PRIVATE stdafx.h)
+    target_link_libraries(watch_passthrough_tests PRIVATE
+        csgo_gc_protobufs
+        Threads::Threads)
+
+    if (MSVC)
+        target_compile_options(watch_passthrough_tests PRIVATE /W4 /wd4244 /wd4819)
+        target_compile_definitions(watch_passthrough_tests PRIVATE _CRT_SECURE_NO_WARNINGS)
+    else()
+        target_compile_options(watch_passthrough_tests PRIVATE -Wall -Wextra)
+    endif()
+
+    set(WATCH_PASSTHROUGH_TEST_WORKING_DIRECTORY
+        "${CMAKE_CURRENT_BINARY_DIR}/watch_passthrough_test_workdir")
+    file(MAKE_DIRECTORY "${WATCH_PASSTHROUGH_TEST_WORKING_DIRECTORY}/csgo_gc")
+    file(WRITE "${WATCH_PASSTHROUGH_TEST_WORKING_DIRECTORY}/csgo_gc/config.txt"
+        "\"watch_passthrough\" { \"enabled\" \"1\" \"hello_version\" \"9999\" }\n")
+    add_test(NAME watch_passthrough_tests COMMAND watch_passthrough_tests)
+    set_tests_properties(watch_passthrough_tests PROPERTIES
+        WORKING_DIRECTORY "${WATCH_PASSTHROUGH_TEST_WORKING_DIRECTORY}" TIMEOUT 20)
+
+    set(WATCH_PASSTHROUGH_DISABLED_WORKING_DIRECTORY
+        "${CMAKE_CURRENT_BINARY_DIR}/watch_passthrough_disabled_workdir")
+    file(MAKE_DIRECTORY "${WATCH_PASSTHROUGH_DISABLED_WORKING_DIRECTORY}/csgo_gc")
+    add_test(NAME watch_passthrough_disabled COMMAND watch_passthrough_tests config)
+    set_tests_properties(watch_passthrough_disabled PROPERTIES
+        WORKING_DIRECTORY "${WATCH_PASSTHROUGH_DISABLED_WORKING_DIRECTORY}" TIMEOUT 10)
 endif()

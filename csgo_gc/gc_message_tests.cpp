@@ -5,6 +5,7 @@
 #include "mm_probe.h"
 #include "networking_client.h"
 #include "networking_server.h"
+#include "gc_server.h"
 #include "rcon_server.h"
 #include "test_filesystem.h"
 
@@ -358,7 +359,7 @@ static bool NetworkingServerRefreshesTicketOnDuplicateConnect()
     }
 
     const std::vector<uint8_t> &payload = messages.sentPayloads.back();
-    if (payload.size() != TicketSizeOffset + sizeof(uint32_t) + sizeof(secondTicket))
+    if (payload.size() < TicketSizeOffset + sizeof(uint32_t) + sizeof(secondTicket))
     {
         return false;
     }
@@ -368,18 +369,71 @@ static bool NetworkingServerRefreshesTicketOnDuplicateConnect()
 
     return ticketSize == sizeof(secondTicket)
         && std::equal(std::begin(secondTicket), std::end(secondTicket),
-            payload.end() - sizeof(secondTicket));
+            payload.begin() + TicketSizeOffset + sizeof(uint32_t));
 }
 
 static std::vector<uint8_t> BuildServerSocacheMessage(uint64_t steamId)
 {
     CMsgSOCacheSubscribed subscribed;
+    subscribed.set_version(1);
     subscribed.mutable_owner_soid()->set_type(SoIdTypeSteamId);
     subscribed.mutable_owner_soid()->set_id(steamId);
 
     GCMessageWrite write{ k_ESOMsg_CacheSubscribed, subscribed };
     const auto *data = static_cast<const uint8_t *>(write.Data());
     return { data, data + write.Size() };
+}
+
+// Two Hello messages bracket the worker task as an ordered test barrier. These
+// tests inspect validation output, so lifecycle reset events from the barrier are
+// deliberately not dispatched to NetworkingServer.
+static std::optional<std::vector<EventData>> CollectServerEvents(ServerGC &gc, const std::function<void()> &post)
+{
+    CMsgServerHello hello;
+    GCMessageWrite write{ k_EMsgGCServerHello, hello };
+    gc.PostToGC(GCEvent::Message, write.TypeMasked(), write.Data(), write.Size());
+    post();
+    gc.PostToGC(GCEvent::Message, write.TypeMasked(), write.Data(), write.Size());
+    std::vector<EventData> result;
+    int welcomes = 0;
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{ 2 };
+    while (welcomes < 2 && std::chrono::steady_clock::now() < deadline)
+    {
+        std::vector<EventData> events;
+        gc.GetHostEvents(events);
+        for (auto &event : events)
+        {
+            if (event.type == static_cast<int>(HostEvent::Message)
+                && (event.id & ~ProtobufMask) == k_EMsgGCServerWelcome) ++welcomes;
+            result.push_back(std::move(event));
+        }
+        std::this_thread::yield();
+    }
+    if (welcomes != 2)
+    {
+        std::printf("Timed out waiting for the server GC worker barrier\n");
+        return std::nullopt;
+    }
+    return result;
+}
+
+static std::optional<std::vector<EventData>> ValidateServerPayload(ServerGC &gc, uint64_t steamId,
+    uint64_t generation, const void *data, uint32_t size)
+{
+    return CollectServerEvents(gc, [&] { gc.PostToGC(GCEvent::NetMessage, steamId, data, size, generation); });
+}
+
+static bool AcceptServerSOCache(NetworkingServer &networking, uint64_t steamId,
+    const void *data, uint32_t size)
+{
+    if (!networking.HandleIncomingMessage(steamId, data, size)) return false;
+    ServerGC gc;
+    auto events = ValidateServerPayload(gc, steamId, networking.Generation(steamId), data, size);
+    if (!events) return false;
+    for (const auto &event : *events)
+        if (event.type == static_cast<int>(HostEvent::ValidatedNetMessage))
+            return networking.DeliverValidatedEvent(event, [](uint32_t, std::vector<uint8_t> &&) {});
+    return false;
 }
 
 static bool NetworkingServerRetriesConnectUntilSocacheArrives()
@@ -405,7 +459,7 @@ static bool NetworkingServerRetriesConnectUntilSocacheArrives()
 
     // The socache answers the handshake, so the retries stop for good.
     const std::vector<uint8_t> socache = BuildServerSocacheMessage(SteamId);
-    networking.HandleIncomingMessage(SteamId, socache.data(), static_cast<uint32_t>(socache.size()));
+    if (!AcceptServerSOCache(networking, SteamId, socache.data(), static_cast<uint32_t>(socache.size()))) return false;
 
     networking.Update(connected + std::chrono::seconds{ 120 });
     valid &= messages.sentPayloads.size() == 2;
@@ -444,7 +498,7 @@ static bool NetworkingServerRetriesHandshakeAfterSessionFailure()
     networking.ClientConnected(SteamId, &Ticket, sizeof(Ticket));
 
     const std::vector<uint8_t> socache = BuildServerSocacheMessage(SteamId);
-    networking.HandleIncomingMessage(SteamId, socache.data(), static_cast<uint32_t>(socache.size()));
+    if (!AcceptServerSOCache(networking, SteamId, socache.data(), static_cast<uint32_t>(socache.size()))) return false;
 
     networking.Update(std::chrono::steady_clock::now() + std::chrono::seconds{ 120 });
     bool valid = messages.sentPayloads.size() == 1;
@@ -500,7 +554,7 @@ static bool NetworkingServerKeepsProbingAfterFastBurst()
 
     // The probe stops as soon as the socache answers it.
     const std::vector<uint8_t> socache = BuildServerSocacheMessage(SteamId);
-    networking.HandleIncomingMessage(SteamId, socache.data(), static_cast<uint32_t>(socache.size()));
+    if (!AcceptServerSOCache(networking, SteamId, socache.data(), static_cast<uint32_t>(socache.size()))) return false;
 
     networking.Update(burstEnd + std::chrono::seconds{ 600 });
     valid &= messages.sentPayloads.size() == 8;
@@ -533,7 +587,7 @@ static bool NetworkingServerRetriesHandshakeOnSessionRequestAfterBurst()
 
     // A session that already answered does not get another connect message.
     const std::vector<uint8_t> socache = BuildServerSocacheMessage(SteamId);
-    networking.HandleIncomingMessage(SteamId, socache.data(), static_cast<uint32_t>(socache.size()));
+    if (!AcceptServerSOCache(networking, SteamId, socache.data(), static_cast<uint32_t>(socache.size()))) return false;
     networking.HandleSessionRequest(SteamId);
     valid &= messages.sentPayloads.size() == 7;
 
@@ -564,8 +618,8 @@ static bool NetworkingServerReArmsBurstAfterSessionFailure()
         if (acknowledgedFirst)
         {
             const std::vector<uint8_t> socache = BuildServerSocacheMessage(SteamId);
-            networking.HandleIncomingMessage(SteamId, socache.data(),
-                static_cast<uint32_t>(socache.size()));
+            if (!AcceptServerSOCache(networking, SteamId, socache.data(),
+                static_cast<uint32_t>(socache.size()))) return false;
         }
 
         networking.HandleSessionFailed(SteamId);
@@ -5092,6 +5146,8 @@ static bool GCMMClientLifecycle(bool expectedEnabled)
     return valid;
 }
 
+#include "inventory_sync_tests.h"
+
 int main(int argc, char **argv)
 {
     if (argc > 2 && std::string_view{ argv[1] } == "--gcmm")
@@ -5119,6 +5175,19 @@ int main(int argc, char **argv)
     };
 
     const TestCase tests[]{
+        { "SyncCodecRejectsMalformedFrames", SyncTests::CodecRejectsMalformedFrames },
+        { "SyncConnectExtensionPreservesLegacyPrefix", SyncTests::ConnectExtensionPreservesLegacyPrefix },
+        { "SyncInvalidSnapshotsDoNotStopHandshake", SyncTests::InvalidSnapshotsDoNotStopHandshake },
+        { "SyncVersionedOrderingAndDeduplication", SyncTests::VersionedSyncPreservesOrderingAndDeduplicates },
+        { "SyncMixedVersionsKeepLegacyWireFormat", SyncTests::MixedVersionsKeepLegacyWireFormat },
+        { "SyncLegacyDeltasWaitForSnapshotCommit", SyncTests::LegacyDeltasWaitForSnapshotCommit },
+        { "SyncMusicKitStateUsesCommitOrder", SyncTests::MusicKitStateUsesTheBoundSessionAndCommitOrder },
+        { "SyncSnapshotChecksEmptySectionTypes", SyncTests::SyncSnapshotChecksEmptySectionTypes },
+        { "SyncSessionGenerationsRejectStaleWork", SyncTests::SessionGenerationsRejectStaleWork },
+        { "SyncResyncBoundsPendingWork", SyncTests::ResyncRebuildsSnapshotAndBoundsPendingWork },
+        { "SyncSnapshotsRejectSanitization", SyncTests::VersionedSnapshotsRejectSanitizationAndPartialBatches },
+        { "SyncAuthAndStatusesStayBoundToPeer", SyncTests::AuthAndStatusesStayBoundToTheCurrentPeer },
+        { "SyncNativeRefreshTargetsOnlyOwner", SyncTests::NativeRefreshTargetsOnlyItsOwner },
         { "MalformedMessageLengthsAreRejected", MalformedMessageLengthsAreRejected },
         { "InventoryInsertionsSurviveRehash", InventoryInsertionsSurviveRehash },
         { "JoinServerAddressHasNoTrailingWhitespace", JoinServerAddressHasNoTrailingWhitespace },

@@ -16,6 +16,7 @@ public:
     uint32_t TypeUnmasked() const { return m_type & ~ProtobufMask; }
     uint32_t TypeMasked() const { return m_type; }
     uint64_t JobId() const { return m_jobId; }
+    uint32_t Remaining() const { return m_error || m_offset > m_size ? 0 : m_size - m_offset; }
 
     template<typename T>
     bool ReadProtobuf(T &message)
@@ -52,7 +53,9 @@ public:
             return 0;
         }
 
-        return *variable;
+        T value;
+        memcpy(&value, variable, sizeof(value));
+        return value;
     }
 
     uint16_t ReadUint16() { return ReadVariable<uint16_t>(); }

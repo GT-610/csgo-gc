@@ -60,9 +60,7 @@ bool s_initialized{};
 bool s_lastResult{};
 std::string s_discoveryError;
 std::string s_lastError;
-std::string s_status;
 SnapshotData s_lastSnapshot;
-bool s_haveSnapshot{};
 std::string s_lastPublished;
 auto s_nextSample = std::chrono::steady_clock::time_point{};
 
@@ -225,7 +223,9 @@ std::string Hex(uint64_t value)
 }
 
 std::string StatusJson(uint64_t serverSteamId, bool enabled, bool initialized,
-    const std::string &error, const SnapshotData &snapshot, const std::optional<Reservation> &owned)
+    const std::string &error, const SnapshotData &snapshot, const std::optional<Reservation> &owned,
+    bool includeSampleAge = true,
+    std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now())
 {
     uint32_t minimumStage = snapshot.roster.empty() ? 0 : std::numeric_limits<uint32_t>::max();
     uint32_t accepted = 0;
@@ -242,8 +242,7 @@ std::string StatusJson(uint64_t serverSteamId, bool enabled, bool initialized,
         if (owned && std::find(owned->accounts.begin(), owned->accounts.end(), account) == owned->accounts.end())
             matches = false;
     }
-    const bool fresh = s_snapshotTakenValid
-        && std::chrono::steady_clock::now() - s_snapshotTaken <= SnapshotMaxAge;
+    const bool fresh = s_snapshotTakenValid && now - s_snapshotTaken <= SnapshotMaxAge;
     const bool active = fresh && snapshot.readable && snapshot.cookie != 0 && std::isfinite(snapshot.expiry)
         && std::isfinite(snapshot.netTime) && snapshot.expiry > snapshot.netTime;
     std::ostringstream output;
@@ -258,13 +257,15 @@ std::string StatusJson(uint64_t serverSteamId, bool enabled, bool initialized,
         << ",\"matches_request\":" << (matches ? "true" : "false") << ",\"active\":"
         << (active ? "true" : "false") << ",\"all_accepted\":"
         << (matches && active && !snapshot.roster.empty() && minimumStage >= 2 ? "true" : "false")
-        << ",\"stale\":" << (fresh ? "false" : "true")
-        << ",\"sample_age_ms\":"
-        << (s_snapshotTakenValid
-                ? std::chrono::duration_cast<std::chrono::milliseconds>(
-                      std::chrono::steady_clock::now() - s_snapshotTaken).count()
-                : -1)
-        << ",\"roster\":[";
+        << ",\"stale\":" << (fresh ? "false" : "true");
+    // Age is useful to RCON callers, but millisecond jitter is not a state
+    // transition. Exclude it from automatically published console statuses.
+    if (includeSampleAge)
+        output << ",\"sample_age_ms\":"
+            << (s_snapshotTakenValid
+                    ? std::chrono::duration_cast<std::chrono::milliseconds>(now - s_snapshotTaken).count()
+                    : -1);
+    output << ",\"roster\":[";
     for (size_t index = 0; index < snapshot.roster.size(); ++index)
     {
         if (index) output << ',';
@@ -321,12 +322,6 @@ std::optional<std::pair<std::string, std::string>> CommandName(std::string_view 
     return std::make_pair(std::move(name), std::move(remainder));
 }
 
-std::string DisabledStatus()
-{
-    SnapshotData empty;
-    return StatusJson(0, false, false, "disabled", empty, std::nullopt);
-}
-
 std::string UnsupportedStatus()
 {
     SnapshotData empty;
@@ -356,6 +351,14 @@ std::string BoundedResponse(std::string response)
     constexpr size_t MaxBody = 4096 - 10;
     if (response.size() <= MaxBody) return response;
     return "ERR response_too_large GCMM JSON response exceeds Source RCON limit";
+}
+
+// Called only by the server callback thread, outside the command-state mutex.
+void PublishStatusIfChanged(std::string status)
+{
+    if (status == s_lastPublished) return;
+    s_lastPublished = std::move(status);
+    Platform::Print("GCMM: %s\n", s_lastPublished.c_str());
 }
 
 std::string QueuedAck(uint64_t requestId)
@@ -495,21 +498,14 @@ std::optional<std::string> ExecuteCommand(std::string_view command)
 
 void OnServerFrame(uint64_t serverSteamId)
 {
-    if (!GetConfig().m_gcmmEnabled)
-    {
-        std::lock_guard lock{s_mutex};
-        s_status = DisabledStatus();
-        return;
-    }
+    if (!GetConfig().m_gcmmEnabled) return;
 #if defined(_WIN32) && defined(_M_IX86)
     if (!Initialize())
     {
         std::lock_guard lock{s_mutex};
-        SnapshotData empty;
         s_initialized = false;
         s_discoveryError = s_api.error.empty() ? "engine_unavailable" : s_api.error;
         s_serverSteamId = serverSteamId;
-        s_status = StatusJson(serverSteamId, true, false, s_discoveryError, empty, s_owned);
         return;
     }
     {
@@ -602,22 +598,14 @@ void OnServerFrame(uint64_t serverSteamId)
         std::lock_guard lock{s_mutex};
         s_serverSteamId = serverSteamId;
         s_lastSnapshot = snapshot;
-        s_haveSnapshot = true;
         s_snapshotTaken = now;
         s_snapshotTakenValid = true;
         if (request) s_inflight = false;
-        status = BoundedResponse(StatusJson(serverSteamId, true, true, s_lastError, snapshot, s_owned));
-        s_status = status;
+        status = BoundedResponse(StatusJson(serverSteamId, true, true, s_lastError, snapshot, s_owned, false));
     }
-    if (status != s_lastPublished)
-    {
-        Platform::Print("GCMM: %s\n", status.c_str());
-        s_lastPublished = status;
-    }
+    PublishStatusIfChanged(std::move(status));
 #else
     (void)serverSteamId;
-    std::lock_guard lock{s_mutex};
-    s_status = UnsupportedStatus();
 #endif
 }
 } // namespace GCMM

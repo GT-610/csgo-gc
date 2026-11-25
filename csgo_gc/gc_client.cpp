@@ -450,7 +450,7 @@ void ClientGC::SendMusicKitMVPStateToGameServer()
             GameTypes::CurrentGameMode());
     }
 
-    PostToHost(HostEvent::NetMessage, 0, messageWrite.Data(), messageWrite.Size());
+    PostToHost(HostEvent::NetMessage, m_serverPeer, messageWrite.Data(), messageWrite.Size(), m_serverGeneration);
 }
 
 void ClientGC::SyncLocalPlayerMusicKitState(int userId)
@@ -483,11 +483,16 @@ void ClientGC::HandleEvent(GCEvent type, uint64_t id, const std::vector<uint8_t>
         break;
 
     case GCEvent::NetMessage:
-        HandleNetMessage(buffer.data(), static_cast<uint32_t>(buffer.size()));
+        if (!EventGeneration() || (id == m_serverPeer && EventGeneration() == m_serverGeneration))
+            HandleNetMessage(buffer.data(), static_cast<uint32_t>(buffer.size()));
         break;
 
     case GCEvent::SOCacheRequest:
-        HandleSOCacheRequest();
+        m_serverPeer = id;
+        m_serverGeneration = EventGeneration();
+        m_gameServerEquippedItems.clear();
+        if (id || !EventGeneration()) HandleSOCacheRequest();
+        if (id) SendMusicKitMVPStateToGameServer();
         break;
 
     case GCEvent::LocalPlayerRoundMVP:
@@ -1560,7 +1565,7 @@ void ClientGC::HandleSOCacheRequest()
     }
 
     GCMessageWrite messageWrite{ k_ESOMsg_CacheSubscribed, message };
-    PostToHost(HostEvent::NetMessage, 0, messageWrite.Data(), messageWrite.Size());
+    PostToHost(HostEvent::NetMessage, m_serverPeer, messageWrite.Data(), messageWrite.Size(), m_serverGeneration);
 }
 
 void ClientGC::ClientRequestPlayersProfile(GCMessageRead &messageRead)
@@ -1702,13 +1707,13 @@ void ClientGC::SendMessageToGameServer(uint32_t type,
         if (serverUpdate.objects_modified_size())
         {
             GCMessageWrite messageWrite{ type, serverUpdate, jobId };
-            PostToHost(HostEvent::NetMessage, 0, messageWrite.Data(), messageWrite.Size());
+            PostToHost(HostEvent::NetMessage, m_serverPeer, messageWrite.Data(), messageWrite.Size(), m_serverGeneration);
         }
         return;
     }
 
     GCMessageWrite messageWrite{ type, message, jobId };
-    PostToHost(HostEvent::NetMessage, 0, messageWrite.Data(), messageWrite.Size());
+    PostToHost(HostEvent::NetMessage, m_serverPeer, messageWrite.Data(), messageWrite.Size(), m_serverGeneration);
 }
 
 void ClientGC::SendMessageToGame(bool sendToGameServer, uint32_t type,
@@ -2310,7 +2315,7 @@ void ClientGC::SetItemPositions(GCMessageRead &messageRead)
         {
             // send these to the server only
             GCMessageWrite messageWrite{ k_EMsgGCItemAcknowledged, acknowledgement };
-            PostToHost(HostEvent::NetMessage, 0, messageWrite.Data(), messageWrite.Size());
+            PostToHost(HostEvent::NetMessage, m_serverPeer, messageWrite.Data(), messageWrite.Size(), m_serverGeneration);
         }
 
         SendMessageToGame(true, k_ESOMsg_UpdateMultiple, update);

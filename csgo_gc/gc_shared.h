@@ -8,6 +8,9 @@ enum class HostEvent
     NetMessage, // id contains the recipient steam id, buffer contains the payload
     MicroTransactionResponse, // id contains the Steam microtransaction order id
     RestoreMouseCursor, // the store purchase finished, give the cursor back to the player
+    ValidatedNetMessage, // id is peer; generation binds validation to a live session
+    InventorySyncRejected, // validated framing, rejected SOCache body; id is peer
+    ResetSOCaches, // game GC lifecycle or subscription refresh; id 0 means all peers
 };
 
 enum class GCEvent
@@ -19,6 +22,7 @@ enum class GCEvent
     SyncLocalPlayerMusicKitState, // sent to client gc from the main thread, buffer contains the local userid
     ClientSOCacheUnsubscribe, // sent to server gc when a client disconnects, id contains the steam id
     RconCommand, // sent to client gc, buffer contains an owned RconCommand holder pointer
+    NetMessageCommitted, // server inventory queued or ordered private MVP state accepted
 };
 
 struct EventData
@@ -26,13 +30,15 @@ struct EventData
     int type; // HostEvent or GCEvent
     uint64_t id;
     std::vector<uint8_t> buffer;
+    uint64_t generation{}; // local routing generation, never inferred from SteamID alone
 };
 
 // shared logic between client and server gcs
 class SharedGC
 {
 public:
-    void PostToGC(GCEvent type, uint64_t id, const void *data, uint32_t dataSize);
+    void PostToGC(GCEvent type, uint64_t id, const void *data, uint32_t dataSize,
+        uint64_t generation = 0);
 
     void GetHostEvents(std::vector<EventData> &events);
 
@@ -41,9 +47,12 @@ protected:
     void StartThread();
     void StopThread();
 
-    void PostToHost(HostEvent type, uint64_t id, const void *data, uint32_t dataSize);
+    void PostToHost(HostEvent type, uint64_t id, const void *data, uint32_t dataSize,
+        uint64_t generation = 0);
+    uint64_t EventGeneration() const { return m_eventGeneration; }
 
 private:
+    uint64_t m_eventGeneration{}; // only accessed on the GC worker
     virtual void HandleEvent(GCEvent type, uint64_t id, const std::vector<uint8_t> &buffer) = 0;
 
     void WorkerThread();

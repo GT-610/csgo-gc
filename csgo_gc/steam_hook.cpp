@@ -16,6 +16,7 @@
 #include "gc_server.h"
 #include "local_user_stats.h"
 #include "mm_probe.h"
+#include "watch_passthrough.h"
 #include "gcmm_native.h"
 #include "panorama.h"
 #include "platform.h"
@@ -135,11 +136,19 @@ public:
         return true;
     }
 
-    void AddMessage(uint32_t type, std::vector<uint8_t> &&buffer)
+    void AddMessage(uint32_t type, std::vector<uint8_t> &&buffer, uint64_t peer = 0, uint64_t generation = 0)
     {
         Message &dest = m_messages.emplace();
         dest.type = type;
         dest.buffer = std::move(buffer);
+        dest.peer = peer;
+        dest.generation = generation;
+    }
+
+    void DiscardStale(const std::function<bool(uint64_t, uint64_t)> &current)
+    {
+        while (!m_messages.empty() && m_messages.front().generation
+            && !current(m_messages.front().peer, m_messages.front().generation)) m_messages.pop();
     }
 
 private:
@@ -147,6 +156,8 @@ private:
     {
         uint32_t type{};
         std::vector<uint8_t> buffer;
+        uint64_t peer{};
+        uint64_t generation{};
     };
 
     std::queue<Message> m_messages;
@@ -181,6 +192,7 @@ public:
 // client connect/disconnect notifications
 static GCWrapper<ClientGC, NetworkingClient> *s_clientGC;
 static GCWrapper<ServerGC, NetworkingServer> *s_serverGC;
+static std::atomic<bool> s_serverSOCacheResetPending{};
 static RconServer s_rconServer;
 
 struct PendingMicroTransactionAuthorization
@@ -374,6 +386,11 @@ class ServerRoundMVPEventListener final : public IGameEventListener2
 public:
     void FireGameEvent(IGameEvent *event) override
     {
+        if (event && !strcmp(event->GetName(), "server_spawn"))
+        {
+            s_serverSOCacheResetPending.store(true);
+            return;
+        }
         if (!event || strcmp(event->GetName(), "round_mvp"))
         {
             return;
@@ -415,6 +432,7 @@ static std::mutex s_gameEventListenerMutex;
 static bool s_clientRoundMVPListenerRegistered = false;
 static bool s_clientRoundStartListenerRegistered = false;
 static bool s_serverRoundMVPListenerRegistered = false;
+static bool s_serverSpawnListenerRegistered = false;
 
 static void InitializeClientGameInterfaces()
 {
@@ -493,13 +511,15 @@ static void UpdateClientGameEventListeners()
 static void UnregisterServerGameEventListener()
 {
     std::lock_guard lock{ s_gameEventListenerMutex };
-    if (!s_gameEventManager || !s_serverRoundMVPListenerRegistered)
+    if (!s_gameEventManager || (!s_serverRoundMVPListenerRegistered && !s_serverSpawnListenerRegistered))
     {
         return;
     }
 
     s_gameEventManager->RemoveListener(&s_serverRoundMVPEventListener);
     s_serverRoundMVPListenerRegistered = false;
+    s_serverSpawnListenerRegistered = false;
+    s_serverSOCacheResetPending.store(false);
     Platform::Print("Unregistered server-side round_mvp listener\n");
 }
 
@@ -531,10 +551,17 @@ static void UpdateServerGameEventListener()
             Platform::Print("Failed to register server-side round_mvp listener\n");
         }
     }
-    else if (!serverGCLive && s_serverRoundMVPListenerRegistered)
+    if (serverGCLive && !s_serverSpawnListenerRegistered)
+    {
+        s_serverSpawnListenerRegistered = s_gameEventManager->AddListener(
+            &s_serverRoundMVPEventListener, "server_spawn", true);
+    }
+    if (!serverGCLive && (s_serverRoundMVPListenerRegistered || s_serverSpawnListenerRegistered))
     {
         s_gameEventManager->RemoveListener(&s_serverRoundMVPEventListener);
         s_serverRoundMVPListenerRegistered = false;
+        s_serverSpawnListenerRegistered = false;
+        s_serverSOCacheResetPending.store(false);
         Platform::Print("Unregistered server-side round_mvp listener\n");
     }
 }
@@ -604,10 +631,81 @@ class SteamGameCoordinatorProxy final
 {
     const bool m_server;
 
+    // Set once each entry point has published its trampoline. The coordinator
+    // entry points are called every frame, and rebuilding the closures there would
+    // allocate for no reason.
+    bool m_sendInstalled{ false };
+    bool m_availableInstalled{ false };
+    bool m_retrieveInstalled{ false };
+
     // False when this side had no usable Steam interfaces at construction time.
     bool HasGC() const
     {
         return m_server ? s_serverGC != nullptr : s_clientGC != nullptr;
+    }
+
+    // Hands the original coordinator interface to the passthrough module so it can
+    // both forward requests and drain the replies the real GC queues up. Each entry
+    // point installs its own trampoline, because the original is only callable
+    // through the trampoline matching its own signature. Repeating this is free:
+    // the module keeps the trampolines until they are detached.
+    template<typename Orig>
+    void InstallSend(Orig original)
+    {
+        if (m_sendInstalled)
+        {
+            return;
+        }
+
+        m_sendInstalled = true;
+        WatchPassthrough::AttachSend(original.self,
+            [original](uint32_t type, const void *data, uint32_t size) {
+                return static_cast<int>(original(type, data, size));
+            });
+    }
+
+    template<typename Orig>
+    void InstallAvailable(Orig original)
+    {
+        if (m_availableInstalled)
+        {
+            return;
+        }
+
+        m_availableInstalled = true;
+        WatchPassthrough::AttachAvailable(original.self, [original](uint32_t *size) {
+            return original(size);
+        });
+    }
+
+    template<typename Orig>
+    void InstallRetrieve(Orig original)
+    {
+        if (m_retrieveInstalled)
+        {
+            return;
+        }
+
+        m_retrieveInstalled = true;
+        WatchPassthrough::AttachRetrieve(original.self,
+            [original](uint32_t *type, void *dest, uint32_t destSize, uint32_t *size) {
+                return static_cast<int>(original(type, dest, destSize, size));
+            });
+    }
+
+    // Watches only. The hello is forwarded so the real GC considers this client
+    // connected, but the local GC still answers it: the game's welcome, inventory
+    // and everything else stays with us.
+    bool ForwardHello(uint32_t type, const void *data, uint32_t size)
+    {
+        return WatchPassthrough::Forward(type, data, size);
+    }
+
+    // Returns true when the request now belongs to the real GC, in which case the
+    // local GC must not answer it as well.
+    bool ForwardRequest(uint32_t type, const void *data, uint32_t size)
+    {
+        return WatchPassthrough::Forwards(type) && WatchPassthrough::Forward(type, data, size);
     }
 
 public:
@@ -685,6 +783,8 @@ public:
                 s_rconServer.UnregisterClient(&s_clientGC->m_gc);
             }
 
+            WatchPassthrough::DetachAll();
+
             delete s_clientGC;
             s_clientGC = nullptr;
             s_pendingMicroTransactionAuthorization.reset();
@@ -692,7 +792,7 @@ public:
         }
     }
 
-    EGCResults SendMessage(auto, uint32 unMsgType, const void *pubData, uint32 cubData)
+    EGCResults SendMessage(auto original, uint32 unMsgType, const void *pubData, uint32 cubData)
     {
         if (!HasGC())
         {
@@ -702,6 +802,30 @@ public:
         }
 
         MMProbe::Observe(m_server, true, unMsgType, pubData, cubData);
+
+        if (!m_server && WatchPassthrough::IsEnabled())
+        {
+            InstallSend(original);
+
+            if (WatchPassthrough::IsHello(unMsgType))
+            {
+                ForwardHello(unMsgType, pubData, cubData);
+            }
+            else if (WatchPassthrough::Forwards(unMsgType))
+            {
+                if (ForwardRequest(unMsgType, pubData, cubData))
+                {
+                    // The real GC owns this job now; answering it here as well
+                    // would deliver a second, empty reply for the same job id.
+                    return k_EGCResultOK;
+                }
+
+                // No upstream session (or the Steam call failed), so the game
+                // gets the same empty answer it would get without the option.
+                Platform::Print("watch passthrough: could not forward %s, answering locally\n",
+                    MessageName(unMsgType & ~ProtobufMask));
+            }
+        }
 
         if (m_server)
         {
@@ -715,15 +839,22 @@ public:
         return k_EGCResultOK;
     }
 
-    bool IsMessageAvailable(auto, uint32 *pcubMsgSize)
+    bool IsMessageAvailable(auto original, uint32 *pcubMsgSize)
     {
         if (!HasGC())
         {
             return false;
         }
 
+        if (!m_server && WatchPassthrough::IsEnabled())
+        {
+            InstallAvailable(original);
+        }
+
         if (m_server)
         {
+            s_serverGC->m_messageQueue.DiscardStale([](uint64_t peer, uint64_t generation)
+                { return s_serverGC->m_networking.Generation(peer) == generation; });
             return s_serverGC->m_messageQueue.IsMessageAvailable(*pcubMsgSize);
         }
         else
@@ -732,17 +863,24 @@ public:
         }
     }
 
-    EGCResults RetrieveMessage(auto, uint32 *punMsgType, void *pubDest, uint32 cubDest, uint32 *pcubMsgSize)
+    EGCResults RetrieveMessage(auto original, uint32 *punMsgType, void *pubDest, uint32 cubDest, uint32 *pcubMsgSize)
     {
         if (!HasGC())
         {
             return k_EGCResultNoMessage;
         }
 
+        if (!m_server && WatchPassthrough::IsEnabled())
+        {
+            InstallRetrieve(original);
+        }
+
         bool result;
 
         if (m_server)
         {
+            s_serverGC->m_messageQueue.DiscardStale([](uint64_t peer, uint64_t generation)
+                { return s_serverGC->m_networking.Generation(peer) == generation; });
             result = s_serverGC->m_messageQueue.RetrieveMessage(*punMsgType, pubDest, cubDest, *pcubMsgSize);
         }
         else
@@ -2041,7 +2179,7 @@ static void Hk_SteamAPI_RunCallbacks()
                 break;
 
             case HostEvent::NetMessage:
-                s_clientGC->m_networking.SendMessage(event.buffer.data(), static_cast<uint32_t>(event.buffer.size()));
+                s_clientGC->m_networking.SendHostEvent(event);
                 break;
 
             case HostEvent::MicroTransactionResponse:
@@ -2075,6 +2213,29 @@ static void Hk_SteamAPI_RunCallbacks()
 
         // poll networking
         s_clientGC->m_networking.Update(&s_clientGC->m_gc);
+
+        // Fold the tournament replies the real GC produced into the same queue,
+        // so the game picks them up on this pass. Nothing else is kept: the local
+        // GC owns the rest of the conversation.
+        if (WatchPassthrough::IsEnabled())
+        {
+            std::vector<std::pair<uint32_t, std::vector<uint8_t>>> replies;
+            std::vector<uint32_t> droppedTypes;
+            WatchPassthrough::Pump(replies, droppedTypes);
+
+            for (auto &[type, buffer] : replies)
+            {
+                Platform::Print("watch passthrough: delivering %s (%u bytes)\n",
+                    MessageName(type & ~ProtobufMask), static_cast<uint32_t>(buffer.size()));
+                s_clientGC->m_messageQueue.AddMessage(type, std::move(buffer));
+            }
+
+            for (uint32_t type : droppedTypes)
+            {
+                Platform::Print("watch passthrough: dropping upstream %s\n",
+                    MessageName(type & ~ProtobufMask));
+            }
+        }
 
         // run client gc callbacks
         uint32_t messageSize;
@@ -2133,6 +2294,7 @@ static void Hk_SteamGameServer_RunCallbacks()
             return;
         }
 
+        if (s_serverSOCacheResetPending.exchange(false)) s_serverGC->m_networking.ResetSOCache();
         GCMM::OnServerFrame(s_steamGameServer->GetSteamID().ConvertToUint64());
 
         std::vector<EventData> events;
@@ -2151,6 +2313,25 @@ static void Hk_SteamGameServer_RunCallbacks()
                 s_serverGC->m_networking.SendHostEvent(event);
                 break;
 
+            case HostEvent::ValidatedNetMessage:
+                s_serverGC->m_networking.DeliverValidatedEvent(event,
+                    [&event](uint32_t type, std::vector<uint8_t> &&payload)
+                    {
+                        s_serverGC->m_gc.PostToGC(GCEvent::NetMessageCommitted, event.id,
+                            payload.data(), static_cast<uint32_t>(payload.size()), event.generation);
+                        if (type & ProtobufMask)
+                            s_serverGC->m_messageQueue.AddMessage(type, std::move(payload), event.id, event.generation);
+                    });
+                break;
+
+            case HostEvent::InventorySyncRejected:
+                s_serverGC->m_networking.RejectSync(event);
+                break;
+
+            case HostEvent::ResetSOCaches:
+                s_serverGC->m_networking.ResetSOCache(event.id);
+                break;
+
             default:
                 assert(false);
                 break;
@@ -2158,6 +2339,8 @@ static void Hk_SteamGameServer_RunCallbacks()
         }
 
         // run server gc callbacks
+        s_serverGC->m_messageQueue.DiscardStale([](uint64_t peer, uint64_t generation)
+            { return s_serverGC->m_networking.Generation(peer) == generation; });
         uint32_t messageSize;
         if (s_serverGC->m_messageQueue.IsMessageAvailable(messageSize))
         {
@@ -2169,7 +2352,9 @@ static void Hk_SteamGameServer_RunCallbacks()
         SteamNetworkingMessage_t *message;
         while (s_serverGC->m_networking.ReceiveMessage(message))
         {
-            s_serverGC->m_gc.PostToGC(GCEvent::NetMessage, message->m_identityPeer.GetSteamID64(), message->GetData(), message->GetSize());
+            const uint64_t peer = message->m_identityPeer.GetSteamID64();
+            s_serverGC->m_gc.PostToGC(GCEvent::NetMessage, peer, message->GetData(), message->GetSize(),
+                s_serverGC->m_networking.Generation(peer));
             message->Release();
         }
 

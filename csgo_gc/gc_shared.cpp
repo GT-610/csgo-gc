@@ -41,6 +41,7 @@ void SharedGC::WorkerThread()
 
         for (EventData &event : events)
         {
+            m_eventGeneration = event.generation;
             HandleEvent(static_cast<GCEvent>(event.type), event.id, event.buffer);
         }
 
@@ -55,15 +56,18 @@ void SharedGC::GetHostEvents(std::vector<EventData> &events)
     std::swap(events, m_hostEvents);
 }
 
-void SharedGC::PostToGC(GCEvent type, uint64_t id, const void *data, uint32_t dataSize)
+void SharedGC::PostToGC(GCEvent type, uint64_t id, const void *data, uint32_t dataSize,
+    uint64_t generation)
 {
-    const uint8_t *dataBegin = reinterpret_cast<const uint8_t *>(data);
-    const uint8_t *dataEnd = dataBegin + dataSize;
-
     EventData event;
     event.type = static_cast<int>(type);
     event.id = id;
-    event.buffer.assign(dataBegin, dataEnd);
+    event.generation = generation;
+    if (dataSize)
+    {
+        const auto *bytes = static_cast<const uint8_t *>(data);
+        event.buffer.assign(bytes, bytes + dataSize);
+    }
 
     bool notify = false;
     {
@@ -78,15 +82,18 @@ void SharedGC::PostToGC(GCEvent type, uint64_t id, const void *data, uint32_t da
     }
 }
 
-void SharedGC::PostToHost(HostEvent type, uint64_t id, const void *data, uint32_t dataSize)
+void SharedGC::PostToHost(HostEvent type, uint64_t id, const void *data, uint32_t dataSize,
+    uint64_t generation)
 {
-    const uint8_t *dataBegin = reinterpret_cast<const uint8_t *>(data);
-    const uint8_t *dataEnd = dataBegin + dataSize;
-
     EventData event;
     event.type = static_cast<int>(type);
     event.id = id;
-    event.buffer.assign(dataBegin, dataEnd);
+    event.generation = generation;
+    if (dataSize)
+    {
+        const auto *bytes = static_cast<const uint8_t *>(data);
+        event.buffer.assign(bytes, bytes + dataSize);
+    }
 
     {
         std::lock_guard lock{ m_hostEventMutex };

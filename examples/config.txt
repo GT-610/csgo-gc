@@ -67,6 +67,28 @@
 // field dump. the mm_update / mm_reserve / mm_abandon RCON commands work either way.
 "mm_probe"	"0"
 
+// watch page passthrough (diagnostic). forwards the tournament match list and
+// prediction requests to the real Valve GC on the game's own Steam pipe, and folds
+// only the tournament replies back into the local queue. everything else - the
+// welcome, inventory, store, matchmaking - stays with csgo_gc, and the real GC's
+// welcome and socache traffic is dropped so it cannot fight the local inventory.
+//
+// this only produces data while the app the game is logged on to still has a live
+// CS:GO GC, which is app 4465480 for the standalone legacy listing. it is off by
+// default because those replies are whatever that backend still has, and the
+// feature is only useful to look at.
+//
+// hello_version is the client build advertised in the forwarded client hello, or 0
+// to forward the client's own. the real GC gates tournament data on the client
+// build, which is why a high value is what makes it answer at all. this only
+// affects the forwarded copy: the local welcome is still built by csgo_gc and
+// still advertises its own versions.
+"watch_passthrough"
+{
+	"enabled"		"0"
+	"hello_version"	"0"
+}
+
 // local Source RCON. keep bind_address on localhost unless you use a password.
 // empty password accepts any Source RCON password.
 "rcon"
