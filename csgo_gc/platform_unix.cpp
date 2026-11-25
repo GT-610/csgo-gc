@@ -770,4 +770,107 @@ int GetModuleBitness(std::string_view moduleName)
     return 0;
 }
 
+// Binds to the SDL2 the game already loaded (RTLD_NOLOAD) so we never pull in a
+// second copy of the library, which would have its own, unrelated window state.
+static void *FindLoadedSDL2()
+{
+#if defined(__APPLE__)
+    static const char *const names[] = { "libSDL2-2.0.0.dylib", "libSDL2.dylib", "@rpath/libSDL2-2.0.0.dylib" };
+#else
+    static const char *const names[] = { "libSDL2-2.0.so.0", "libSDL2.so" };
+#endif
+
+    for (const char *name : names)
+    {
+        void *handle = dlopen(name, RTLD_LAZY | RTLD_NOLOAD);
+        if (handle)
+        {
+            return handle;
+        }
+    }
+
+    return nullptr;
+}
+
+void RestoreMouseCursor()
+{
+    using SDL_ShowCursor_t = int (*)(int);
+    using SDL_SetRelativeMouseMode_t = int (*)(int);
+    using SDL_GetKeyboardFocus_t = void *(*)();
+    using SDL_SetWindowGrab_t = void (*)(void *, int);
+    using SDL_GetWindowID_t = uint32_t (*)(void *);
+    using SDL_PushEvent_t = int (*)(void *);
+
+    void *sdl = FindLoadedSDL2();
+    if (!sdl)
+    {
+        Print("RestoreMouseCursor: SDL2 is not loaded, nothing to do\n");
+        return;
+    }
+
+    auto showCursor = reinterpret_cast<SDL_ShowCursor_t>(dlsym(sdl, "SDL_ShowCursor"));
+    auto setRelativeMouseMode = reinterpret_cast<SDL_SetRelativeMouseMode_t>(dlsym(sdl, "SDL_SetRelativeMouseMode"));
+    auto getKeyboardFocus = reinterpret_cast<SDL_GetKeyboardFocus_t>(dlsym(sdl, "SDL_GetKeyboardFocus"));
+    auto setWindowGrab = reinterpret_cast<SDL_SetWindowGrab_t>(dlsym(sdl, "SDL_SetWindowGrab"));
+    auto getWindowId = reinterpret_cast<SDL_GetWindowID_t>(dlsym(sdl, "SDL_GetWindowID"));
+    auto pushEvent = reinterpret_cast<SDL_PushEvent_t>(dlsym(sdl, "SDL_PushEvent"));
+
+    // SDL_ShowCursor(1) is "enable", and SDL_SetRelativeMouseMode(0) also restores
+    // the cursor position/visibility that relative mode changed
+    if (setRelativeMouseMode)
+    {
+        setRelativeMouseMode(0);
+    }
+
+    void *window = getKeyboardFocus ? getKeyboardFocus() : nullptr;
+    if (window && setWindowGrab)
+    {
+        setWindowGrab(window, 0);
+    }
+
+    if (showCursor)
+    {
+        showCursor(1);
+    }
+
+    // Alt-tabbing away and back fixes the cursor completely (including its position),
+    // because the game re-applies its own mouse state when it sees the focus change.
+    // Queue the same two window events so it does that without the player having to.
+    // These are only queued for the game's event loop; SDL's own focus is untouched.
+    if (window && getWindowId && pushEvent)
+    {
+        // matches SDL_WindowEvent, padded out to the size of SDL_Event (56 bytes)
+        struct alignas(8) WindowEvent
+        {
+            uint32_t type;
+            uint32_t timestamp;
+            uint32_t windowID;
+            uint8_t event;
+            uint8_t padding[3];
+            int32_t data1;
+            int32_t data2;
+            uint8_t pad[32];
+        };
+        static_assert(sizeof(WindowEvent) == 56, "SDL_Event is 56 bytes");
+
+        constexpr uint32_t SDL_WINDOWEVENT = 0x200;
+        constexpr uint8_t SDL_WINDOWEVENT_FOCUS_GAINED = 12;
+        constexpr uint8_t SDL_WINDOWEVENT_FOCUS_LOST = 13;
+
+        const uint32_t windowId = getWindowId(window);
+        const uint8_t eventTypes[] = { SDL_WINDOWEVENT_FOCUS_LOST, SDL_WINDOWEVENT_FOCUS_GAINED };
+        for (uint8_t eventType : eventTypes)
+        {
+            WindowEvent event{};
+            event.type = SDL_WINDOWEVENT;
+            event.windowID = windowId;
+            event.event = eventType;
+            pushEvent(&event);
+        }
+    }
+
+    Print("Restored mouse cursor after store purchase\n");
+    dlclose(sdl);
+}
+
 } // namespace Platform

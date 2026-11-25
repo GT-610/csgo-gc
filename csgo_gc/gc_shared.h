@@ -7,6 +7,7 @@ enum class HostEvent
     Message, // id contains the message type, buffer contains the payload
     NetMessage, // id contains the recipient steam id, buffer contains the payload
     MicroTransactionResponse, // id contains the Steam microtransaction order id
+    RestoreMouseCursor, // the store purchase finished, give the cursor back to the player
     ValidatedNetMessage, // id is peer; generation binds validation to a live session
     InventorySyncRejected, // validated framing, rejected SOCache body; id is peer
     ResetSOCaches, // game GC lifecycle or subscription refresh; id 0 means all peers
