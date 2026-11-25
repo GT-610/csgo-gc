@@ -7,6 +7,7 @@ enum class HostEvent
     Message, // id contains the message type, buffer contains the payload
     NetMessage, // id contains the recipient steam id, buffer contains the payload
     MicroTransactionResponse, // id contains the Steam microtransaction order id
+    RestoreMouseCursor, // the store purchase finished, give the cursor back to the player
 };
 
 enum class GCEvent
