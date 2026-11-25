@@ -387,7 +387,7 @@ static std::vector<uint8_t> BuildServerSocacheMessage(uint64_t steamId)
 // Two Hello messages bracket the worker task as an ordered test barrier. These
 // tests inspect validation output, so lifecycle reset events from the barrier are
 // deliberately not dispatched to NetworkingServer.
-static std::vector<EventData> CollectServerEvents(ServerGC &gc, const std::function<void()> &post)
+static std::optional<std::vector<EventData>> CollectServerEvents(ServerGC &gc, const std::function<void()> &post)
 {
     CMsgServerHello hello;
     GCMessageWrite write{ k_EMsgGCServerHello, hello };
@@ -409,11 +409,15 @@ static std::vector<EventData> CollectServerEvents(ServerGC &gc, const std::funct
         }
         std::this_thread::yield();
     }
-    if (welcomes != 2) result.clear();
+    if (welcomes != 2)
+    {
+        std::printf("Timed out waiting for the server GC worker barrier\n");
+        return std::nullopt;
+    }
     return result;
 }
 
-static std::vector<EventData> ValidateServerPayload(ServerGC &gc, uint64_t steamId,
+static std::optional<std::vector<EventData>> ValidateServerPayload(ServerGC &gc, uint64_t steamId,
     uint64_t generation, const void *data, uint32_t size)
 {
     return CollectServerEvents(gc, [&] { gc.PostToGC(GCEvent::NetMessage, steamId, data, size, generation); });
@@ -424,7 +428,9 @@ static bool AcceptServerSOCache(NetworkingServer &networking, uint64_t steamId,
 {
     if (!networking.HandleIncomingMessage(steamId, data, size)) return false;
     ServerGC gc;
-    for (auto &event : ValidateServerPayload(gc, steamId, networking.Generation(steamId), data, size))
+    auto events = ValidateServerPayload(gc, steamId, networking.Generation(steamId), data, size);
+    if (!events) return false;
+    for (const auto &event : *events)
         if (event.type == static_cast<int>(HostEvent::ValidatedNetMessage))
             return networking.DeliverValidatedEvent(event, [](uint32_t, std::vector<uint8_t> &&) {});
     return false;
@@ -453,7 +459,7 @@ static bool NetworkingServerRetriesConnectUntilSocacheArrives()
 
     // The socache answers the handshake, so the retries stop for good.
     const std::vector<uint8_t> socache = BuildServerSocacheMessage(SteamId);
-    AcceptServerSOCache(networking, SteamId, socache.data(), static_cast<uint32_t>(socache.size()));
+    if (!AcceptServerSOCache(networking, SteamId, socache.data(), static_cast<uint32_t>(socache.size()))) return false;
 
     networking.Update(connected + std::chrono::seconds{ 120 });
     valid &= messages.sentPayloads.size() == 2;
@@ -492,7 +498,7 @@ static bool NetworkingServerRetriesHandshakeAfterSessionFailure()
     networking.ClientConnected(SteamId, &Ticket, sizeof(Ticket));
 
     const std::vector<uint8_t> socache = BuildServerSocacheMessage(SteamId);
-    AcceptServerSOCache(networking, SteamId, socache.data(), static_cast<uint32_t>(socache.size()));
+    if (!AcceptServerSOCache(networking, SteamId, socache.data(), static_cast<uint32_t>(socache.size()))) return false;
 
     networking.Update(std::chrono::steady_clock::now() + std::chrono::seconds{ 120 });
     bool valid = messages.sentPayloads.size() == 1;
@@ -548,7 +554,7 @@ static bool NetworkingServerKeepsProbingAfterFastBurst()
 
     // The probe stops as soon as the socache answers it.
     const std::vector<uint8_t> socache = BuildServerSocacheMessage(SteamId);
-    AcceptServerSOCache(networking, SteamId, socache.data(), static_cast<uint32_t>(socache.size()));
+    if (!AcceptServerSOCache(networking, SteamId, socache.data(), static_cast<uint32_t>(socache.size()))) return false;
 
     networking.Update(burstEnd + std::chrono::seconds{ 600 });
     valid &= messages.sentPayloads.size() == 8;
@@ -581,7 +587,7 @@ static bool NetworkingServerRetriesHandshakeOnSessionRequestAfterBurst()
 
     // A session that already answered does not get another connect message.
     const std::vector<uint8_t> socache = BuildServerSocacheMessage(SteamId);
-    AcceptServerSOCache(networking, SteamId, socache.data(), static_cast<uint32_t>(socache.size()));
+    if (!AcceptServerSOCache(networking, SteamId, socache.data(), static_cast<uint32_t>(socache.size()))) return false;
     networking.HandleSessionRequest(SteamId);
     valid &= messages.sentPayloads.size() == 7;
 

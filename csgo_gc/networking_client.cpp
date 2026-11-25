@@ -145,6 +145,11 @@ void NetworkingClient::RequestResync()
 void NetworkingClient::Pump(std::chrono::steady_clock::time_point now)
 {
     if (!m_serverSteamId || !m_syncId.IsValid() || now < m_nextSend) return;
+    auto scheduleRetry = [&]
+    {
+        ++m_sendAttempts;
+        m_nextSend = now + (m_sendAttempts < 6 ? std::chrono::seconds{ 2 } : std::chrono::seconds{ 60 });
+    };
     if (m_resync)
     {
         auto request = InventorySync::BuildResyncRequest(m_syncId);
@@ -155,14 +160,19 @@ void NetworkingClient::Pump(std::chrono::steady_clock::time_point now)
         while (m_inFlight.empty())
         {
             if (m_pending.empty()) return;
-            auto payload = std::move(m_pending.front());
-            m_pending.pop();
-            m_pendingBytes -= payload.size();
+            auto &payload = m_pending.front();
             GCMessageRead inner{ 0, payload.data(), static_cast<uint32_t>(payload.size()) };
             if (!inner.IsProtobuf() && inner.TypeUnmasked() == k_EMsgNetworkMusicKitMVPState)
             {
                 // Keep the legacy private frame, but send it only after earlier SO batches commit.
-                SendRaw(payload.data(), static_cast<uint32_t>(payload.size()));
+                if (SendRaw(payload.data(), static_cast<uint32_t>(payload.size())) != k_EResultOK)
+                {
+                    scheduleRetry();
+                    return;
+                }
+                m_pendingBytes -= payload.size();
+                m_pending.pop();
+                m_sendAttempts = 0;
                 continue;
             }
             InventorySync::Batch batch;
@@ -170,15 +180,16 @@ void NetworkingClient::Pump(std::chrono::steady_clock::time_point now)
             batch.baseRevision = m_revision;
             batch.revision = m_revision + 1;
             batch.full = inner.TypeUnmasked() == k_ESOMsg_CacheSubscribed;
+            m_pendingBytes -= payload.size();
             batch.messages.push_back(std::move(payload));
+            m_pending.pop();
             auto message = InventorySync::BuildBatch(batch);
             const auto *bytes = static_cast<const uint8_t *>(message.Data());
             m_inFlight.assign(bytes, bytes + message.Size());
         }
         SendRaw(m_inFlight.data(), static_cast<uint32_t>(m_inFlight.size()));
     }
-    ++m_sendAttempts;
-    m_nextSend = now + (m_sendAttempts < 6 ? std::chrono::seconds{ 2 } : std::chrono::seconds{ 60 });
+    scheduleRetry();
 }
 
 void NetworkingClient::SendHostEvent(const EventData &event)
