@@ -492,6 +492,7 @@ void ClientGC::HandleEvent(GCEvent type, uint64_t id, const std::vector<uint8_t>
         m_serverGeneration = EventGeneration();
         m_gameServerEquippedItems.clear();
         if (id || !EventGeneration()) HandleSOCacheRequest();
+        if (id) SendMusicKitMVPStateToGameServer();
         break;
 
     case GCEvent::LocalPlayerRoundMVP:

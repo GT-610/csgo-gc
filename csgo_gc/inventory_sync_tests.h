@@ -262,6 +262,91 @@ static bool MixedVersionsKeepLegacyWireFormat()
     return reader.IsValid() && reader.IsProtobuf() && reader.TypeUnmasked() == k_ESOMsg_CacheSubscribed;
 }
 
+static bool LegacyDeltasWaitForSnapshotCommit()
+{
+    Fixture fixture;
+    const auto first = Delta(1);
+    const auto second = Delta(2);
+    const auto full = BuildServerSocacheMessage(ClientId);
+    const auto invalid = BuildServerSocacheMessage(ClientId + 1);
+    auto enqueue = [&](const auto &payload)
+    {
+        const auto size = static_cast<uint32_t>(payload.size());
+        if (!fixture.server.HandleIncomingMessage(ClientId, payload.data(), size)) return false;
+        fixture.serverGC.PostToGC(GCEvent::NetMessage, ClientId, payload.data(), size, fixture.server.Generation(ClientId));
+        return true;
+    };
+    if (enqueue(first)) return false; // no snapshot has even arrived yet
+    bool queued = false;
+    const auto events = CollectServerEvents(fixture.serverGC, [&]
+    {
+        // Drain the whole receive burst before committing any worker result.
+        queued = enqueue(invalid) && enqueue(first) && enqueue(full) && enqueue(second) && enqueue(first);
+    });
+    if (!queued) return false;
+    for (const auto &event : events)
+        if (event.type == static_cast<int>(HostEvent::ValidatedNetMessage))
+            fixture.server.DeliverValidatedEvent(event, [&](uint32_t, std::vector<uint8_t> &&payload)
+                { fixture.delivered.push_back(std::move(payload)); });
+    return fixture.delivered == std::vector{ full, second, first } && fixture.serverWire.sentPayloads.size() == 1;
+}
+
+static bool MusicKitStateUsesTheBoundSessionAndCommitOrder()
+{
+    Fixture fixture;
+    const uint32_t userId = 20;
+    fixture.clientGC.PostToGC(GCEvent::SyncLocalPlayerMusicKitState, 0, &userId, sizeof(userId));
+    fixture.DrainClient();
+    if (!fixture.clientWire.sentPayloads.empty()) return false;
+    fixture.Connect(fixture.serverWire.sentPayloads.front());
+    fixture.DrainClient();
+    const auto generation = fixture.server.Generation(ClientId);
+    if (fixture.clientWire.sentPayloads.size() != 1 || !fixture.Deliver(fixture.clientWire.sentPayloads.front())) return false;
+    fixture.Status(fixture.serverWire.sentPayloads.back());
+    if (fixture.clientWire.sentPayloads.size() != 2) return false;
+    const auto replay = fixture.clientWire.sentPayloads.back();
+    GCMessageRead read{ 0, replay.data(), static_cast<uint32_t>(replay.size()) };
+    if (!read.IsValid() || read.TypeUnmasked() != k_EMsgNetworkMusicKitMVPState || read.ReadUint32() != userId)
+        return false;
+
+    const auto delta = Delta(1);
+    const auto laterDelta = Delta(2);
+    auto state = [&](bool equipped, uint32_t count)
+    {
+        GCMessageWrite message{ k_EMsgNetworkMusicKitMVPState };
+        message.WriteUint32(userId);
+        message.WriteUint32(equipped);
+        message.WriteUint32(count);
+        return Bytes(message);
+    };
+    const auto direct = state(true, 6);
+    const auto clear = state(false, 0);
+    fixture.Queue(delta);
+    fixture.Queue(laterDelta);
+    fixture.Queue(direct);
+    if (fixture.clientWire.sentPayloads.size() != 3 || !fixture.Deliver(fixture.clientWire.sentPayloads.back())) return false;
+    fixture.Status(fixture.serverWire.sentPayloads.back());
+    if (fixture.clientWire.sentPayloads.size() != 4 || !fixture.Deliver(fixture.clientWire.sentPayloads.back())) return false;
+    fixture.Status(fixture.serverWire.sentPayloads.back());
+    if (fixture.clientWire.sentPayloads.size() != 5 || fixture.clientWire.sentPayloads.back() != direct) return false;
+
+    // Legacy clients can send an inventory update and the direct state in one burst.
+    Fixture legacy;
+    if (!legacy.Deliver(BuildServerSocacheMessage(ClientId))) return false;
+    const auto events = CollectServerEvents(legacy.serverGC, [&]
+    {
+        for (const auto *payload : { &delta, &direct, &clear })
+            legacy.serverGC.PostToGC(GCEvent::NetMessage, ClientId, payload->data(),
+                static_cast<uint32_t>(payload->size()), legacy.server.Generation(ClientId));
+    });
+    std::vector<std::vector<uint8_t>> commits;
+    for (const auto &event : events)
+        if (event.type == static_cast<int>(HostEvent::ValidatedNetMessage))
+            legacy.server.DeliverValidatedEvent(event, [&](uint32_t, std::vector<uint8_t> &&payload)
+                { commits.push_back(std::move(payload)); });
+    return fixture.server.Generation(ClientId) == generation && commits == std::vector{ delta, direct, clear };
+}
+
 static bool SessionGenerationsRejectStaleWork()
 {
     Fixture fixture;
@@ -270,15 +355,22 @@ static bool SessionGenerationsRejectStaleWork()
     fixture.DrainClient();
     auto oldRoute = fixture.route;
     auto full = fixture.clientWire.sentPayloads.front();
-    auto validated = ValidateServerPayload(fixture.serverGC, ClientId, fixture.server.Generation(ClientId),
+    const auto oldGeneration = fixture.server.Generation(ClientId);
+    auto validated = ValidateServerPayload(fixture.serverGC, ClientId, oldGeneration,
         full.data(), static_cast<uint32_t>(full.size()));
+    const auto oldEvent = std::find_if(validated.begin(), validated.end(), [oldGeneration](const auto &event)
+    {
+        return event.type == static_cast<int>(HostEvent::ValidatedNetMessage)
+            && event.id == ClientId && event.generation == oldGeneration;
+    });
+    if (oldEvent == validated.end()) return false;
     fixture.server.ClientDisconnected(ClientId);
     fixture.server.ClientConnected(ClientId, Ticket, sizeof(Ticket));
     auto newConnect = fixture.serverWire.sentPayloads.back();
     if (ConnectId(oldConnect) == ConnectId(newConnect)) return false;
-    for (const auto &event : validated)
-        if (event.type == static_cast<int>(HostEvent::ValidatedNetMessage)
-            && fixture.server.DeliverValidatedEvent(event, [](uint32_t, std::vector<uint8_t> &&) {})) return false;
+    bool deliveredOld = false;
+    if (fixture.server.DeliverValidatedEvent(*oldEvent, [&](uint32_t, std::vector<uint8_t> &&)
+        { deliveredOld = true; }) || deliveredOld) return false;
     fixture.Connect(newConnect);
     fixture.DrainClient();
     const auto sends = fixture.clientWire.sentPayloads.size();
@@ -376,25 +468,55 @@ static bool NativeRefreshTargetsOnlyItsOwner()
     refresh.mutable_owner_soid()->set_id(ClientId);
     GCMessageWrite message{ k_ESOMsg_CacheSubscriptionRefresh, refresh };
     fixture.serverGC.PostToGC(GCEvent::Message, message.TypeMasked(), message.Data(), message.Size());
-    bool sawRefresh = false;
+    // The first ServerHello emits a welcome without a reset. It is the barrier
+    // after the refresh, so all refresh-produced events are observed.
+    GCMessageWrite hello{ k_EMsgGCServerHello, CMsgServerHello{} };
+    fixture.serverGC.PostToGC(GCEvent::Message, hello.TypeMasked(), hello.Data(), hello.Size());
+    bool sawWelcome = false;
+    std::vector<uint64_t> resetOwners;
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{ 1 };
-    while (!sawRefresh && std::chrono::steady_clock::now() < deadline)
+    while (!sawWelcome && std::chrono::steady_clock::now() < deadline)
     {
         std::vector<EventData> events;
         fixture.serverGC.GetHostEvents(events);
         for (const auto &event : events)
-            if (event.type == static_cast<int>(HostEvent::ResetSOCaches) && event.id == ClientId)
+        {
+            if (event.type == static_cast<int>(HostEvent::ResetSOCaches))
             {
-                sawRefresh = true;
+                resetOwners.push_back(event.id);
                 fixture.server.ResetSOCache(event.id);
             }
+            if (event.type == static_cast<int>(HostEvent::Message)
+                && (event.id & ~ProtobufMask) == k_EMsgGCServerWelcome) sawWelcome = true;
+        }
         std::this_thread::yield();
     }
-    if (!sawRefresh || fixture.server.Generation(ClientId) == original
+    if (!sawWelcome || resetOwners != std::vector<uint64_t>{ ClientId }
+        || fixture.server.Generation(ClientId) == original
         || fixture.server.Generation(other) != otherGeneration) return false;
     original = fixture.server.Generation(ClientId);
     fixture.server.ResetSOCache(); // same path used by server_spawn
     return fixture.server.Generation(ClientId) != original && fixture.server.Generation(other) != otherGeneration;
+}
+
+static bool SyncSnapshotChecksEmptySectionTypes()
+{
+    auto acceptsEmptySection = [](int type)
+    {
+        Fixture fixture;
+        CMsgSOCacheSubscribed snapshot;
+        snapshot.mutable_owner_soid()->set_type(SoIdTypeSteamId);
+        snapshot.mutable_owner_soid()->set_id(ClientId);
+        snapshot.set_version(1);
+        snapshot.add_objects()->set_type_id(type);
+        InventorySync::Batch batch;
+        batch.id = ConnectId(fixture.serverWire.sentPayloads.front());
+        batch.full = true;
+        batch.revision = 1;
+        batch.messages = { Bytes(GCMessageWrite{ k_ESOMsg_CacheSubscribed, snapshot }) };
+        return fixture.Deliver(Bytes(InventorySync::BuildBatch(batch))) && fixture.delivered.size() == 1;
+    };
+    return acceptsEmptySection(SOTypeItem) && !acceptsEmptySection(-1);
 }
 
 static bool VersionedSnapshotsRejectSanitizationAndPartialBatches()
@@ -404,6 +526,7 @@ static bool VersionedSnapshotsRejectSanitizationAndPartialBatches()
     CMsgSOCacheSubscribed snapshot;
     snapshot.mutable_owner_soid()->set_type(SoIdTypeSteamId);
     snapshot.mutable_owner_soid()->set_id(ClientId);
+    snapshot.set_version(1);
     CSOEconItem hidden;
     hidden.set_id(1); // unequipped: the legacy validator would sanitize it
     auto *object = snapshot.add_objects();

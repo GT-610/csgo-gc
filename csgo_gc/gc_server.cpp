@@ -249,8 +249,14 @@ void ServerGC::HandleEvent(GCEvent type, uint64_t id, const std::vector<uint8_t>
         break;
 
     case GCEvent::NetMessageCommitted:
-        TrackMusicKitFromNetMessage(id, buffer.data(), static_cast<uint32_t>(buffer.size()));
+    {
+        GCMessageRead message{ 0, buffer.data(), static_cast<uint32_t>(buffer.size()) };
+        if (message.IsValid() && !message.IsProtobuf() && message.TypeUnmasked() == k_EMsgNetworkMusicKitMVPState)
+            UpdateMusicKitMVPState(id, message);
+        else
+            TrackMusicKitFromNetMessage(id, buffer.data(), static_cast<uint32_t>(buffer.size()));
         break;
+    }
 
     default:
         Platform::Print("ServerGC::HandleEvent: unknown event type %d\n", static_cast<int>(type));
@@ -431,25 +437,27 @@ static bool ValidateNetPayload(uint64_t steamId, GCMessageRead &message,
     }
 }
 
-static bool ValidateSyncObject(int type, const std::string &data)
+// A null payload checks the section type alone, including empty sections.
+static bool ValidateSyncObject(int type, const std::string *data)
 {
+    auto parse = [data](auto object) { return !data || object.ParseFromString(*data); };
     switch (type)
     {
     case SOTypeItem:
     {
         CSOEconItem item;
-        return item.ParseFromString(data) && item.has_id() && item.id();
+        return !data || (item.ParseFromString(*data) && item.has_id() && item.id());
     }
     case SOTypePersonaDataPublic:
-        return CSOPersonaDataPublic{}.ParseFromString(data);
+        return parse(CSOPersonaDataPublic{});
     case SOTypeAccountSeasonalOperation:
-        return CSOAccountSeasonalOperation{}.ParseFromString(data);
+        return parse(CSOAccountSeasonalOperation{});
     case SOTypeDefaultEquippedDefinitionInstanceClient:
-        return CSOEconDefaultEquippedDefinitionInstanceClient{}.ParseFromString(data);
+        return parse(CSOEconDefaultEquippedDefinitionInstanceClient{});
     case SOTypeGameAccountClient:
-        return CSOEconGameAccountClient{}.ParseFromString(data);
+        return parse(CSOEconGameAccountClient{});
     case SOTypeAccountRecurringSubscription:
-        return CSOAccountRecurringSubscription{}.ParseFromString(data);
+        return parse(CSOAccountRecurringSubscription{});
     default:
         return false;
     }
@@ -463,8 +471,11 @@ static bool ValidateSyncObjects(const std::vector<uint8_t> &payload)
         CMsgSOCacheSubscribed message;
         if (!read.ReadProtobuf(message) || !message.has_version()) return false;
         for (const auto &type : message.objects())
+        {
+            if (!ValidateSyncObject(type.type_id(), nullptr)) return false;
             for (const auto &object : type.object_data())
-                if (!ValidateSyncObject(type.type_id(), object)) return false;
+                if (!ValidateSyncObject(type.type_id(), &object)) return false;
+        }
         return true;
     }
     if (read.TypeUnmasked() == k_ESOMsg_UpdateMultiple)
@@ -472,12 +483,12 @@ static bool ValidateSyncObjects(const std::vector<uint8_t> &payload)
         CMsgSOMultipleObjects message;
         if (!read.ReadProtobuf(message) || !message.has_version() || !message.objects_modified_size()) return false;
         for (const auto &object : message.objects_modified())
-            if (!ValidateSyncObject(object.type_id(), object.object_data())) return false;
+            if (!ValidateSyncObject(object.type_id(), &object.object_data())) return false;
         return true;
     }
     CMsgSOSingleObject message;
     return read.ReadProtobuf(message) && message.has_version()
-        && ValidateSyncObject(message.type_id(), message.object_data());
+        && ValidateSyncObject(message.type_id(), &message.object_data());
 }
 
 void ServerGC::HandleNetMessage(uint64_t steamId, const void *data, uint32_t size)
@@ -487,7 +498,11 @@ void ServerGC::HandleNetMessage(uint64_t steamId, const void *data, uint32_t siz
     if (!message.IsProtobuf())
     {
         if (message.TypeUnmasked() == k_EMsgNetworkMusicKitMVPState)
-            UpdateMusicKitMVPState(steamId, message);
+        {
+            // Return through the same host commit queue as inventory so a newer
+            // direct observation is applied after an older accepted item update.
+            PostToHost(HostEvent::ValidatedNetMessage, steamId, data, size, EventGeneration());
+        }
         else if (message.TypeUnmasked() == k_EMsgNetworkInventoryBatch)
         {
             InventorySync::Batch batch;

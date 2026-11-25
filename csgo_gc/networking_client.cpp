@@ -152,13 +152,19 @@ void NetworkingClient::Pump(std::chrono::steady_clock::time_point now)
     }
     else
     {
-        if (m_inFlight.empty())
+        while (m_inFlight.empty())
         {
             if (m_pending.empty()) return;
             auto payload = std::move(m_pending.front());
             m_pending.pop();
             m_pendingBytes -= payload.size();
             GCMessageRead inner{ 0, payload.data(), static_cast<uint32_t>(payload.size()) };
+            if (!inner.IsProtobuf() && inner.TypeUnmasked() == k_EMsgNetworkMusicKitMVPState)
+            {
+                // Keep the legacy private frame, but send it only after earlier SO batches commit.
+                SendRaw(payload.data(), static_cast<uint32_t>(payload.size()));
+                continue;
+            }
             InventorySync::Batch batch;
             batch.id = m_syncId;
             batch.baseRevision = m_revision;
@@ -180,7 +186,9 @@ void NetworkingClient::SendHostEvent(const EventData &event)
     if (!m_serverSteamId || event.id != m_serverSteamId || event.generation != m_generation) return;
     GCMessageRead message{ 0, event.buffer.data(), static_cast<uint32_t>(event.buffer.size()) };
     if (!message.IsValid()) return;
-    if (!m_syncId.IsValid() || !InventorySync::IsSOCacheMessage(message.TypeUnmasked()))
+    const bool isSOCache = message.IsProtobuf() && InventorySync::IsSOCacheMessage(message.TypeUnmasked());
+    const bool isMusicKitState = !message.IsProtobuf() && message.TypeUnmasked() == k_EMsgNetworkMusicKitMVPState;
+    if (!m_syncId.IsValid() || (!isSOCache && !isMusicKitState))
     {
         SendMessage(event.buffer.data(), static_cast<uint32_t>(event.buffer.size()));
         return;

@@ -94,7 +94,11 @@ bool NetworkingServer::HandleIncomingMessage(uint64_t steamId, const void *data,
     if (message.IsProtobuf() && InventorySync::IsSOCacheMessage(message.TypeUnmasked()))
     {
         if (session.protocol == Protocol::Versioned) return false;
-        if (!session.hasSOCache && message.TypeUnmasked() != k_ESOMsg_CacheSubscribed) return false;
+        if (message.TypeUnmasked() == k_ESOMsg_CacheSubscribed)
+            session.legacySnapshotReceived = true;
+        // The worker and host preserve receive order. Early deltas can be
+        // validated now, but only a committed snapshot lets them reach the game.
+        if (!session.hasSOCache && !session.legacySnapshotReceived) return false;
     }
     return true;
 }
@@ -114,6 +118,7 @@ void NetworkingServer::Restart(ClientSession &session)
 {
     session.syncId = { m_instance, ++m_generation };
     session.hasSOCache = false;
+    session.legacySnapshotReceived = false;
     session.revision = 0;
     session.connectAttempts = 0;
     session.nextConnect = std::chrono::steady_clock::now();
@@ -245,8 +250,8 @@ bool NetworkingServer::DeliverValidatedEvent(const EventData &event,
         SendStatus(event.id, session, std::chrono::steady_clock::now());
         return true;
     }
-    if (!message.IsProtobuf()) return false;
-    if (InventorySync::IsSOCacheMessage(message.TypeUnmasked()))
+    if (!message.IsProtobuf() && message.TypeUnmasked() != k_EMsgNetworkMusicKitMVPState) return false;
+    if (message.IsProtobuf() && InventorySync::IsSOCacheMessage(message.TypeUnmasked()))
     {
         if (session.protocol == Protocol::Versioned) return false;
         if (message.TypeUnmasked() == k_ESOMsg_CacheSubscribed)

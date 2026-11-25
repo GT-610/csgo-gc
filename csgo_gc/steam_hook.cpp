@@ -2302,7 +2302,8 @@ static void Hk_SteamGameServer_RunCallbacks()
                     {
                         s_serverGC->m_gc.PostToGC(GCEvent::NetMessageCommitted, event.id,
                             payload.data(), static_cast<uint32_t>(payload.size()), event.generation);
-                        s_serverGC->m_messageQueue.AddMessage(type, std::move(payload), event.id, event.generation);
+                        if (type & ProtobufMask)
+                            s_serverGC->m_messageQueue.AddMessage(type, std::move(payload), event.id, event.generation);
                     });
                 break;
 

@@ -387,13 +387,12 @@ static std::vector<uint8_t> BuildServerSocacheMessage(uint64_t steamId)
 // Two Hello messages bracket the worker task as an ordered test barrier. These
 // tests inspect validation output, so lifecycle reset events from the barrier are
 // deliberately not dispatched to NetworkingServer.
-static std::vector<EventData> ValidateServerPayload(ServerGC &gc, uint64_t steamId,
-    uint64_t generation, const void *data, uint32_t size)
+static std::vector<EventData> CollectServerEvents(ServerGC &gc, const std::function<void()> &post)
 {
     CMsgServerHello hello;
     GCMessageWrite write{ k_EMsgGCServerHello, hello };
     gc.PostToGC(GCEvent::Message, write.TypeMasked(), write.Data(), write.Size());
-    gc.PostToGC(GCEvent::NetMessage, steamId, data, size, generation);
+    post();
     gc.PostToGC(GCEvent::Message, write.TypeMasked(), write.Data(), write.Size());
     std::vector<EventData> result;
     int welcomes = 0;
@@ -412,6 +411,12 @@ static std::vector<EventData> ValidateServerPayload(ServerGC &gc, uint64_t steam
     }
     if (welcomes != 2) result.clear();
     return result;
+}
+
+static std::vector<EventData> ValidateServerPayload(ServerGC &gc, uint64_t steamId,
+    uint64_t generation, const void *data, uint32_t size)
+{
+    return CollectServerEvents(gc, [&] { gc.PostToGC(GCEvent::NetMessage, steamId, data, size, generation); });
 }
 
 static bool AcceptServerSOCache(NetworkingServer &networking, uint64_t steamId,
@@ -607,8 +612,8 @@ static bool NetworkingServerReArmsBurstAfterSessionFailure()
         if (acknowledgedFirst)
         {
             const std::vector<uint8_t> socache = BuildServerSocacheMessage(SteamId);
-            AcceptServerSOCache(networking, SteamId, socache.data(),
-                static_cast<uint32_t>(socache.size()));
+            if (!AcceptServerSOCache(networking, SteamId, socache.data(),
+                static_cast<uint32_t>(socache.size()))) return false;
         }
 
         networking.HandleSessionFailed(SteamId);
@@ -5169,6 +5174,9 @@ int main(int argc, char **argv)
         { "SyncInvalidSnapshotsDoNotStopHandshake", SyncTests::InvalidSnapshotsDoNotStopHandshake },
         { "SyncVersionedOrderingAndDeduplication", SyncTests::VersionedSyncPreservesOrderingAndDeduplicates },
         { "SyncMixedVersionsKeepLegacyWireFormat", SyncTests::MixedVersionsKeepLegacyWireFormat },
+        { "SyncLegacyDeltasWaitForSnapshotCommit", SyncTests::LegacyDeltasWaitForSnapshotCommit },
+        { "SyncMusicKitStateUsesCommitOrder", SyncTests::MusicKitStateUsesTheBoundSessionAndCommitOrder },
+        { "SyncSnapshotChecksEmptySectionTypes", SyncTests::SyncSnapshotChecksEmptySectionTypes },
         { "SyncSessionGenerationsRejectStaleWork", SyncTests::SessionGenerationsRejectStaleWork },
         { "SyncResyncBoundsPendingWork", SyncTests::ResyncRebuildsSnapshotAndBoundsPendingWork },
         { "SyncSnapshotsRejectSanitization", SyncTests::VersionedSnapshotsRejectSanitizationAndPartialBatches },

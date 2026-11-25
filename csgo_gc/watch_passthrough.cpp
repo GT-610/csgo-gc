@@ -222,7 +222,7 @@ void Pump(std::vector<std::pair<uint32_t, std::vector<uint8_t>>> &keep,
         return;
     }
 
-    std::vector<uint8_t> buffer(InitialBufferSize);
+    std::vector<uint8_t> buffer;
 
     // Bounded so a misbehaving upstream cannot hold the callback for long.
     for (int i = 0; i < 64; i++)
@@ -233,6 +233,10 @@ void Pump(std::vector<std::pair<uint32_t, std::vector<uint8_t>>> &keep,
             break;
         }
 
+        if (buffer.empty())
+        {
+            buffer.resize(InitialBufferSize);
+        }
         if (pendingSize > buffer.size())
         {
             buffer.resize(pendingSize > MaxBufferSize ? MaxBufferSize : pendingSize);

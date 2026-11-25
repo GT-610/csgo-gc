@@ -43,6 +43,9 @@ struct FakeUpstream
     std::vector<std::vector<uint8_t>> sentBodies;
     std::vector<std::pair<uint32_t, std::vector<uint8_t>>> queued;
     int sendResult = WatchPassthrough::ResultOK;
+    bool underreportSize = false;
+    unsigned retrieveCalls = 0;
+    unsigned bufferTooSmall = 0;
 
     void Queue(uint32_t type, std::vector<uint8_t> body)
     {
@@ -66,7 +69,7 @@ void InstallFakeUpstream()
         {
             return false;
         }
-        *size = static_cast<uint32_t>(g_upstream.queued.front().second.size());
+        *size = g_upstream.underreportSize ? 1 : static_cast<uint32_t>(g_upstream.queued.front().second.size());
         return true;
     });
 
@@ -77,9 +80,11 @@ void InstallFakeUpstream()
                 return WatchPassthrough::ResultNoMessage;
             }
 
+            ++g_upstream.retrieveCalls;
             auto &[queuedType, body] = g_upstream.queued.front();
             if (destSize < body.size())
             {
+                ++g_upstream.bufferTooSmall;
                 // The real interface reports the size it needed and keeps the
                 // message queued, which is what Pump has to cope with.
                 *size = static_cast<uint32_t>(body.size());
@@ -283,23 +288,34 @@ void TestPumpGrowsForLargeFrames()
 {
     InstallFakeUpstream();
 
-    // Bigger than the fixed initial buffer Pump starts with, so this only passes
-    // when it honours the buffer-too-small report and retries.
+    constexpr size_t InitialBufferSize = 1u << 20;
+    constexpr uint32_t Type = k_EMsgGCCStrike15_v2_MatchList | ProtobufMask;
     CMsgGCCStrike15_v2_MatchList matchList;
     for (int i = 0; i < 20000; i++)
     {
-        matchList.add_streams()->set_team_name("a fairly long team name for padding");
+        matchList.add_streams()->set_team_name(std::string(64, 'x'));
     }
 
-    g_upstream.Queue(k_EMsgGCCStrike15_v2_MatchList | ProtobufMask,
-        Frame(k_EMsgGCCStrike15_v2_MatchList, matchList));
+    const auto frame = Frame(Type, matchList);
+    Check(frame.size() > InitialBufferSize, "the test frame exceeds the initial receive buffer");
+    for (bool underreport : { false, true })
+    {
+        g_upstream.underreportSize = underreport;
+        g_upstream.retrieveCalls = 0;
+        g_upstream.bufferTooSmall = 0;
+        g_upstream.Queue(Type, frame);
 
-    std::vector<std::pair<uint32_t, std::vector<uint8_t>>> keep;
-    std::vector<uint32_t> droppedTypes;
-    WatchPassthrough::Pump(keep, droppedTypes);
+        std::vector<std::pair<uint32_t, std::vector<uint8_t>>> keep;
+        std::vector<uint32_t> droppedTypes;
+        WatchPassthrough::Pump(keep, droppedTypes);
 
-    Check(keep.size() == 1, "an oversized reply is still delivered");
-    Check(droppedTypes.empty(), "nothing was dropped");
+        Check(g_upstream.retrieveCalls == (underreport ? 2u : 1u), "retrieval retries only after an underreport");
+        Check(g_upstream.bufferTooSmall == (underreport ? 1u : 0u), "the buffer-too-small path was exercised");
+        Check(keep.size() == 1 && keep.front().first == Type && keep.front().second == frame,
+            "the complete oversized reply is delivered");
+        Check(droppedTypes.empty() && g_upstream.queued.empty(), "the oversized reply was consumed once");
+    }
+    g_upstream.underreportSize = false;
 }
 
 void TestDetach()

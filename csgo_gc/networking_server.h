@@ -42,6 +42,7 @@ private:
         uint64_t revision{};
         Protocol protocol{};
         bool hasSOCache{};
+        bool legacySnapshotReceived{};
     };
 
     void Restart(ClientSession &session);

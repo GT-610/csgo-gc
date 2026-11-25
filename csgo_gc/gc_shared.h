@@ -21,7 +21,7 @@ enum class GCEvent
     SyncLocalPlayerMusicKitState, // sent to client gc from the main thread, buffer contains the local userid
     ClientSOCacheUnsubscribe, // sent to server gc when a client disconnects, id contains the steam id
     RconCommand, // sent to client gc, buffer contains an owned RconCommand holder pointer
-    NetMessageCommitted, // server inventory accepted into the host queue
+    NetMessageCommitted, // server inventory queued or ordered private MVP state accepted
 };
 
 struct EventData
