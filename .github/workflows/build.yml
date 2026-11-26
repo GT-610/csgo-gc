@@ -82,6 +82,22 @@ jobs:
             if [ ! -d vcpkg/.git ]; then
               git clone https://github.com/microsoft/vcpkg.git vcpkg
             fi
+
+            # Check out the baseline pinned in vcpkg.json. The macOS and
+            # Windows jobs get this for free because run-vcpkg reads the
+            # manifest and checks out its builtin-baseline, but this job clones
+            # vcpkg directly and would otherwise build whatever master happens
+            # to be. That made the vcpkg commit in the cache key drift every
+            # day (one run per new upstream commit), so the Linux cache missed
+            # even when nothing in this repository or the container changed.
+            # Pinning also matches what the other two hosts compile against.
+            baseline="$(sed -n "s/.*\"builtin-baseline\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" vcpkg.json | head -n 1)"
+            if [ -z "$baseline" ]; then
+              echo "vcpkg.json has no builtin-baseline; refusing to build against moving master" >&2
+              exit 1
+            fi
+            git -C vcpkg -c advice.detachedHead=false checkout --force "$baseline"
+
             if [ -f vcpkg/bootstrap-vcpkg.sh ]; then
               ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
             fi
@@ -101,8 +117,19 @@ jobs:
             # Only query packages this step actually installs; cmake and
             # ninja-build arrive in the build step. dpkg-query exits non-zero
             # for a missing package, and with -e that would abort the step.
+            #
+            # The dpkg format string below is double quoted on purpose. This
+            # whole payload is already inside the single quotes of the
+            # `bash -c` argument, so a nested single quote would end the payload
+            # early: the inner bash would receive -f==n, ${Package} and
+            # ${Version} would be expanded to nothing by the outer shell, and
+            # .toolchain-id would hold six copies of the literal "=n" with no
+            # version numbers. That made the toolchain hash a constant
+            # (604942d5..., identical on every run), so the key looked like it
+            # covered apt when it covered nothing. Escaping the dollar signs
+            # keeps them intact for dpkg to substitute.
             for pkg in build-essential gcc g++ libc6 libc6-dev binutils; do
-              dpkg-query -W -f='${Package}=${Version}\n' "$pkg" || true
+              dpkg-query -W -f="\${Package}=\${Version}\n" "$pkg" || true
             done | sort > .toolchain-id
             chown "${HOST_UID}:${HOST_GID}" .toolchain-id
           '
