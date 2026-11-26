@@ -156,7 +156,32 @@ jobs:
         #
         # macOS is the opposite: a runner update does change the Xcode/SDK and
         # the libraries must be rebuilt, so keep the image version there.
-        key: vcpkg-${{ matrix.platform || steps.runner-image.outputs.version }}-${{ matrix.container_digest || 'host-image' }}-${{ steps.toolchain.outputs.id }}-${{ steps.vcpkg-commit.outputs.sha }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'overlays/**') }}
+        #
+        # The "||" is load bearing: the Linux matrix row sets platform and so
+        # never reads the runner image version, while the macOS row leaves it
+        # unset and falls back to the image version. Do not replace this with
+        # matrix.os or with an unconditional image version. matrix.os is always
+        # set, so the fallback would silently stop applying and the Linux key
+        # would change on every runner image roll even though its digest-pinned
+        # container did not.
+        #
+        # triplets/ is hashed for the same reason as overlays/: an overlay
+        # triplet (for example a different macOS deployment target) changes
+        # what gets built, so it must invalidate the cache. Both patterns are
+        # allowed to match nothing, which keeps the keys of the hosts that do
+        # not use them unchanged.
+        key: vcpkg-${{ matrix.platform || steps.runner-image.outputs.version }}-${{ matrix.container_digest || 'host-image' }}-${{ steps.toolchain.outputs.id }}-${{ steps.vcpkg-commit.outputs.sha }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'overlays/**', 'triplets/**') }}
+        # Keep the fallback. Its prefix already pins platform, container digest,
+        # toolchain hash and vcpkg commit, so it can only ever match a cache
+        # built by the same environment; it fires when the manifest, overlay or
+        # triplet hash changes, which is exactly when reusing the unchanged
+        # packages and rebuilding only the rest is the point.
+        #
+        # A stale entry is safe: vcpkg records the ABI of every installed
+        # package in vcpkg_installed/vcpkg/status and recomputes it on install,
+        # so a package restored with a different ABI is rebuilt instead of
+        # trusted. The fallback therefore cannot smuggle wrong binaries into a
+        # build; it only saves the packages that are still identical.
         restore-keys: |
           vcpkg-${{ matrix.platform || steps.runner-image.outputs.version }}-${{ matrix.container_digest || 'host-image' }}-${{ steps.toolchain.outputs.id }}-${{ steps.vcpkg-commit.outputs.sha }}-
 
