@@ -82,6 +82,22 @@ jobs:
             if [ ! -d vcpkg/.git ]; then
               git clone https://github.com/microsoft/vcpkg.git vcpkg
             fi
+
+            # Check out the baseline pinned in vcpkg.json. The macOS and
+            # Windows jobs get this for free because run-vcpkg reads the
+            # manifest and checks out its builtin-baseline, but this job clones
+            # vcpkg directly and would otherwise build whatever master happens
+            # to be. That made the vcpkg commit in the cache key drift every
+            # day (one run per new upstream commit), so the Linux cache missed
+            # even when nothing in this repository or the container changed.
+            # Pinning also matches what the other two hosts compile against.
+            baseline="$(sed -n "s/.*\"builtin-baseline\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" vcpkg.json | head -n 1)"
+            if [ -z "$baseline" ]; then
+              echo "vcpkg.json has no builtin-baseline; refusing to build against moving master" >&2
+              exit 1
+            fi
+            git -C vcpkg -c advice.detachedHead=false checkout --force "$baseline"
+
             if [ -f vcpkg/bootstrap-vcpkg.sh ]; then
               ./vcpkg/bootstrap-vcpkg.sh -disableMetrics
             fi
@@ -101,8 +117,19 @@ jobs:
             # Only query packages this step actually installs; cmake and
             # ninja-build arrive in the build step. dpkg-query exits non-zero
             # for a missing package, and with -e that would abort the step.
+            #
+            # The dpkg format string below is double quoted on purpose. This
+            # whole payload is already inside the single quotes of the
+            # `bash -c` argument, so a nested single quote would end the payload
+            # early: the inner bash would receive -f==n, ${Package} and
+            # ${Version} would be expanded to nothing by the outer shell, and
+            # .toolchain-id would hold six copies of the literal "=n" with no
+            # version numbers. That made the toolchain hash a constant
+            # (604942d5..., identical on every run), so the key looked like it
+            # covered apt when it covered nothing. Escaping the dollar signs
+            # keeps them intact for dpkg to substitute.
             for pkg in build-essential gcc g++ libc6 libc6-dev binutils; do
-              dpkg-query -W -f='${Package}=${Version}\n' "$pkg" || true
+              dpkg-query -W -f="\${Package}=\${Version}\n" "$pkg" || true
             done | sort > .toolchain-id
             chown "${HOST_UID}:${HOST_GID}" .toolchain-id
           '
@@ -156,7 +183,32 @@ jobs:
         #
         # macOS is the opposite: a runner update does change the Xcode/SDK and
         # the libraries must be rebuilt, so keep the image version there.
-        key: vcpkg-${{ matrix.platform || steps.runner-image.outputs.version }}-${{ matrix.container_digest || 'host-image' }}-${{ steps.toolchain.outputs.id }}-${{ steps.vcpkg-commit.outputs.sha }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'overlays/**') }}
+        #
+        # The "||" is load bearing: the Linux matrix row sets platform and so
+        # never reads the runner image version, while the macOS row leaves it
+        # unset and falls back to the image version. Do not replace this with
+        # matrix.os or with an unconditional image version. matrix.os is always
+        # set, so the fallback would silently stop applying and the Linux key
+        # would change on every runner image roll even though its digest-pinned
+        # container did not.
+        #
+        # triplets/ is hashed for the same reason as overlays/: an overlay
+        # triplet (for example a different macOS deployment target) changes
+        # what gets built, so it must invalidate the cache. Both patterns are
+        # allowed to match nothing, which keeps the keys of the hosts that do
+        # not use them unchanged.
+        key: vcpkg-${{ matrix.platform || steps.runner-image.outputs.version }}-${{ matrix.container_digest || 'host-image' }}-${{ steps.toolchain.outputs.id }}-${{ steps.vcpkg-commit.outputs.sha }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'overlays/**', 'triplets/**') }}
+        # Keep the fallback. Its prefix already pins platform, container digest,
+        # toolchain hash and vcpkg commit, so it can only ever match a cache
+        # built by the same environment; it fires when the manifest, overlay or
+        # triplet hash changes, which is exactly when reusing the unchanged
+        # packages and rebuilding only the rest is the point.
+        #
+        # A stale entry is safe: vcpkg records the ABI of every installed
+        # package in vcpkg_installed/vcpkg/status and recomputes it on install,
+        # so a package restored with a different ABI is rebuilt instead of
+        # trusted. The fallback therefore cannot smuggle wrong binaries into a
+        # build; it only saves the packages that are still identical.
         restore-keys: |
           vcpkg-${{ matrix.platform || steps.runner-image.outputs.version }}-${{ matrix.container_digest || 'host-image' }}-${{ steps.toolchain.outputs.id }}-${{ steps.vcpkg-commit.outputs.sha }}-
 
